@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.darkssh.client.data.DarkSHSDatabase
 import com.darkssh.client.data.dao.HostDao
+import com.darkssh.client.data.dao.KnownHostDao
 import com.darkssh.client.data.dao.PortForwardDao
 import com.darkssh.client.data.dao.PubkeyDao
 import dagger.Module
@@ -16,11 +17,13 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
-
     @Provides
     @Singleton
-    fun provideDatabase(@ApplicationContext context: Context): DarkSHSDatabase =
-        Room.databaseBuilder(context, DarkSHSDatabase::class.java, DarkSHSDatabase.DATABASE_NAME)
+    fun provideDatabase(
+        @ApplicationContext context: Context,
+    ): DarkSHSDatabase =
+        Room
+            .databaseBuilder(context, DarkSHSDatabase::class.java, DarkSHSDatabase.DATABASE_NAME)
             .build()
 
     @Provides
@@ -31,4 +34,7 @@ object DatabaseModule {
 
     @Provides
     fun providePortForwardDao(database: DarkSHSDatabase): PortForwardDao = database.portForwardDao()
+
+    @Provides
+    fun provideKnownHostDao(database: DarkSHSDatabase): KnownHostDao = database.knownHostDao()
 }

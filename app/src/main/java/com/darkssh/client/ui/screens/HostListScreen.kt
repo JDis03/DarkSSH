@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.ui.screens.viewmodel.HostListViewModel
 
+@Suppress("ktlint:standard:function-naming")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostListScreen(
@@ -44,11 +45,13 @@ fun HostListScreen(
     onEditHostClick: (Host) -> Unit,
     onPubkeysClick: () -> Unit,
     onSettingsClick: () -> Unit,
+    modifier: Modifier = Modifier,
     viewModel: HostListViewModel = hiltViewModel(),
 ) {
     val hosts by viewModel.hosts.collectAsState()
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text("DarkSSH") },
@@ -70,9 +73,10 @@ fun HostListScreen(
     ) { paddingValues ->
         if (hosts.isEmpty()) {
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
@@ -99,9 +103,10 @@ fun HostListScreen(
             }
         } else {
             LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(paddingValues),
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(paddingValues),
             ) {
                 items(hosts, key = { it.id }) { host ->
                     ListItem(

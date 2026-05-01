@@ -26,8 +26,6 @@ allprojects {
 }
 
 spotless {
-    ratchetFrom = "origin/main"
-
     kotlin {
         target("app/src/**/*.kt")
         ktlint("1.8.0")

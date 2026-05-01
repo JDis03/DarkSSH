@@ -8,6 +8,9 @@ class Converters {
 
     @TypeConverter
     fun toLongList(value: String): List<Long> =
-        if (value.isBlank()) emptyList()
-        else value.split(",").map { it.trim().toLong() }
+        if (value.isBlank()) {
+            emptyList()
+        } else {
+            value.split(",").map { it.trim().toLong() }
+        }
 }

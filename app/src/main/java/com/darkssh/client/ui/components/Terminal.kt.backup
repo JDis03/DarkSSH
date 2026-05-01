@@ -1,0 +1,1234 @@
+package com.darkssh.client.ui.components
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.text.TextPaint
+import android.view.GestureDetector
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
+import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Rect
+import androidx.compose.foundation.layout.Alignment
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.Color as ComposeColor
+import kotlinx.coroutines.delay
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.viewinterop.AndroidView
+import com.darkssh.client.service.TerminalBridge
+import org.connectbot.terminal.TerminalEmulator
+import java.io.IOException
+import kotlin.math.ceil
+import kotlin.math.floor
+
+/**
+ * Compose wrapper for terminal emulator with full rendering
+ */
+@Composable
+fun Terminal(
+    terminalEmulator: TerminalEmulator,
+    modifier: Modifier = Modifier,
+    fontSize: Float = 20f,  // Increased from 14f to 20f for better readability
+    focusRequester: FocusRequester? = null,
+    terminalBridge: TerminalBridge? = null,
+    safeMode: Boolean = false,
+) {
+    val context = LocalContext.current
+    val terminalColors = MaterialTheme.colorScheme
+    
+    // State for text input
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    val localFocusRequester = remember { FocusRequester() }
+    
+    DisposableEffect(terminalEmulator) {
+        android.util.Log.d("Terminal", "Terminal Composable created")
+        onDispose {
+            android.util.Log.d("Terminal", "Terminal Composable disposed")
+        }
+    }
+    
+    // Create terminal view with current theme colors
+    val terminalView = remember(terminalEmulator, fontSize, terminalBridge, safeMode) {
+        createEnhancedTerminalView(
+            context,
+            terminalEmulator,
+            fontSize,
+            terminalColors.onSurface.toArgb(),
+            terminalColors.surface.toArgb(),
+            terminalBridge,
+            safeMode
+        )
+    }
+
+    // Update colors when theme changes
+    LaunchedEffect(terminalColors.onSurface, terminalColors.surface) {
+        terminalView?.updateColors(
+            terminalColors.onSurface.toArgb(),
+            terminalColors.surface.toArgb()
+        )
+    }
+    
+    Box(modifier = modifier.fillMaxSize()) {
+        // Terminal display
+        if (terminalView != null) {
+            AndroidView(
+                factory = { terminalView },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("Failed to create terminal view", color = ComposeColor.Red)
+            }
+        }
+        
+        // Invisible TextField to capture keyboard input
+        BasicTextField(
+            value = textFieldValue,
+            onValueChange = { newValue ->
+                android.util.Log.d("Terminal", "🎹 TextField onChange: '${newValue.text}' (was: '${textFieldValue.text}')")
+                
+                // Find what changed
+                val oldText = textFieldValue.text
+                val newText = newValue.text
+                
+                if (newText.length > oldText.length) {
+                    // Characters added
+                    val added = newText.substring(oldText.length)
+                    android.util.Log.d("Terminal", "➕ Added text: '$added'")
+                    
+                    // Send each character to terminal
+                    added.forEach { char ->
+                        terminalBridge?.write(char.toString().toByteArray())
+                        android.util.Log.d("Terminal", "📤 Sent char: '$char'")
+                    }
+                } else if (newText.length < oldText.length) {
+                    // Backspace
+                    val deleted = oldText.length - newText.length
+                    android.util.Log.d("Terminal", "⌫ Deleted $deleted chars")
+                    
+                    repeat(deleted) {
+                        terminalBridge?.write("\b".toByteArray())
+                    }
+                }
+                
+                // Clear the text field after processing
+                textFieldValue = TextFieldValue("")
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(localFocusRequester)
+                .onFocusChanged { focusState ->
+                    android.util.Log.d("Terminal", "🎯 TextField focus changed: ${focusState.isFocused}")
+                },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.None,
+                autoCorrect = false
+            ),
+            decorationBox = { innerTextField ->
+                // Invisible - no decoration
+                innerTextField()
+            },
+            textStyle = TextStyle(color = ComposeColor.Transparent)
+        )
+        
+        // Request focus on first composition
+        LaunchedEffect(Unit) {
+            localFocusRequester.requestFocus()
+            android.util.Log.d("Terminal", "🎯 Requested focus for TextField")
+        }
+    }
+}
+    
+    // Create terminal view with current theme colors
+    val terminalView = remember(terminalEmulator, fontSize, terminalBridge, safeMode) {
+        createEnhancedTerminalView(
+            context,
+            terminalEmulator,
+            fontSize,
+            terminalColors.onSurface.toArgb(),
+            terminalColors.surface.toArgb(),
+            terminalBridge,
+            safeMode
+        )
+    }
+
+    // Update colors when theme changes
+    LaunchedEffect(terminalColors) {
+        terminalView?.updateColors(
+            terminalColors.onSurface.toArgb(),
+            terminalColors.surface.toArgb()
+        )
+    }
+
+    if (terminalView != null) {
+        AndroidView(
+            factory = { terminalView },
+            update = { view ->
+                // Ensure the view is properly set up for input
+                view.isFocusable = true
+                view.isFocusableInTouchMode = true
+                view.isClickable = true
+                
+                // Always request focus when terminal is ready
+                val focusResult = view.requestFocus()
+                android.util.Log.d("Terminal", "🎯 Terminal focus requested: $focusResult")
+                
+                // Ensure IME is available
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                val imeResult = imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                android.util.Log.d("Terminal", "⌨️ IME show requested: $imeResult")
+            },
+            modifier = modifier
+                .fillMaxSize()
+// Focusable is handled by AndroidView itself
+        )
+    } else {
+        // Fallback UI when terminal view creation fails
+        Box(
+            modifier = modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "Terminal Loading...",
+                style = MaterialTheme.typography.bodyLarge,
+                fontSize = fontSize.sp,
+            )
+        }
+    }
+
+    // Auto-refresh terminal display (with crash protection)
+    LaunchedEffect(terminalEmulator) {
+        try {
+            while (true) {
+                terminalView?.let { view ->
+                    try {
+                        view.invalidate()
+                    } catch (e: Exception) {
+                        android.util.Log.w("Terminal", "Invalidate failed", e)
+                    }
+                }
+                delay(50) // 20 FPS - good balance of responsiveness and performance
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "Auto-refresh crashed", e)
+        }
+    }
+}
+
+@SuppressLint("ViewConstructor")
+private class EnhancedTerminalView(
+    context: Context,
+    private val terminalEmulator: TerminalEmulator,
+    private var fontSize: Float,
+    private var foregroundColor: Int,
+    private var backgroundColor: Int,
+    private val terminalBridge: TerminalBridge?,
+    private val safeMode: Boolean = false,
+) : View(context) {
+    
+    private var charWidth: Float = 0f
+    private var charHeight: Float = 0f
+    private var charDescent: Float = 0f
+    
+    private val textPaint = TextPaint().apply {
+        typeface = Typeface.MONOSPACE
+        textSize = fontSize
+        color = foregroundColor
+        isAntiAlias = true
+        flags = Paint.ANTI_ALIAS_FLAG
+        // Add better text rendering
+        isSubpixelText = true
+        isLinearText = false
+    }
+    
+    private val backgroundPaint = Paint().apply {
+        color = backgroundColor
+        style = Paint.Style.FILL
+    }
+    
+    private val cursorPaint = Paint().apply {
+        color = foregroundColor
+        style = Paint.Style.FILL
+        alpha = 128
+    }
+    
+    private val selectionPaint = Paint().apply {
+        color = Color.BLUE
+        alpha = 64
+        style = Paint.Style.FILL
+    }
+    
+    // Terminal colors (standard 16-color palette)
+    private val terminalColorPalette = intArrayOf(
+        Color.BLACK,        // 0: black
+        Color.RED,          // 1: red
+        Color.GREEN,        // 2: green
+        Color.YELLOW,       // 3: yellow
+        Color.BLUE,         // 4: blue
+        Color.MAGENTA,      // 5: magenta
+        Color.CYAN,         // 6: cyan
+        Color.WHITE,        // 7: white
+        Color.GRAY,         // 8: bright black (gray)
+        0xFFFF5555.toInt(), // 9: bright red
+        0xFF55FF55.toInt(), // 10: bright green
+        0xFFFFFF55.toInt(), // 11: bright yellow
+        0xFF5555FF.toInt(), // 12: bright blue
+        0xFFFF55FF.toInt(), // 13: bright magenta
+        0xFF55FFFF.toInt(), // 14: bright cyan
+        0xFFFFFFFF.toInt(), // 15: bright white
+    )
+    
+    // Selection state
+    private var selectionStart: Pair<Int, Int>? = null
+    private var selectionEnd: Pair<Int, Int>? = null
+    private var isSelecting = false
+    
+    // Gesture handling
+    private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+        override fun onDown(e: MotionEvent): Boolean {
+            android.util.Log.d("Terminal", "👇 onDown - requesting focus and showing IME")
+            val focusResult = requestFocus()
+            android.util.Log.d("Terminal", "🎯 Focus result: $focusResult")
+            
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            val imeResult = imm.showSoftInput(this@EnhancedTerminalView, InputMethodManager.SHOW_IMPLICIT)
+            android.util.Log.d("Terminal", "⌨️ IME show result: $imeResult")
+            
+            // Check if we're focusable
+            android.util.Log.d("Terminal", "🔍 isFocusable: ${isFocusable}, isFocusableInTouchMode: ${isFocusableInTouchMode}")
+            
+            return true
+        }
+        
+        override fun onLongPress(e: MotionEvent) {
+            // Start text selection
+            startSelection(e.x, e.y)
+        }
+        
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            // Select word
+            selectWord(e.x, e.y)
+            return true
+        }
+        
+        override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
+            // Handle scrolling
+            try {
+                // Get terminal buffer and scroll
+                val lines = floor(distanceY / charHeight).toInt()
+                if (lines != 0) {
+                    // Send scroll to terminal emulator if it supports scrollback
+                    // This is a simplified implementation
+                }
+            } catch (e: Exception) {
+                // Ignore scroll errors
+            }
+            return true
+        }
+    })
+
+    init {
+        android.util.Log.d("Terminal", "🔧 EnhancedTerminalView init started")
+        
+        setupTerminalView()
+        
+        // Ensure this view can receive focus and input
+        isFocusable = true
+        isFocusableInTouchMode = true
+        isClickable = true
+        
+        android.util.Log.d("Terminal", "🎯 View setup: focusable=$isFocusable, focusableInTouchMode=$isFocusableInTouchMode, clickable=$isClickable")
+        android.util.Log.d("Terminal", "✅ EnhancedTerminalView init completed")
+    }
+
+    private fun calculateCharacterMetrics() {
+        val metrics = textPaint.fontMetrics
+        charHeight = ceil(metrics.bottom - metrics.top)
+        charDescent = ceil(metrics.descent)
+        
+        // Measure a character to get width
+        val bounds = Rect()
+        textPaint.getTextBounds("M", 0, 1, bounds)
+        charWidth = bounds.width().toFloat()
+    }
+
+    fun updateColors(fg: Int, bg: Int) {
+        foregroundColor = fg
+        backgroundColor = bg
+        textPaint.color = fg
+        backgroundPaint.color = bg
+        cursorPaint.color = fg
+        invalidate()
+    }
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        try {
+            super.onSizeChanged(w, h, oldw, oldh)
+            
+            if (charWidth > 0 && charHeight > 0 && w > 0 && h > 0) {
+                val newCols = floor(w / charWidth).toInt()
+                val newRows = floor(h / charHeight).toInt()
+                
+                if (newCols > 0 && newRows > 0) {
+                    try {
+                        // Notify both terminal emulator and bridge of size change
+                        terminalEmulator.resize(newCols, newRows)
+                        terminalBridge?.setDimensions(newCols, newRows, w, h)
+                        android.util.Log.d("Terminal", "Resized to ${newCols}x${newRows} (${w}x${h}px)")
+                    } catch (e: Exception) {
+                        android.util.Log.e("Terminal", "Failed to resize terminal", e)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "onSizeChanged failed", e)
+        }
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        
+        android.util.Log.d("Terminal", "onDraw called - safeMode: $safeMode")
+        
+        if (safeMode) {
+            drawSafeMode(canvas)
+        } else {
+            try {
+                renderRealTerminal(canvas)
+            } catch (e: Exception) {
+                android.util.Log.e("Terminal", "Error in renderRealTerminal, falling back to safe mode", e)
+                drawSafeMode(canvas)
+            }
+        }
+    }
+
+    private fun drawTerminalContent(canvas: Canvas) {
+        // Clear background
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
+        
+        try {
+            // Show connection info first
+            val x = 20f
+            val y = charHeight
+            
+            val connectionStatus = if (terminalBridge?.isConnected?.value == true) {
+                "✓ SSH Connected & Shell Active"
+            } else {
+                "✗ Not Connected"
+            }
+            
+            textPaint.color = if (terminalBridge?.isConnected?.value == true) Color.GREEN else Color.RED
+            canvas.drawText(connectionStatus, x, y, textPaint)
+            
+            textPaint.color = foregroundColor
+            
+            // Show terminal info
+            canvas.drawText("Ready for commands - Try typing!", x, y + charHeight * 2, textPaint)
+            
+            if (terminalBridge != null) {
+                canvas.drawText("Terminal: ${terminalBridge.columns}x${terminalBridge.rows}", x, y + charHeight * 3, textPaint)
+            }
+            
+            // Show a basic prompt simulation 
+            canvas.drawText("$ ", x, y + charHeight * 5, textPaint)
+            
+            // Show blinking cursor after prompt
+            val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+            if (blink) {
+                val promptWidth = textPaint.measureText("$ ")
+                canvas.drawText("█", x + promptWidth, y + charHeight * 5, textPaint)
+            }
+            
+            // Show test instructions
+            canvas.drawText("Touch terminal → Type → Press Enter", x, y + charHeight * 7, textPaint)
+            canvas.drawText("(Check logs for data flow)", x, y + charHeight * 8, textPaint)
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "Error in drawTerminalContent", e)
+            // Fallback to placeholder
+            drawPlaceholderTerminal(canvas)
+        }
+    }
+    
+    private fun drawSimulatedContent(canvas: Canvas) {
+        val y = charHeight
+        val x = 20f
+        
+        try {
+            // Try to get real terminal content if available
+            // This is a simplified approach - in a full implementation,
+            // you'd read from the terminal buffer properly
+            
+            // Show connection status
+            val connectionStatus = if (terminalBridge?.isConnected?.value == true) {
+                "Connected"
+            } else {
+                "Not connected"
+            }
+            
+            textPaint.color = if (terminalBridge?.isConnected?.value == true) Color.GREEN else Color.RED
+            canvas.drawText("DarkSSH Terminal - $connectionStatus", x, y, textPaint)
+            
+            textPaint.color = foregroundColor
+            
+            // Show terminal info
+            if (terminalEmulator != null) {
+                canvas.drawText("Terminal ready for input", x, y + charHeight, textPaint)
+                canvas.drawText("Size: ${terminalBridge?.columns}x${terminalBridge?.rows}", x, y + charHeight * 2, textPaint)
+            }
+            
+            // Show usage instructions
+            canvas.drawText("Terminal Features:", x, y + charHeight * 4, textPaint)
+            canvas.drawText("• Arrow keys navigation", x, y + charHeight * 5, textPaint)
+            canvas.drawText("• Ctrl+C/V for copy/paste", x, y + charHeight * 6, textPaint)
+            canvas.drawText("• Long press for selection", x, y + charHeight * 7, textPaint)
+            canvas.drawText("• All standard ANSI escapes", x, y + charHeight * 8, textPaint)
+            
+            // Show color palette
+            textPaint.color = Color.GRAY
+            canvas.drawText("Color support:", x, y + charHeight * 10, textPaint)
+            for (i in 0 until minOf(8, terminalColorPalette.size)) {
+                textPaint.color = terminalColorPalette[i]
+                canvas.drawText("█", x + i * charWidth * 2, y + charHeight * 11, textPaint)
+            }
+            
+            // Show prompt area
+            textPaint.color = foregroundColor
+            canvas.drawText("Ready for commands:", x, y + charHeight * 13, textPaint)
+            
+            // Show blinking cursor prompt
+            val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+            val promptText = if (blink) "$ █" else "$ "
+            canvas.drawText(promptText, x, y + charHeight * 14, textPaint)
+            
+        } catch (e: Exception) {
+            // Fallback if anything fails
+            textPaint.color = foregroundColor
+            canvas.drawText("Terminal Loading...", x, y, textPaint)
+            canvas.drawText("Error: ${e.message}", x, y + charHeight, textPaint)
+        }
+    }
+    
+    private fun drawFallback(canvas: Canvas) {
+        canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), backgroundPaint)
+        
+        textPaint.color = foregroundColor
+        canvas.drawText("Terminal Ready", 50f, 100f, textPaint)
+        canvas.drawText("Waiting for connection...", 50f, 150f, textPaint)
+    }
+
+    private fun drawSelection(canvas: Canvas) {
+        val start = selectionStart
+        val end = selectionEnd
+        
+        if (start != null && end != null) {
+            val startX = start.first * charWidth
+            val startY = start.second * charHeight
+            val endX = end.first * charWidth
+            val endY = end.second * charHeight
+            
+            if (start.second == end.second) {
+                // Single line selection
+                canvas.drawRect(startX, startY, endX, startY + charHeight, selectionPaint)
+            } else {
+                // Multi-line selection
+                canvas.drawRect(startX, startY, width.toFloat(), startY + charHeight, selectionPaint)
+                for (row in start.second + 1 until end.second) {
+                    canvas.drawRect(0f, row * charHeight, width.toFloat(), (row + 1) * charHeight, selectionPaint)
+                }
+                canvas.drawRect(0f, endY, endX, endY + charHeight, selectionPaint)
+            }
+        }
+    }
+
+    private fun renderRealTerminal(canvas: Canvas) {
+        android.util.Log.d("Terminal", "Rendering real terminal")
+        
+        try {
+            // Clear background
+            canvas.drawColor(backgroundColor)
+            
+            // Get terminal emulator
+            val emulator = terminalEmulator
+            if (emulator == null) {
+                android.util.Log.w("Terminal", "TerminalEmulator is null")
+                drawPlaceholderTerminal(canvas)
+                return
+            }
+            
+            android.util.Log.d("Terminal", "TerminalEmulator available, attempting to render buffer")
+            
+            // Try to access terminal screen buffer using reflection or known methods
+            try {
+                renderTerminalBuffer(canvas, emulator)
+            } catch (e: Exception) {
+                android.util.Log.w("Terminal", "Failed to render terminal buffer, using fallback", e)
+                drawTerminalContent(canvas)
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "Error in renderRealTerminal", e)
+            drawPlaceholderTerminal(canvas)
+        }
+    }
+    
+    private fun renderTerminalBuffer(canvas: Canvas, emulator: TerminalEmulator) {
+        android.util.Log.d("Terminal", "🖥️ Attempting to render terminal buffer")
+        
+        val startX = 10f
+        val startY = charHeight
+        
+        try {
+            // Try to get buffer content using reflection or available methods
+            val bufferContent = tryGetTerminalContent(emulator)
+            
+            if (bufferContent.isNotEmpty()) {
+                renderActualTerminalContent(canvas, bufferContent, startX, startY)
+            } else {
+                renderTerminalPlaceholder(canvas, emulator, startX, startY)
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "💥 Error rendering terminal buffer", e)
+            renderTerminalPlaceholder(canvas, emulator, startX, startY)
+        }
+        
+        android.util.Log.d("Terminal", "✅ Terminal buffer rendering completed")
+    }
+    
+    private fun tryGetTerminalContent(emulator: TerminalEmulator): List<String> {
+        return try {
+            android.util.Log.d("Terminal", "🔍 Trying to extract terminal content...")
+            
+            // Try to access terminal screen using reflection
+            val clazz = emulator.javaClass
+            android.util.Log.d("Terminal", "📋 TerminalEmulator class: ${clazz.name}")
+            
+            // Log available methods for debugging
+            val methods = clazz.methods.map { it.name }.distinct().sorted()
+            android.util.Log.d("Terminal", "📚 Available methods: ${methods.take(10)}")
+            
+            // For now, return empty - we'll implement actual buffer access later
+            emptyList()
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "🚨 Failed to get terminal content", e)
+            emptyList()
+        }
+    }
+    
+    private fun renderActualTerminalContent(canvas: Canvas, content: List<String>, startX: Float, startY: Float) {
+        android.util.Log.d("Terminal", "🎨 Rendering actual terminal content: ${content.size} lines")
+        
+        // Render each line of terminal content
+        content.forEachIndexed { index, line ->
+            val y = startY + (index * charHeight)
+            if (y < height) {
+                textPaint.color = foregroundColor
+                canvas.drawText(line, startX, y, textPaint)
+            }
+        }
+    }
+    
+    private fun renderTerminalPlaceholder(canvas: Canvas, emulator: TerminalEmulator, startX: Float, startY: Float) {
+        // Show connection status
+        val connectionStatus = if (terminalBridge?.isConnected?.value == true) {
+            "✓ SSH Connected & Active"
+        } else {
+            "✗ Not Connected"  
+        }
+        
+        textPaint.color = if (terminalBridge?.isConnected?.value == true) Color.GREEN else Color.RED
+        canvas.drawText(connectionStatus, startX, startY, textPaint)
+        
+        textPaint.color = foregroundColor
+        
+        // Show terminal info
+        canvas.drawText("Terminal Buffer Active", startX, startY + charHeight * 2, textPaint)
+        canvas.drawText("Class: ${emulator.javaClass.simpleName}", startX, startY + charHeight * 3, textPaint)
+        
+        // Show basic prompt
+        canvas.drawText("$ ", startX, startY + charHeight * 5, textPaint)
+        
+        // Show blinking cursor
+        val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+        if (blink) {
+            val promptWidth = textPaint.measureText("$ ")
+            canvas.drawText("█", startX + promptWidth, startY + charHeight * 5, textPaint)
+        }
+        
+        // Show instructions
+        canvas.drawText("Terminal emulator ready", startX, startY + charHeight * 7, textPaint)
+        canvas.drawText("Try typing commands!", startX, startY + charHeight * 8, textPaint)
+        canvas.drawText("(Buffer access WIP)", startX, startY + charHeight * 9, textPaint)
+    }
+    
+    private fun drawPlaceholderTerminal(canvas: Canvas) {
+        val x = 20f
+        val y = charHeight * 2
+        
+        textPaint.color = foregroundColor
+        
+        canvas.drawText("DarkSSH Terminal Ready", x, y, textPaint)
+        canvas.drawText("Waiting for terminal data...", x, y + charHeight, textPaint)
+        
+        if (terminalBridge?.isConnected?.value == true) {
+            textPaint.color = Color.GREEN
+            canvas.drawText("✓ Connected to SSH server", x, y + charHeight * 3, textPaint)
+        } else {
+            textPaint.color = Color.RED
+            canvas.drawText("✗ Not connected", x, y + charHeight * 3, textPaint)
+        }
+        
+        textPaint.color = Color.CYAN
+        canvas.drawText("Terminal is ready for input", x, y + charHeight * 5, textPaint)
+        
+        // Draw a blinking cursor
+        val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+        if (blink) {
+            canvas.drawText("█", x, y + charHeight * 7, textPaint)
+        }
+    }
+
+    private fun drawSafeMode(canvas: Canvas) {
+        // Safe mode terminal display - simplified and stable
+        val y = charHeight
+        val x = 20f
+        
+        try {
+            // Clear background first
+            canvas.drawColor(backgroundColor)
+            
+            // Show connection status
+            val connectionStatus = if (terminalBridge?.isConnected?.value == true) {
+                "Connected"
+            } else {
+                "Not connected"
+            }
+            
+            textPaint.color = if (terminalBridge?.isConnected?.value == true) Color.GREEN else Color.RED
+            canvas.drawText("DarkSSH Terminal - $connectionStatus", x, y, textPaint)
+            
+            textPaint.color = foregroundColor
+            
+            // Show safe mode info
+            canvas.drawText("Safe Mode - Basic Display", x, y + charHeight * 2, textPaint)
+            canvas.drawText("Terminal ready for input", x, y + charHeight * 3, textPaint)
+            
+            if (terminalBridge != null) {
+                canvas.drawText("Size: ${terminalBridge.columns}x${terminalBridge.rows}", x, y + charHeight * 4, textPaint)
+            }
+            
+            // Show basic instructions
+            canvas.drawText("Instructions:", x, y + charHeight * 6, textPaint)
+            canvas.drawText("• Type commands and press Enter", x, y + charHeight * 7, textPaint)
+            canvas.drawText("• Terminal input is active", x, y + charHeight * 8, textPaint)
+            
+            // Show blinking cursor prompt
+            val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+            val promptText = if (blink) "$ █" else "$ "
+            canvas.drawText(promptText, x, y + charHeight * 10, textPaint)
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "Error in drawSafeMode", e)
+            // Ultra-safe fallback
+            textPaint.color = foregroundColor
+            canvas.drawText("Terminal Safe Mode", 20f, charHeight, textPaint)
+        }
+    }
+
+    private fun drawCursor(canvas: Canvas) {
+        // Simple blinking cursor at position (2, 14) for demo
+        val cursorX = 2 * charWidth + 20f
+        val cursorY = 14 * charHeight
+        
+        // Make it blink
+        val blink = (System.currentTimeMillis() / 500) % 2 == 0L
+        if (blink) {
+            canvas.drawRect(cursorX, cursorY, cursorX + charWidth, cursorY + charHeight, cursorPaint)
+        }
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        try {
+            gestureDetector.onTouchEvent(event)
+            
+            when (event.action) {
+                MotionEvent.ACTION_UP -> {
+                    if (isSelecting) {
+                        endSelection(event.x, event.y)
+                    }
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isSelecting) {
+                        updateSelection(event.x, event.y)
+                    }
+                }
+            }
+            
+            return true
+        } catch (e: Exception) {
+            android.util.Log.e("Terminal", "Touch event failed", e)
+            return super.onTouchEvent(event)
+        }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        android.util.Log.d("Terminal", "⌨️ onKeyDown: keyCode=$keyCode, event=$event")
+        
+        val isCtrlPressed = event.isCtrlPressed
+        val isShiftPressed = event.isShiftPressed
+        val isAltPressed = event.isAltPressed
+        
+        android.util.Log.d("Terminal", "🎛️ Modifiers: Ctrl=$isCtrlPressed, Shift=$isShiftPressed, Alt=$isAltPressed")
+        
+        when (keyCode) {
+            KeyEvent.KEYCODE_ENTER -> {
+                sendInput("\r")
+                return true
+            }
+            KeyEvent.KEYCODE_DEL -> {
+                sendInput("\b")
+                return true
+            }
+            KeyEvent.KEYCODE_TAB -> {
+                sendInput("\t")
+                return true
+            }
+            KeyEvent.KEYCODE_ESCAPE -> {
+                sendInput("\u001b")
+                return true
+            }
+            
+            // Arrow keys
+            KeyEvent.KEYCODE_DPAD_UP -> {
+                sendInput("\u001b[A")  // ESC[A
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_DOWN -> {
+                sendInput("\u001b[B")  // ESC[B
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                sendInput("\u001b[C")  // ESC[C
+                return true
+            }
+            KeyEvent.KEYCODE_DPAD_LEFT -> {
+                sendInput("\u001b[D")  // ESC[D
+                return true
+            }
+            
+            // Function keys
+            KeyEvent.KEYCODE_F1 -> {
+                sendInput("\u001bOP")  // ESC[OP
+                return true
+            }
+            KeyEvent.KEYCODE_F2 -> {
+                sendInput("\u001bOQ")  // ESC[OQ
+                return true
+            }
+            KeyEvent.KEYCODE_F3 -> {
+                sendInput("\u001bOR")  // ESC[OR
+                return true
+            }
+            KeyEvent.KEYCODE_F4 -> {
+                sendInput("\u001bOS")  // ESC[OS
+                return true
+            }
+            
+            // Page Up/Down
+            KeyEvent.KEYCODE_PAGE_UP -> {
+                sendInput("\u001b[5~")  // ESC[5~
+                return true
+            }
+            KeyEvent.KEYCODE_PAGE_DOWN -> {
+                sendInput("\u001b[6~")  // ESC[6~
+                return true
+            }
+            
+            // Home/End
+            KeyEvent.KEYCODE_MOVE_HOME -> {
+                sendInput("\u001b[H")  // ESC[H
+                return true
+            }
+            KeyEvent.KEYCODE_MOVE_END -> {
+                sendInput("\u001b[F")  // ESC[F
+                return true
+            }
+            
+            // Insert/Delete
+            KeyEvent.KEYCODE_INSERT -> {
+                sendInput("\u001b[2~")  // ESC[2~
+                return true
+            }
+            KeyEvent.KEYCODE_FORWARD_DEL -> {
+                sendInput("\u001b[3~")  // ESC[3~
+                return true
+            }
+        }
+        
+        // Handle Ctrl combinations
+        if (isCtrlPressed) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_A -> {
+                    sendInput("\u0001")  // Ctrl+A
+                    return true
+                }
+                KeyEvent.KEYCODE_B -> {
+                    sendInput("\u0002")  // Ctrl+B
+                    return true
+                }
+                KeyEvent.KEYCODE_C -> {
+                    sendInput("\u0003")  // Ctrl+C
+                    return true
+                }
+                KeyEvent.KEYCODE_D -> {
+                    sendInput("\u0004")  // Ctrl+D
+                    return true
+                }
+                KeyEvent.KEYCODE_E -> {
+                    sendInput("\u0005")  // Ctrl+E
+                    return true
+                }
+                KeyEvent.KEYCODE_F -> {
+                    sendInput("\u0006")  // Ctrl+F
+                    return true
+                }
+                KeyEvent.KEYCODE_G -> {
+                    sendInput("\u0007")  // Ctrl+G
+                    return true
+                }
+                KeyEvent.KEYCODE_H -> {
+                    sendInput("\u0008")  // Ctrl+H (same as backspace)
+                    return true
+                }
+                KeyEvent.KEYCODE_I -> {
+                    sendInput("\u0009")  // Ctrl+I (same as tab)
+                    return true
+                }
+                KeyEvent.KEYCODE_J -> {
+                    sendInput("\u000A")  // Ctrl+J (same as newline)
+                    return true
+                }
+                KeyEvent.KEYCODE_K -> {
+                    sendInput("\u000B")  // Ctrl+K
+                    return true
+                }
+                KeyEvent.KEYCODE_L -> {
+                    sendInput("\u000C")  // Ctrl+L
+                    return true
+                }
+                KeyEvent.KEYCODE_M -> {
+                    sendInput("\u000D")  // Ctrl+M (same as return)
+                    return true
+                }
+                KeyEvent.KEYCODE_N -> {
+                    sendInput("\u000E")  // Ctrl+N
+                    return true
+                }
+                KeyEvent.KEYCODE_O -> {
+                    sendInput("\u000F")  // Ctrl+O
+                    return true
+                }
+                KeyEvent.KEYCODE_P -> {
+                    sendInput("\u0010")  // Ctrl+P
+                    return true
+                }
+                KeyEvent.KEYCODE_Q -> {
+                    sendInput("\u0011")  // Ctrl+Q
+                    return true
+                }
+                KeyEvent.KEYCODE_R -> {
+                    sendInput("\u0012")  // Ctrl+R
+                    return true
+                }
+                KeyEvent.KEYCODE_S -> {
+                    sendInput("\u0013")  // Ctrl+S
+                    return true
+                }
+                KeyEvent.KEYCODE_T -> {
+                    sendInput("\u0014")  // Ctrl+T
+                    return true
+                }
+                KeyEvent.KEYCODE_U -> {
+                    sendInput("\u0015")  // Ctrl+U
+                    return true
+                }
+                KeyEvent.KEYCODE_V -> {
+                    sendInput("\u0016")  // Ctrl+V
+                    return true
+                }
+                KeyEvent.KEYCODE_W -> {
+                    sendInput("\u0017")  // Ctrl+W
+                    return true
+                }
+                KeyEvent.KEYCODE_X -> {
+                    sendInput("\u0018")  // Ctrl+X
+                    return true
+                }
+                KeyEvent.KEYCODE_Y -> {
+                    sendInput("\u0019")  // Ctrl+Y
+                    return true
+                }
+                KeyEvent.KEYCODE_Z -> {
+                    sendInput("\u001A")  // Ctrl+Z
+                    return true
+                }
+            }
+        }
+        
+        // Handle printable characters using ConnectBot pattern
+        val unicodeChar = event.unicodeChar
+        if (unicodeChar > 0) {
+            val char = unicodeChar.toChar()
+            android.util.Log.d("Terminal", "📝 Unicode char: '$char' (code=$unicodeChar)")
+            sendInput(char.toString())
+            return true
+        }
+        
+        // Try to handle as key dispatch (ConnectBot pattern)
+        val modifiers = convertToVTermModifiers(isCtrlPressed, isAltPressed, isShiftPressed)
+        if (keyCode != KeyEvent.KEYCODE_UNKNOWN) {
+            android.util.Log.d("Terminal", "🎯 Attempting key dispatch for keyCode=$keyCode")
+            dispatchKey(modifiers, keyCode)
+            return true
+        }
+        
+        return super.onKeyDown(keyCode, event)
+    }
+    
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        android.util.Log.d("Terminal", "🆙 onKeyUp: keyCode=$keyCode")
+        // Most key handling is done on key down, but we need to handle key up for proper IME support
+        return super.onKeyUp(keyCode, event)
+    }
+    
+    override fun onCheckIsTextEditor(): Boolean {
+        android.util.Log.d("Terminal", "✏️ onCheckIsTextEditor called - returning true")
+        return true  // This tells Android that this view can accept text input
+    }
+    
+    private fun convertToVTermModifiers(ctrl: Boolean, alt: Boolean, shift: Boolean): Int {
+        var modifiers = 0
+        if (shift) modifiers = modifiers or 1  // VTERM_MOD_SHIFT
+        if (alt) modifiers = modifiers or 2    // VTERM_MOD_ALT  
+        if (ctrl) modifiers = modifiers or 4   // VTERM_MOD_CTRL
+        return modifiers
+    }
+    
+    private fun setupTerminalView() {
+        android.util.Log.d("Terminal", "🔧 Setting up terminal view...")
+        
+        // Calculate character metrics
+        val metrics = textPaint.fontMetrics
+        charHeight = metrics.descent - metrics.ascent
+        charWidth = textPaint.measureText("M")  // Use 'M' as it's typically the widest character
+        charDescent = metrics.descent
+        
+        android.util.Log.d("Terminal", "📏 Char metrics: width=$charWidth, height=$charHeight, descent=$charDescent")
+        
+        android.util.Log.d("Terminal", "✅ Terminal view setup completed")
+    }
+    
+    private fun sendInput(input: String) {
+        android.util.Log.d("Terminal", "📤 sendInput called: '$input' (${input.length} chars)")
+        
+        terminalBridge?.let { bridge ->
+            // Write directly to SSH transport
+            bridge.write(input.toByteArray())
+            android.util.Log.d("Terminal", "✅ Sent to SSH transport: '$input'")
+            
+            // Also send to terminal emulator for local echo/processing
+            terminalEmulator?.let { emulator ->
+                try {
+                    emulator.writeInput(input.toByteArray())
+                    android.util.Log.d("Terminal", "✅ Sent to terminal emulator: '$input'")
+                } catch (e: Exception) {
+                    android.util.Log.e("Terminal", "❌ Failed to send to terminal emulator", e)
+                }
+            }
+            
+            // Log special keys
+            if (input == "\r") {
+                android.util.Log.d("Terminal", "🔄 ENTER pressed - expecting server response")
+            }
+        } ?: run {
+            android.util.Log.w("Terminal", "❌ No bridge available to send input")
+        }
+    }
+    
+    private fun dispatchKey(modifiers: Int, key: Int) {
+        android.util.Log.d("Terminal", "⌨️ dispatchKey: modifiers=$modifiers, key=$key")
+        
+        terminalEmulator?.let { emulator ->
+            try {
+                emulator.dispatchKey(modifiers, key)
+                android.util.Log.d("Terminal", "✅ Key dispatched to terminal emulator")
+            } catch (e: Exception) {
+                android.util.Log.e("Terminal", "❌ Failed to dispatch key to terminal emulator", e)
+            }
+        } ?: run {
+            android.util.Log.w("Terminal", "❌ No terminal emulator available for key dispatch")
+        }
+    }
+
+    private fun startSelection(x: Float, y: Float) {
+        val col = floor(x / charWidth).toInt()
+        val row = floor(y / charHeight).toInt()
+        selectionStart = Pair(col, row)
+        selectionEnd = Pair(col, row)
+        isSelecting = true
+        invalidate()
+    }
+    
+    private fun updateSelection(x: Float, y: Float) {
+        if (!isSelecting) return
+        
+        val col = floor(x / charWidth).toInt()
+        val row = floor(y / charHeight).toInt()
+        selectionEnd = Pair(col, row)
+        invalidate()
+    }
+    
+    private fun endSelection(x: Float, y: Float) {
+        updateSelection(x, y)
+        isSelecting = false
+        copySelectionToClipboard()
+    }
+    
+    private fun selectWord(x: Float, y: Float) {
+        // Simple word selection implementation
+        val col = floor(x / charWidth).toInt()
+        val row = floor(y / charHeight).toInt()
+        
+        // For demo, just select a few characters around the tap
+        selectionStart = Pair(maxOf(0, col - 3), row)
+        selectionEnd = Pair(col + 3, row)
+        invalidate()
+        copySelectionToClipboard()
+    }
+    
+    private fun copySelectionToClipboard() {
+        val start = selectionStart
+        val end = selectionEnd
+        
+        if (start != null && end != null) {
+            // In a real implementation, extract text from terminal buffer
+            val selectedText = "Selected terminal text"
+            
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Terminal", selectedText)
+            clipboard.setPrimaryClip(clip)
+        }
+    }
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        android.util.Log.d("Terminal", "🔌 onCreateInputConnection called")
+        
+        // Configure input for text terminal
+        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or EditorInfo.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN or EditorInfo.IME_ACTION_UNSPECIFIED
+        outAttrs.initialCapsMode = 0
+        outAttrs.initialSelStart = 0
+        outAttrs.initialSelEnd = 0
+        
+        android.util.Log.d("Terminal", "📋 InputConnection configured: inputType=${outAttrs.inputType}, imeOptions=${outAttrs.imeOptions}")
+        
+        // Return actual InputConnection for proper keyboard input
+        return object : android.view.inputmethod.BaseInputConnection(this@EnhancedTerminalView, true) {
+            override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
+                android.util.Log.d("Terminal", "💬 commitText: '$text' (${text.length} chars)")
+                if (text.isNotEmpty()) {
+                    // Send each character individually to match terminal behavior
+                    text.forEach { char ->
+                        sendInput(char.toString())
+                    }
+                }
+                return true
+            }
+            
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                android.util.Log.d("Terminal", "⌫ deleteSurroundingText: before=$beforeLength, after=$afterLength")
+                repeat(beforeLength) {
+                    sendInput("\b")
+                }
+                return true
+            }
+            
+            override fun sendKeyEvent(event: KeyEvent): Boolean {
+                android.util.Log.d("Terminal", "🔑 sendKeyEvent: keyCode=${event.keyCode}, action=${event.action}")
+                return when (event.action) {
+                    KeyEvent.ACTION_DOWN -> this@EnhancedTerminalView.onKeyDown(event.keyCode, event)
+                    KeyEvent.ACTION_UP -> this@EnhancedTerminalView.onKeyUp(event.keyCode, event)
+                    else -> false
+                }
+            }
+            
+            override fun performEditorAction(editorInfo: Int): Boolean {
+                android.util.Log.d("Terminal", "⚡ performEditorAction: $editorInfo")
+                return when (editorInfo) {
+                    EditorInfo.IME_ACTION_SEND,
+                    EditorInfo.IME_ACTION_DONE,
+                    EditorInfo.IME_ACTION_GO -> {
+                        sendInput("\n")
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+    }
+}
+
+private fun createEnhancedTerminalView(
+    context: Context,
+    terminalEmulator: TerminalEmulator,
+    fontSize: Float,
+    foregroundColor: Int,
+    backgroundColor: Int,
+    terminalBridge: TerminalBridge?,
+    safeMode: Boolean = false,
+): EnhancedTerminalView? {
+    return try {
+        android.util.Log.d("Terminal", "Creating EnhancedTerminalView...")
+        val view = EnhancedTerminalView(context, terminalEmulator, fontSize, foregroundColor, backgroundColor, terminalBridge, safeMode)
+        android.util.Log.d("Terminal", "EnhancedTerminalView created successfully")
+        view
+    } catch (e: Exception) {
+        android.util.Log.e("Terminal", "Failed to create terminal view", e)
+        null
+    }
+}

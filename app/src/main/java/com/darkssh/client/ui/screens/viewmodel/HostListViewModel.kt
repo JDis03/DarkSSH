@@ -11,9 +11,13 @@ import kotlinx.coroutines.flow.stateIn
 import javax.inject.Inject
 
 @HiltViewModel
-class HostListViewModel @Inject constructor(
-    private val hostRepository: HostRepository,
-) : ViewModel() {
-    val hosts: StateFlow<List<Host>> = hostRepository.getAllHosts()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-}
+class HostListViewModel
+    @Inject
+    constructor(
+        private val hostRepository: HostRepository,
+    ) : ViewModel() {
+        val hosts: StateFlow<List<Host>> =
+            hostRepository
+                .getAllHosts()
+                .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }

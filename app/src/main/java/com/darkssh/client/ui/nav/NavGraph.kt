@@ -1,20 +1,24 @@
 package com.darkssh.client.ui.nav
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.ConsoleScreen
+import com.darkssh.client.ui.screens.GeneratePubkeyScreen
 import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.HostListScreen
 import com.darkssh.client.ui.screens.PubkeyListScreen
 import com.darkssh.client.ui.screens.SettingsScreen
 
+@Suppress("ktlint:standard:function-naming")
 @Composable
 fun DarkSSHNavHost(
     navController: NavHostController = rememberNavController(),
-    onNavigateToConsole: (hostId: Long) -> Unit = {},
+    terminalService: TerminalService? = null,
 ) {
     NavHost(
         navController = navController,
@@ -42,8 +46,8 @@ fun DarkSSHNavHost(
 
         composable(Screen.HostEditor.route) {
             HostEditorScreen(
-                onSaved = { navController.popBackStack() },
-                onCancelled = { navController.popBackStack() },
+                onSave = { navController.popBackStack() },
+                onCancel = { navController.popBackStack() },
             )
         }
 
@@ -52,6 +56,7 @@ fun DarkSSHNavHost(
             ConsoleScreen(
                 hostId = hostId,
                 onBack = { navController.popBackStack() },
+                terminalService = terminalService,
             )
         }
 
@@ -61,6 +66,13 @@ fun DarkSSHNavHost(
                 onGenerateKey = {
                     navController.navigate(Screen.GeneratePubkey.route)
                 },
+                terminalService = terminalService,
+            )
+        }
+
+        composable(Screen.GeneratePubkey.route) {
+            GeneratePubkeyScreen(
+                onNavigateBack = { navController.popBackStack() },
             )
         }
 

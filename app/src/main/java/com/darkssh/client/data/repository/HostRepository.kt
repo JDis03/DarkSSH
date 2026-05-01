@@ -7,14 +7,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class HostRepository @Inject constructor(private val hostDao: HostDao) {
-    fun getAllHosts(): Flow<List<Host>> = hostDao.getAll()
+class HostRepository
+    @Inject
+    constructor(
+        private val hostDao: HostDao,
+    ) {
+        fun getAllHosts(): Flow<List<Host>> = hostDao.getAll()
 
-    suspend fun getHostById(id: Long): Host? = hostDao.getById(id)
+        suspend fun getHostById(id: Long): Host? = hostDao.getById(id)
 
-    suspend fun insertHost(host: Host): Long = hostDao.insert(host)
+        suspend fun insertHost(host: Host): Long = hostDao.insert(host)
 
-    suspend fun updateHost(host: Host) = hostDao.update(host)
+        suspend fun updateHost(host: Host) = hostDao.update(host)
 
-    suspend fun deleteHost(host: Host) = hostDao.delete(host)
-}
+        suspend fun deleteHost(host: Host) = hostDao.delete(host)
+    }

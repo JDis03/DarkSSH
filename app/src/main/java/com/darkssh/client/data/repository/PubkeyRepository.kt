@@ -7,14 +7,18 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class PubkeyRepository @Inject constructor(private val pubkeyDao: PubkeyDao) {
-    fun getAllPubkeys(): Flow<List<Pubkey>> = pubkeyDao.getAll()
+class PubkeyRepository
+    @Inject
+    constructor(
+        private val pubkeyDao: PubkeyDao,
+    ) {
+        fun getAllPubkeys(): Flow<List<Pubkey>> = pubkeyDao.getAll()
 
-    suspend fun getPubkeyById(id: Long): Pubkey? = pubkeyDao.getById(id)
+        suspend fun getPubkeyById(id: Long): Pubkey? = pubkeyDao.getById(id)
 
-    suspend fun insertPubkey(pubkey: Pubkey): Long = pubkeyDao.insert(pubkey)
+        suspend fun insertPubkey(pubkey: Pubkey): Long = pubkeyDao.insert(pubkey)
 
-    suspend fun updatePubkey(pubkey: Pubkey) = pubkeyDao.update(pubkey)
+        suspend fun updatePubkey(pubkey: Pubkey) = pubkeyDao.update(pubkey)
 
-    suspend fun deletePubkey(pubkey: Pubkey) = pubkeyDao.delete(pubkey)
-}
+        suspend fun deletePubkey(pubkey: Pubkey) = pubkeyDao.delete(pubkey)
+    }
