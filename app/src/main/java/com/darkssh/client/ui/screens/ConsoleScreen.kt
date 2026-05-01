@@ -66,7 +66,7 @@ fun ConsoleScreen(
         viewModel.setTerminalService(terminalService)
         viewModel.connect(hostId)
         onDispose {
-            viewModel.disconnect()
+            viewModel.detachFromBridge()
         }
     }
 

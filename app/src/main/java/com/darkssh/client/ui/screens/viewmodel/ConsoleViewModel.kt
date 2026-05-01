@@ -5,8 +5,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
-import com.darkssh.client.data.repository.KnownHostRepository
-import com.darkssh.client.service.DisconnectReason
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,7 +21,6 @@ class ConsoleViewModel
     constructor(
         application: Application,
         private val hostRepository: HostRepository,
-        private val knownHostRepository: KnownHostRepository,
     ) : AndroidViewModel(application) {
         private val _bridge = MutableStateFlow<TerminalBridge?>(null)
         val bridge: StateFlow<TerminalBridge?> = _bridge
@@ -39,6 +36,7 @@ class ConsoleViewModel
 
         private var terminalService: TerminalService? = null
         private var connectionJob: Job? = null
+        private var observeJobs = mutableListOf<Job>()
 
         fun loadHost(hostId: Long) {
             viewModelScope.launch {
@@ -53,71 +51,83 @@ class ConsoleViewModel
 
         fun connect(hostId: Long) {
             connectionJob?.cancel()
+            observeJobs.forEach { it.cancel() }
+            observeJobs.clear()
+
             viewModelScope.launch {
                 val h = hostRepository.getHostById(hostId) ?: return@launch
                 _host.value = h
 
                 val service = terminalService ?: return@launch
-                val b = service.openConnection(h)
-                _bridge.value = b
-                _isDisconnected.value = false
-                _disconnectMessage.value = null
 
-                launch {
-                    b.isDisconnected.collect { disconnected ->
-                        if (disconnected) {
-                            _isDisconnected.value = true
-                        }
-                    }
-                }
-
-                launch {
-                    b.disconnectMessage.collect { msg ->
-                        _disconnectMessage.value = msg
-                    }
+                val existingBridge = service.bridges.value.find { it.host.id == hostId }
+                if (existingBridge != null && !existingBridge.isDisconnected.value) {
+                    _bridge.value = existingBridge
+                    _isDisconnected.value = false
+                    _disconnectMessage.value = null
+                    observeBridge(existingBridge)
+                } else {
+                    val b = service.openConnection(h)
+                    _bridge.value = b
+                    _isDisconnected.value = false
+                    _disconnectMessage.value = null
+                    observeBridge(b)
                 }
             }
         }
 
-        fun disconnect() {
-            _bridge.value?.close()
-            _bridge.value = null
-            _isDisconnected.value = true
-        }
-
-        fun reconnect() {
-            val oldBridge = _bridge.value
-            _bridge.value = null
-            oldBridge?.close()
-
-            _isDisconnected.value = false
-            _disconnectMessage.value = null
-
-            val h = _host.value ?: return
-            viewModelScope.launch {
-                val service = terminalService ?: return@launch
-                val b = service.openConnection(h)
-                _bridge.value = b
-
-                launch {
+        private fun observeBridge(b: TerminalBridge) {
+            observeJobs.add(
+                viewModelScope.launch {
                     b.isDisconnected.collect { disconnected ->
                         if (disconnected) {
                             _isDisconnected.value = true
                         }
                     }
-                }
-
-                launch {
+                },
+            )
+            observeJobs.add(
+                viewModelScope.launch {
                     b.disconnectMessage.collect { msg ->
                         _disconnectMessage.value = msg
                     }
-                }
+                },
+            )
+        }
+
+        fun disconnect() {
+            _bridge.value?.let { bridge ->
+                terminalService?.onBridgeDisconnected(bridge, com.darkssh.client.service.DisconnectReason.USER_REQUESTED)
+                bridge.close()
+            }
+            _bridge.value = null
+            _isDisconnected.value = true
+        }
+
+        fun detachFromBridge() {
+            _bridge.value = null
+        }
+
+        fun reconnect() {
+            val h = _host.value ?: return
+            observeJobs.forEach { it.cancel() }
+            observeJobs.clear()
+            _bridge.value = null
+            _isDisconnected.value = false
+            _disconnectMessage.value = null
+
+            viewModelScope.launch {
+                val service = terminalService ?: return@launch
+                val b = service.openConnection(h)
+                _bridge.value = b
+                observeBridge(b)
             }
         }
 
         override fun onCleared() {
             super.onCleared()
             connectionJob?.cancel()
-            _bridge.value?.close()
+            observeJobs.forEach { it.cancel() }
+            observeJobs.clear()
         }
     }
