@@ -43,3 +43,4 @@ org/
 # Reference repositories (not part of the project)
 connectbot/
 termux-app/sshlib/
+sshlib/
