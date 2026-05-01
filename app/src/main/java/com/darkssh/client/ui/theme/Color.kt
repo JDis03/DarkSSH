@@ -1,0 +1,51 @@
+package com.darkssh.client.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val Green80 = Color(0xFF4AE8B0)
+val Green20 = Color(0xFF003822)
+val Green30 = Color(0xFF005235)
+val Green90 = Color(0xFF69FFCB)
+
+val Teal80 = Color(0xFFB7CCBC)
+val Teal20 = Color(0xFF223828)
+val Teal30 = Color(0xFF384E3E)
+val Teal90 = Color(0xFFD2E8D7)
+
+val Blue80 = Color(0xFFA9CBED)
+val Blue20 = Color(0xFF0E3355)
+val Blue30 = Color(0xFF264A6C)
+val Blue90 = Color(0xFFC5E4FF)
+
+val Red80 = Color(0xFFFFB4AB)
+val Red20 = Color(0xFF690005)
+val Red30 = Color(0xFF93000A)
+val Red90 = Color(0xFFFFDAD6)
+
+val DarkBackground = Color(0xFF0E1513)
+val DarkOnBackground = Color(0xFFDDE4DE)
+val DarkSurface = Color(0xFF0E1513)
+val DarkOnSurface = Color(0xFFDDE4DE)
+val DarkSurfaceVariant = Color(0xFF414942)
+val DarkOnSurfaceVariant = Color(0xFFC0C9BD)
+val DarkOutline = Color(0xFF8B9388)
+val DarkOutlineVariant = Color(0xFF414942)
+val DarkInverseSurface = Color(0xFFDDE4DE)
+val DarkInverseOnSurface = Color(0xFF0E1513)
+val DarkInversePrimary = Color(0xFF006D49)
+
+val LightBackground = Color(0xFFFCFCFF)
+val LightOnBackground = Color(0xFF1A1C1E)
+val LightSurface = Color(0xFFFCFCFF)
+val LightOnSurface = Color(0xFF1A1C1E)
+val LightSurfaceVariant = Color(0xFFDFE2EB)
+val LightOnSurfaceVariant = Color(0xFF43474E)
+val LightOutline = Color(0xFF73777F)
+val LightOutlineVariant = Color(0xFFC3C7CF)
+val LightPrimary = Color(0xFF03A9F4)
+val LightOnPrimary = Color(0xFFFFFFFF)
+val LightPrimaryContainer = Color(0xFF40C4FF)
+val LightSecondary = Color(0xFF0288D1)
+val LightTertiary = Color(0xFF00B0FF)
+val LightError = Color(0xFFBA1A1A)
+val LightOnError = Color(0xFFFFFFFF)

@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">DarkSSH</string>
+    <string name="host_list_title">Hosts</string>
+    <string name="host_editor_title">Edit Host</string>
+    <string name="host_editor_new_title">New Host</string>
+    <string name="pubkey_list_title">Keys</string>
+    <string name="settings_title">Settings</string>
+    <string name="nav_host_list">Hosts</string>
+    <string name="nav_pubkey_list">Keys</string>
+    <string name="nav_settings">Settings</string>
+    <string name="hint_nickname">Nickname</string>
+    <string name="hint_hostname">Hostname</string>
+    <string name="hint_username">Username</string>
+    <string name="hint_port">Port</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_save">Save</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="notification_channel_connections">SSH Connections</string>
+    <string name="notification_channel_connections_desc">Active SSH terminal sessions</string>
+    <string name="default_port">22</string>
+</resources>
