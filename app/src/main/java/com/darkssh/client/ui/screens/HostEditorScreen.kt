@@ -6,7 +6,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -40,7 +45,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.darkssh.client.ui.screens.viewmodel.HostEditorViewModel
 
 @Suppress("ktlint:standard:function-naming")
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HostEditorScreen(
     onSave: () -> Unit,
@@ -75,6 +80,7 @@ fun HostEditorScreen(
 
     Scaffold(
         modifier = modifier,
+        contentWindowInsets = WindowInsets.imeAnimationTarget,
         topBar = {
             TopAppBar(
                 title = { Text("Edit Host") },
@@ -97,7 +103,7 @@ fun HostEditorScreen(
                             )
                             onSave()
                         },
-                        enabled = nickname.isNotBlank() && hostname.isNotBlank(),
+                        enabled = nickname.isNotBlank() && hostname.isNotBlank() && username.isNotBlank(),
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "Save")
                     }
@@ -109,7 +115,9 @@ fun HostEditorScreen(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .consumeWindowInsets(paddingValues)
                     .padding(paddingValues)
+                    .windowInsetsPadding(WindowInsets.imeAnimationTarget)
                     .padding(16.dp),
             verticalArrangement =
                 androidx.compose.foundation.layout.Arrangement
@@ -134,9 +142,11 @@ fun HostEditorScreen(
             OutlinedTextField(
                 value = username,
                 onValueChange = { username = it },
-                label = { Text("Username") },
+                label = { Text("Username *") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
+                isError = username.isBlank(),
+                supportingText = if (username.isBlank()) {{ Text("Username is required") }} else null,
             )
 
             OutlinedTextField(

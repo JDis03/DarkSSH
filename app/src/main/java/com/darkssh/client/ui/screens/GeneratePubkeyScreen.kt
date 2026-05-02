@@ -7,9 +7,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -47,7 +51,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.darkssh.client.ui.screens.viewmodel.GeneratePubkeyViewModel
 import com.darkssh.client.util.PubkeyUtils
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun GeneratePubkeyScreen(
     onNavigateBack: () -> Unit,
@@ -99,15 +103,17 @@ fun GeneratePubkeyScreen(
             )
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        contentWindowInsets = WindowInsets.imeAnimationTarget,
         modifier = modifier,
     ) { innerPadding ->
         Column(
             modifier = Modifier
+                .consumeWindowInsets(innerPadding)
                 .padding(innerPadding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp)
-                .imePadding(),
+                .windowInsetsPadding(WindowInsets.imeAnimationTarget)
+                .padding(16.dp),
         ) {
             // Nickname field
             OutlinedTextField(
