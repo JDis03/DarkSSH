@@ -1,8 +1,19 @@
 package com.darkssh.client.ui.screens.viewmodel
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.ContentValues
+import android.content.Intent
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
+import androidx.core.app.NotificationCompat
+import androidx.core.net.toFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.transport.SftpAuthState
@@ -10,6 +21,7 @@ import com.darkssh.client.transport.SftpClient
 import com.darkssh.client.transport.SftpClientSSHJ
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
+import com.darkssh.client.ui.MainActivity
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,21 +35,47 @@ import java.io.File
 import java.io.OutputStream
 import javax.inject.Inject
 
-data class SftpUiState(
-    val currentPath: String = "/",
-    val entries: List<SftpEntry> = emptyList(),
-    val allEntries: List<SftpEntry> = emptyList(),
-    val showHiddenFiles: Boolean = false,
-    val isLoading: Boolean = false,
-    val error: String? = null,
-    val message: String? = null,
-    val pathStack: List<String> = emptyList(),
-    val selectedEntries: Set<String> = emptySet(),
-    val transfers: List<TransferInfo> = emptyList(),
-    val transferProgress: TransferProgress? = null,
-    val authState: SftpAuthState = SftpAuthState.Idle,
-    val host: Host? = null,
-)
+sealed class DownloadTarget {
+    abstract val fileName: String
+    abstract val displayPath: String
+
+    data class MediaStore(override val fileName: String) : DownloadTarget() {
+        override val displayPath: String get() = "Downloads/$fileName"
+    }
+
+    data class FileTarget(override val fileName: String, val file: java.io.File) : DownloadTarget() {
+        override val displayPath: String get() = file.absolutePath
+    }
+}
+
+    data class SftpUiState(
+        val currentPath: String = "/",
+        val entries: List<SftpEntry> = emptyList(),
+        val allEntries: List<SftpEntry> = emptyList(),
+        val showHiddenFiles: Boolean = false,
+        val isLoading: Boolean = false,
+        val error: String? = null,
+        val message: String? = null,
+        val pathStack: List<String> = emptyList(),
+        val selectedEntries: Set<String> = emptySet(),
+        val transfers: List<TransferInfo> = emptyList(),
+        val transferProgress: TransferProgress? = null,
+        val authState: SftpAuthState = SftpAuthState.Idle,
+        val host: Host? = null,
+        val renameConflict: RenameConflict? = null,
+        val downloadConflict: DownloadConflict? = null,
+    )
+
+    data class RenameConflict(
+        val entry: SftpEntry,
+        val newName: String,
+        val targetPath: String,
+    )
+
+    data class DownloadConflict(
+        val remotePath: String,
+        val fileName: String,
+    )
 
 data class TransferInfo(
     val id: Long,
@@ -61,15 +99,15 @@ class SftpViewModel @Inject constructor(
     private var sftpClient: SftpClient? = null
     private var sftpClientSSHJ: SftpClientSSHJ? = null
     private var transferIdCounter = 0L
+    private var downloadNotificationId = 1000
 
-    // Use SSHJ for much faster transfers
     private val useSSHJ = true
 
-    private var pendingDownload: PendingDownload? = null
+    private var pendingRename: PendingRename? = null
 
-    data class PendingDownload(
-        val remotePath: String,
-        val fileName: String,
+    data class PendingRename(
+        val entry: SftpEntry,
+        val newName: String,
     )
 
     fun initialize(hostId: Long) {
@@ -207,72 +245,253 @@ class SftpViewModel @Inject constructor(
     }
 
     fun requestDownload(remotePath: String, fileName: String) {
-        pendingDownload = PendingDownload(remotePath, fileName)
+        val target = resolveDownloadTarget(fileName)
+
+        if (targetExists(target)) {
+            _uiState.value = _uiState.value.copy(
+                downloadConflict = DownloadConflict(remotePath, fileName),
+            )
+        } else {
+            startDownload(remotePath, target)
+        }
     }
 
-    fun getAndClearPendingDownload(): PendingDownload? {
-        val pd = pendingDownload
-        pendingDownload = null
-        return pd
+    fun confirmDownloadOverwrite() {
+        val conflict = _uiState.value.downloadConflict ?: return
+        _uiState.value = _uiState.value.copy(downloadConflict = null)
+        val target = resolveDownloadTarget(conflict.fileName)
+        startDownload(conflict.remotePath, target)
     }
 
-    fun executeDownload(uri: android.net.Uri) {
-        val pd = getAndClearPendingDownload() ?: return
+    fun dismissDownloadConflict() {
+        _uiState.value = _uiState.value.copy(downloadConflict = null)
+    }
+
+    private fun resolveDownloadTarget(fileName: String): DownloadTarget {
+        val app = getApplication<Application>()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            DownloadTarget.MediaStore(fileName)
+        } else {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val subdir = File(dir, "DarkSSH")
+            if (!subdir.exists()) subdir.mkdirs()
+            DownloadTarget.FileTarget(fileName, File(subdir, fileName))
+        }
+    }
+
+    private fun targetExists(target: DownloadTarget): Boolean {
+        val app = getApplication<Application>()
+        return if (target is DownloadTarget.MediaStore) {
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val projection = arrayOf(MediaStore.Downloads._ID)
+            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(target.fileName)
+            var exists = false
+            app.contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                exists = cursor.count > 0
+            }
+            exists
+        } else {
+            (target as DownloadTarget.FileTarget).file.exists()
+        }
+    }
+
+    private fun startDownload(remotePath: String, target: DownloadTarget) {
+        val app = getApplication<Application>()
+        val notifId = downloadNotificationId++
+        createDownloadNotificationChannel(app)
+        showDownloadNotification(app, notifId, target.fileName, 0L, 0L)
 
         var counter = 0
         viewModelScope.launch(Dispatchers.IO) {
             val id = ++transferIdCounter
             val transfer = TransferInfo(
                 id = id,
-                fileName = pd.fileName,
-                remotePath = pd.remotePath,
-                localPath = uri.toString(),
+                fileName = target.fileName,
+                remotePath = remotePath,
+                localPath = target.displayPath,
                 isDownload = true,
             )
             addTransfer(transfer)
 
-            val app = getApplication<Application>()
-            val outputStream: OutputStream? = try {
-                app.contentResolver.openOutputStream(uri, "wt")
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to open output stream for URI: $uri")
-                withContext(Dispatchers.Main) {
-                    updateTransfer(id, isComplete = true, error = "Cannot open destination: ${e.message}")
-                    _uiState.value = _uiState.value.copy(transferProgress = null)
-                }
-                return@launch
-            }
-            if (outputStream == null) {
-                withContext(Dispatchers.Main) {
-                    updateTransfer(id, isComplete = true, error = "Cannot open destination")
-                    _uiState.value = _uiState.value.copy(transferProgress = null)
-                }
-                return@launch
-            }
-
-            val result = if (useSSHJ) {
-                sftpClientSSHJ?.downloadToStream(pd.remotePath, outputStream) { progress ->
+            val result = when (target) {
+                is DownloadTarget.MediaStore -> downloadViaMediaStore(remotePath, target, app, notifId) { progress ->
                     if (counter++ % 5 == 0) {
                         _uiState.value = _uiState.value.copy(transferProgress = progress)
+                        showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
                     }
                 }
-            } else {
-                sftpClient?.downloadToStream(pd.remotePath, outputStream) { progress ->
-                    if (counter++ % 5 == 0) {
-                        _uiState.value = _uiState.value.copy(transferProgress = progress)
-                    }
+                is DownloadTarget.FileTarget -> {
+                    sftpClientSSHJ?.downloadFile(remotePath, target.file) { progress ->
+                        if (counter++ % 5 == 0) {
+                            _uiState.value = _uiState.value.copy(transferProgress = progress)
+                            showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
+                        }
+                    } ?: Result.failure(Exception("SFTP not connected"))
                 }
             }
 
             withContext(Dispatchers.Main) {
-                updateTransfer(id, isComplete = true, error = result?.exceptionOrNull()?.message)
+                updateTransfer(id, isComplete = true, error = result.exceptionOrNull()?.message)
                 _uiState.value = _uiState.value.copy(transferProgress = null)
-                if (result?.isSuccess == true) {
-                    _uiState.value = _uiState.value.copy(message = "Downloaded: ${pd.fileName}")
+                if (result.isSuccess) {
+                    _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                    showDownloadCompleteNotification(app, notifId, target.fileName)
                 } else {
-                    _uiState.value = _uiState.value.copy(error = result?.exceptionOrNull()?.message ?: "Download failed")
+                    _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
+                    showDownloadFailedNotification(app, notifId, target.fileName)
                 }
             }
+        }
+    }
+
+    private suspend fun downloadViaMediaStore(
+        remotePath: String,
+        target: DownloadTarget.MediaStore,
+        app: Application,
+        notifId: Int,
+        onProgress: ((TransferProgress) -> Unit)?,
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+
+            // Find existing entry with same name
+            val projection = arrayOf(MediaStore.Downloads._ID)
+            val selection = "${MediaStore.Downloads.DISPLAY_NAME} = ?"
+            val selectionArgs = arrayOf(target.fileName)
+            var existingUri: android.net.Uri? = null
+            app.contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Downloads._ID))
+                    existingUri = android.content.ContentUris.withAppendedId(collection, id)
+                }
+            }
+
+            val uri = existingUri ?: run {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.DISPLAY_NAME, target.fileName)
+                    put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                app.contentResolver.insert(collection, values)
+                    ?: return@withContext Result.failure(Exception("Failed to create download entry"))
+            }
+
+            if (existingUri != null) {
+                val values = ContentValues().apply {
+                    put(MediaStore.Downloads.IS_PENDING, 1)
+                }
+                app.contentResolver.update(uri, values, null, null)
+            }
+
+            val outputStream = app.contentResolver.openOutputStream(uri, "wt")
+                ?: run {
+                    if (existingUri == null) {
+                        app.contentResolver.delete(uri, null, null)
+                    }
+                    return@withContext Result.failure(Exception("Cannot open output stream"))
+                }
+
+            try {
+                outputStream.use { stream ->
+                    val result = if (useSSHJ) {
+                        sftpClientSSHJ?.downloadToStream(remotePath, stream, onProgress)
+                    } else {
+                        sftpClient?.downloadToStream(remotePath, stream, onProgress)
+                    }
+                    if (result?.isFailure == true) {
+                        if (existingUri == null) {
+                            app.contentResolver.delete(uri, null, null)
+                        }
+                        return@withContext result
+                    }
+                }
+            } catch (e: Exception) {
+                if (existingUri == null) {
+                    app.contentResolver.delete(uri, null, null)
+                }
+                return@withContext Result.failure(e)
+            }
+
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.IS_PENDING, 0)
+            }
+            app.contentResolver.update(uri, values, null, null)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to download via MediaStore: $remotePath")
+            Result.failure(e)
+        }
+    }
+
+    private fun createDownloadNotificationChannel(app: Application) {
+        val channel = NotificationChannel(
+            "sftp_downloads",
+            "SFTP Downloads",
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = "SFTP file download progress"
+        }
+        val manager = app.getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun showDownloadNotification(app: Application, notifId: Int, fileName: String, transferred: Long, total: Long) {
+        val manager = app.getSystemService(NotificationManager::class.java)
+        val intent = Intent(app, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            app, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val builder = NotificationCompat.Builder(app, "sftp_downloads")
+            .setContentTitle("Downloading: $fileName")
+            .setSmallIcon(R.drawable.ic_notification)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+
+        if (total > 0) {
+            builder.setContentText("${formatBytes(transferred)} / ${formatBytes(total)}")
+            val percent = (transferred * 100 / total).toInt()
+            builder.setProgress(100, percent, false)
+        } else {
+            builder.setContentText("Starting...")
+            builder.setProgress(100, 0, true)
+        }
+
+        manager.notify(notifId, builder.build())
+    }
+
+    private fun showDownloadCompleteNotification(app: Application, notifId: Int, fileName: String) {
+        val manager = app.getSystemService(NotificationManager::class.java)
+        val builder = NotificationCompat.Builder(app, "sftp_downloads")
+            .setContentTitle("Download complete")
+            .setContentText(fileName)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setOngoing(false)
+            .setAutoCancel(true)
+
+        manager.notify(notifId, builder.build())
+    }
+
+    private fun showDownloadFailedNotification(app: Application, notifId: Int, fileName: String) {
+        val manager = app.getSystemService(NotificationManager::class.java)
+        val builder = NotificationCompat.Builder(app, "sftp_downloads")
+            .setContentTitle("Download failed")
+            .setContentText(fileName)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setOngoing(false)
+            .setAutoCancel(true)
+
+        manager.notify(notifId, builder.build())
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        return when {
+            bytes >= 1_073_741_824 -> "%.1f GB".format(bytes / 1_073_741_824.0)
+            bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+            bytes >= 1024 -> "%.1f KB".format(bytes / 1024.0)
+            else -> "$bytes B"
         }
     }
 
@@ -364,6 +583,89 @@ class SftpViewModel @Inject constructor(
 
     fun clearMessage() {
         _uiState.value = _uiState.value.copy(message = null)
+    }
+
+    fun dismissRenameConflict() {
+        _uiState.value = _uiState.value.copy(renameConflict = null)
+    }
+
+    fun renameEntry(entry: SftpEntry, newName: String) {
+        if (newName == entry.name) return
+        val basePath = _uiState.value.currentPath.trimEnd('/')
+        val newPath = "$basePath/$newName"
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val targetExists = if (useSSHJ) {
+                sftpClientSSHJ?.exists(newPath) ?: false
+            } else {
+                sftpClient?.exists(newPath) ?: false
+            }
+
+            if (targetExists) {
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(
+                        renameConflict = RenameConflict(entry, newName, newPath),
+                    )
+                }
+            } else {
+                doRename(entry, newPath)
+            }
+        }
+    }
+
+    fun confirmRenameOverwrite() {
+        val conflict = _uiState.value.renameConflict ?: return
+        _uiState.value = _uiState.value.copy(renameConflict = null)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            if (conflict.entry.isDirectory) {
+                val rmdirResult = if (useSSHJ) {
+                    sftpClientSSHJ?.rmdir(conflict.targetPath)
+                } else {
+                    sftpClient?.rmdir(conflict.targetPath)
+                }
+                if (rmdirResult?.isSuccess != true) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(
+                            error = rmdirResult?.exceptionOrNull()?.message ?: "Cannot remove existing directory",
+                        )
+                    }
+                    return@launch
+                }
+            } else {
+                val rmResult = if (useSSHJ) {
+                    sftpClientSSHJ?.rm(conflict.targetPath)
+                } else {
+                    sftpClient?.rm(conflict.targetPath)
+                }
+                if (rmResult?.isSuccess != true) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(
+                            error = rmResult?.exceptionOrNull()?.message ?: "Cannot remove existing file",
+                        )
+                    }
+                    return@launch
+                }
+            }
+            doRename(conflict.entry, conflict.targetPath)
+        }
+    }
+
+    private suspend fun doRename(entry: SftpEntry, newPath: String) {
+        val result = if (useSSHJ) {
+            sftpClientSSHJ?.rename(entry.path, newPath)
+        } else {
+            sftpClient?.rename(entry.path, newPath)
+        }
+
+        withContext(Dispatchers.Main) {
+            if (result?.isSuccess == true) {
+                _uiState.value = _uiState.value.copy(message = "Renamed to ${newPath.substringAfterLast('/')}")
+                listDirectory(_uiState.value.currentPath)
+            } else {
+                _uiState.value = _uiState.value.copy(error = result?.exceptionOrNull()?.message ?: "Rename failed")
+            }
+        }
     }
 
     private fun addTransfer(transfer: TransferInfo) {

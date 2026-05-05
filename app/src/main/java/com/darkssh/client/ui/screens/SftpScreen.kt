@@ -28,12 +28,12 @@ import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Upload
-import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -90,13 +90,8 @@ fun SftpScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showMkdirDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<SftpEntry?>(null) }
+    var showRenameDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showMenu by remember { mutableStateOf(false) }
-
-    val saveFileLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/octet-stream"),
-    ) { uri ->
-        uri?.let { viewModel.executeDownload(it) }
-    }
 
     val pickFileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -138,6 +133,63 @@ fun SftpScreen(
             onConfirm = { name ->
                 viewModel.createDirectory(name)
                 showMkdirDialog = false
+            },
+        )
+    }
+
+    showRenameDialog?.let { entry ->
+        RenameDialog(
+            currentName = entry.name,
+            onDismiss = { showRenameDialog = null },
+            onConfirm = { newName ->
+                viewModel.renameEntry(entry, newName)
+                showRenameDialog = null
+            },
+        )
+    }
+
+    uiState.renameConflict?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissRenameConflict() },
+            title = { Text("Replace?") },
+            text = {
+                Text(
+                    "A ${if (conflict.entry.isDirectory) "folder" else "file"} named '${conflict.newName}' already exists. Replace it?",
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.confirmRenameOverwrite() },
+                ) {
+                    Text("Replace", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissRenameConflict() }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    uiState.downloadConflict?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissDownloadConflict() },
+            title = { Text("Replace file?") },
+            text = {
+                Text("A file named '${conflict.fileName}' already exists in Downloads. Replace it?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.confirmDownloadOverwrite() },
+                ) {
+                    Text("Replace", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissDownloadConflict() }) {
+                    Text("Cancel")
+                }
             },
         )
     }
@@ -295,13 +347,12 @@ fun SftpScreen(
                                 viewModel.navigateTo(entry.path)
                             } else {
                                 viewModel.requestDownload(entry.path, entry.name)
-                                saveFileLauncher.launch(entry.name)
                             }
                         },
-                        onLongClick = { showDeleteDialog = entry },
+                        onRename = { showRenameDialog = entry },
+                        onDelete = { showDeleteDialog = entry },
                         onDownload = {
                             viewModel.requestDownload(entry.path, entry.name)
-                            saveFileLauncher.launch(entry.name)
                         },
                     )
                 }
@@ -451,15 +502,18 @@ private fun SftpErrorScreen(
 private fun SftpEntryRow(
     entry: SftpEntry,
     onClick: () -> Unit,
-    onLongClick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
     onDownload: () -> Unit,
 ) {
+    var showContext by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
                 onClick = onClick,
-                onLongClick = onLongClick,
+                onLongClick = { showContext = true },
             )
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -504,6 +558,37 @@ private fun SftpEntryRow(
                     Icons.Default.Download,
                     contentDescription = "Download",
                     tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        Box {
+            IconButton(onClick = { showContext = true }, modifier = Modifier.size(36.dp)) {
+                Icon(Icons.Default.MoreVert, contentDescription = "More")
+            }
+            DropdownMenu(
+                expanded = showContext,
+                onDismissRequest = { showContext = false },
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Rename") },
+                    onClick = {
+                        showContext = false
+                        onRename()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Edit, contentDescription = null)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Delete") },
+                    onClick = {
+                        showContext = false
+                        onDelete()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                    },
                 )
             }
         }
@@ -591,4 +676,40 @@ private fun formatDate(timestamp: Long): String {
     } catch (_: Exception) {
         ""
     }
+}
+
+@Suppress("ktlint:standard:function-naming")
+@Composable
+private fun RenameDialog(
+    currentName: String,
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var name by remember { mutableStateOf(currentName) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Rename") },
+        text = {
+            OutlinedTextField(
+                value = name,
+                onValueChange = { name = it },
+                label = { Text("New name") },
+                singleLine = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (name.isNotBlank() && name != currentName) onConfirm(name) },
+                enabled = name.isNotBlank() && name != currentName,
+            ) {
+                Text("Rename")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        },
+    )
 }

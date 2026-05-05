@@ -4,6 +4,7 @@ import com.darkssh.client.data.entity.Host
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.hierynomus.sshj.key.KeyAlgorithms
+import net.schmizz.keepalive.KeepAliveProvider
 import net.schmizz.sshj.AndroidConfig
 import net.schmizz.sshj.SSHClient
 import net.schmizz.sshj.common.StreamCopier
@@ -47,9 +48,16 @@ class SftpClientSSHJ(private val host: Host) {
             kex.removeAll { it.name.contains("curve25519", ignoreCase = true) }
             config.keyExchangeFactories = kex
 
+            config.keepAliveProvider = KeepAliveProvider.HEARTBEAT
+
             val ssh = SSHClient(config)
             ssh.addHostKeyVerifier(PromiscuousVerifier())
+            
+            ssh.connectTimeout = 30000
+            ssh.timeout = 0
+            
             ssh.connect(host.hostname, if (host.port <= 0) 22 else host.port)
+            ssh.connection.keepAlive.keepAliveInterval = 15
             ssh.authPassword(host.username, password)
             ssh.useCompression()
             val sftp = ssh.newSFTPClient()
@@ -232,6 +240,24 @@ class SftpClientSSHJ(private val host: Host) {
         } catch (e: Exception) {
             Timber.e(e, "Failed to remove directory: $path")
             Result.failure(e)
+        }
+    }
+
+    suspend fun rename(oldPath: String, newPath: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            sftpClient?.rename(oldPath, newPath)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to rename: $oldPath -> $newPath")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun exists(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            sftpClient?.statExistence(path) != null
+        } catch (e: Exception) {
+            false
         }
     }
 

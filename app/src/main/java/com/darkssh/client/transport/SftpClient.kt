@@ -309,6 +309,26 @@ class SftpClient(private val host: Host) {
         }
     }
 
+    suspend fun rename(oldPath: String, newPath: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val client = sftpClient ?: return@withContext Result.failure(IOException("SFTP not connected"))
+            client.mv(oldPath, newPath)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to rename: $oldPath -> $newPath")
+            Result.failure(e)
+        }
+    }
+
+    suspend fun exists(path: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val client = sftpClient ?: return@withContext false
+            client.stat(path) != null
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     suspend fun stat(path: String): Result<SftpEntry?> = withContext(Dispatchers.IO) {
         try {
             val client = sftpClient ?: return@withContext Result.failure(IOException("SFTP not connected"))
