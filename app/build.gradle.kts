@@ -75,6 +75,9 @@ ksp {
 
 dependencies {
     implementation(libs.sshlib)
+    implementation(libs.sshj)
+    implementation(libs.spongycastle.core)
+    implementation(libs.spongycastle.prov)
     implementation(libs.termlib)
     implementation(libs.conscrypt.android)
     implementation(libs.timber)

@@ -12,6 +12,8 @@ navigationCompose = "2.9.8"
 activityCompose = "1.13.0"
 coroutines = "1.10.2"
 sshlib = "2.2.46"
+sshj = "0.38.0"
+spongycastle = "1.58.0.0"
 termlib = "0.0.37"
 conscrypt = "2.5.3"
 timber = "5.0.1"
@@ -38,7 +40,10 @@ minSdk = "24"
 targetSdk = "35"
 
 [libraries]
-sshlib = { module = "org.connectbot:sshlib", version.ref = "sshlib" }
+sshlib = { module = "org.connectbot:sshlib", version = "2.2.47-SNAPSHOT" }
+sshj = { module = "com.hierynomus:sshj", version.ref = "sshj" }
+spongycastle-core = { module = "com.madgag.spongycastle:core", version.ref = "spongycastle" }
+spongycastle-prov = { module = "com.madgag.spongycastle:prov", version.ref = "spongycastle" }
 termlib = { module = "org.connectbot:termlib", version.ref = "termlib" }
 conscrypt-android = { module = "org.conscrypt:conscrypt-android", version.ref = "conscrypt" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }

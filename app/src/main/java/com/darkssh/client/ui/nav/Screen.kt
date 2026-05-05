@@ -25,5 +25,9 @@ sealed class Screen(
         fun createRoute(hostId: Long): String = "port_forward_list/$hostId"
     }
 
+    data object Sftp : Screen("sftp/{hostId}") {
+        fun createRoute(hostId: Long): String = "sftp/$hostId"
+    }
+
     data object Settings : Screen("settings")
 }

@@ -13,6 +13,7 @@ import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.HostListScreen
 import com.darkssh.client.ui.screens.PubkeyListScreen
 import com.darkssh.client.ui.screens.SettingsScreen
+import com.darkssh.client.ui.screens.SftpScreen
 
 @Suppress("ktlint:standard:function-naming")
 @Composable
@@ -40,6 +41,9 @@ fun DarkSSHNavHost(
                 },
                 onSettingsClick = {
                     navController.navigate(Screen.Settings.route)
+                },
+                onSftpClick = { host ->
+                    navController.navigate(Screen.Sftp.createRoute(host.id))
                 },
             )
         }
@@ -78,6 +82,14 @@ fun DarkSSHNavHost(
 
         composable(Screen.Settings.route) {
             SettingsScreen(
+                onBack = { navController.popBackStack() },
+            )
+        }
+
+        composable(Screen.Sftp.route) { backStackEntry ->
+            val hostId = backStackEntry.arguments?.getString("hostId")?.toLongOrNull() ?: return@composable
+            SftpScreen(
+                hostId = hostId,
                 onBack = { navController.popBackStack() },
             )
         }
