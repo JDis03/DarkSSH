@@ -30,7 +30,7 @@ class TerminalBridge(
     private val knownHostRepository: KnownHostRepository,
 ) {
     // Local echo control
-    private var localEchoEnabled = true // Inicialmente habilitado para debugging
+    private var localEchoEnabled = false
     private var lastInputTime = 0L
     private var lastServerResponse = 0L
     private val bridgeJob = SupervisorJob()
@@ -127,7 +127,11 @@ class TerminalBridge(
             val onBell: () -> Unit = { Timber.d("Bell!") }
             val onResize: (TerminalDimensions) -> Unit = { dims ->
                 try {
-                    setDimensions(dims.columns, dims.rows)
+                    columns = dims.columns
+                    rows = dims.rows
+                    transportOperations.trySend(
+                        TransportOperation.SetDimensions(dims.columns, dims.rows, 0, 0),
+                    )
                 } catch (e: Exception) {
                     Timber.e(e, "Failed to handle resize")
                 }
@@ -296,7 +300,6 @@ class TerminalBridge(
         columns = cols
         rows = newRows
         transportOperations.trySend(TransportOperation.SetDimensions(cols, newRows, width, height))
-        terminalEmulator?.resize(cols, newRows)
     }
 
     fun write(data: ByteArray) {

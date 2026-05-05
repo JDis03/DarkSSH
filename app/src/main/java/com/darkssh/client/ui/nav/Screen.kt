@@ -31,3 +31,9 @@ sealed class Screen(
 
     data object Settings : Screen("settings")
 }
+
+enum class BottomTab(val route: String) {
+    Hosts("tab_hosts"),
+    Keys("tab_keys"),
+    Settings("tab_settings"),
+}

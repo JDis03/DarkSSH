@@ -89,11 +89,6 @@ fun PubkeyListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("SSH Keys") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
             )
         },
         floatingActionButton = {

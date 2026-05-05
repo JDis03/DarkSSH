@@ -20,15 +20,9 @@ fun Terminal(
     fontSize: Float = 20f,
     terminalBridge: TerminalBridge? = null,
     safeMode: Boolean = false,
+    showSoftKeyboard: Boolean = true,
 ) {
     val focusRequester = remember { FocusRequester() }
-
-    DisposableEffect(terminalEmulator) {
-        Log.d("Terminal", "Terminal Composable created")
-        onDispose {
-            Log.d("Terminal", "Terminal Composable disposed")
-        }
-    }
 
     ConnectBotTerminal(
         terminalEmulator = terminalEmulator,
@@ -36,15 +30,17 @@ fun Terminal(
         typeface = Typeface.MONOSPACE,
         initialFontSize = fontSize.sp,
         keyboardEnabled = true,
-        showSoftKeyboard = true,
+        showSoftKeyboard = showSoftKeyboard,
         focusRequester = focusRequester,
-        onTerminalTap = {
-            Log.d("Terminal", "Terminal tapped")
-        }
     )
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
-        Log.d("Terminal", "Focus requested for ConnectBot Terminal")
+    }
+
+    LaunchedEffect(showSoftKeyboard) {
+        if (showSoftKeyboard) {
+            focusRequester.requestFocus()
+        }
     }
 }

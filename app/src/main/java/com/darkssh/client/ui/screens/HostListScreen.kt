@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,9 +15,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,6 +38,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.darkssh.client.data.entity.Host
@@ -48,28 +51,20 @@ fun HostListScreen(
     onHostClick: (Host) -> Unit,
     onAddHostClick: () -> Unit,
     onEditHostClick: (Host) -> Unit,
-    onPubkeysClick: () -> Unit,
-    onSettingsClick: () -> Unit,
     onSftpClick: (Host) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: HostListViewModel = hiltViewModel(),
 ) {
     val hosts by viewModel.hosts.collectAsState()
     var expandedHostId by remember { mutableStateOf<Long?>(null) }
+    val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
 
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = { Text("DarkSSH") },
-                actions = {
-                    IconButton(onClick = onPubkeysClick) {
-                        Icon(Icons.Default.Key, contentDescription = "Keys")
-                    }
-                    IconButton(onClick = onSettingsClick) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
-                    }
-                },
+                scrollBehavior = scrollBehavior,
             )
         },
         floatingActionButton = {
@@ -80,10 +75,9 @@ fun HostListScreen(
     ) { paddingValues ->
         if (hosts.isEmpty()) {
             Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(
@@ -110,68 +104,79 @@ fun HostListScreen(
             }
         } else {
             LazyColumn(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(paddingValues),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                    horizontal = 12.dp,
+                    vertical = 8.dp,
+                ),
             ) {
                 items(
                     count = hosts.size,
                     key = { index -> hosts[index].id },
                 ) { index ->
                     val host = hosts[index]
-                    ListItem(
-                        headlineContent = {
-                            Text(host.nickname.ifBlank { host.hostname })
-                        },
-                        supportingContent = {
-                            Text("${host.username}@${host.hostname}:${host.port}")
-                        },
-                        leadingContent = {
-                            Icon(
-                                Icons.Default.Computer,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                        },
-                        trailingContent = {
-                            Box {
-                                IconButton(onClick = { expandedHostId = host.id }) {
-                                    Icon(Icons.Default.MoreVert, contentDescription = "Options")
-                                }
-                                DropdownMenu(
-                                    expanded = expandedHostId == host.id,
-                                    onDismissRequest = { expandedHostId = null },
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text("Edit") },
-                                        onClick = {
-                                            expandedHostId = null
-                                            onEditHostClick(host)
-                                        },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.Edit, contentDescription = null)
-                                        },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("SFTP") },
-                                        onClick = {
-                                            expandedHostId = null
-                                            onSftpClick(host)
-                                        },
-                                        leadingIcon = {
-                                            Icon(Icons.Default.Folder, contentDescription = null)
-                                        },
-                                    )
-                                }
-                            }
-                        },
+                    Card(
                         modifier = Modifier
+                            .fillMaxWidth()
                             .combinedClickable(
                                 onClick = { onHostClick(host) },
                                 onLongClick = { onEditHostClick(host) },
                             ),
-                    )
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                        ),
+                    ) {
+                        ListItem(
+                            headlineContent = {
+                                Text(host.nickname.ifBlank { host.hostname })
+                            },
+                            supportingContent = {
+                                Text("${host.username}@${host.hostname}:${host.port}")
+                            },
+                            leadingContent = {
+                                Icon(
+                                    Icons.Default.Computer,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                            },
+                            trailingContent = {
+                                Box {
+                                    IconButton(onClick = { expandedHostId = host.id }) {
+                                        Icon(Icons.Default.MoreVert, contentDescription = "Options")
+                                    }
+                                    DropdownMenu(
+                                        expanded = expandedHostId == host.id,
+                                        onDismissRequest = { expandedHostId = null },
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text("Edit") },
+                                            onClick = {
+                                                expandedHostId = null
+                                                onEditHostClick(host)
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Edit, contentDescription = null)
+                                            },
+                                        )
+                                        DropdownMenuItem(
+                                            text = { Text("SFTP") },
+                                            onClick = {
+                                                expandedHostId = null
+                                                onSftpClick(host)
+                                            },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Folder, contentDescription = null)
+                                            },
+                                        )
+                                    }
+                                }
+                            },
+                        )
+                    }
                 }
             }
         }
