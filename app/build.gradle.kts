@@ -65,6 +65,11 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += "/META-INF/DEPENDENCIES"
+            excludes += "/META-INF/LICENSE"
+            excludes += "/META-INF/LICENSE.txt"
+            excludes += "/META-INF/NOTICE"
+            excludes += "/META-INF/NOTICE.txt"
         }
     }
 }
@@ -76,6 +81,8 @@ ksp {
 dependencies {
     implementation(libs.sshlib)
     implementation(libs.sshj)
+    implementation(libs.sshd.core)
+    implementation(libs.sshd.sftp)
     implementation(libs.spongycastle.core)
     implementation(libs.spongycastle.prov)
     implementation(libs.termlib)

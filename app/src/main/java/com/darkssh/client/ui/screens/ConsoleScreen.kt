@@ -49,9 +49,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import com.darkssh.client.util.AppPreferences
+import com.darkssh.client.util.FontManager
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.darkssh.client.service.PromptRequest
@@ -78,11 +83,17 @@ fun ConsoleScreen(
     val isConnected by bridge?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) }
     val currentPrompt by bridge?.promptRequest?.collectAsState()
         ?: remember { mutableStateOf(null) }
+    val fontSize by bridge?.fontSize?.collectAsState() ?: remember { mutableStateOf(14f) }
 
     var showMenu by remember { mutableStateOf(false) }
     var promptInput by remember { mutableStateOf("") }
     var showSoftwareKeyboard by remember { mutableStateOf(true) }
 
+    val context = LocalContext.current
+    val terminalTypeface = remember {
+        val preset = AppPreferences.getTerminalFont(context)
+        FontManager.getTypeface(context, preset)
+    }
     val density = LocalDensity.current
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val imeVisible = imeHeight > 0.dp
@@ -126,6 +137,20 @@ fun ConsoleScreen(
                             },
                         )
                         DropdownMenuItem(
+                            text = { Text("A+") },
+                            onClick = {
+                                showMenu = false
+                                bridge?.increaseFontSize()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text("A-") },
+                            onClick = {
+                                showMenu = false
+                                bridge?.decreaseFontSize()
+                            },
+                        )
+                        DropdownMenuItem(
                             text = { Text("Disconnect") },
                             onClick = {
                                 showMenu = false
@@ -158,12 +183,14 @@ fun ConsoleScreen(
                 .windowInsetsPadding(WindowInsets.imeAnimationTarget),
         ) {
             val currentBridge = bridge
-            if (currentBridge != null && isConnected && currentBridge.terminalEmulator != null) {
+            if (currentBridge != null && isConnected && currentBridge.darkTerminalSession != null) {
                 Terminal(
-                    terminalEmulator = currentBridge.terminalEmulator!!,
+                    terminalSession = currentBridge.darkTerminalSession!!,
                     terminalBridge = currentBridge,
                     modifier = Modifier.fillMaxSize(),
                     showSoftKeyboard = showSoftwareKeyboard,
+                    fontSize = fontSize,
+                    typeface = terminalTypeface,
                 )
             } else if (isDisconnected) {
                 DisconnectedOverlay(

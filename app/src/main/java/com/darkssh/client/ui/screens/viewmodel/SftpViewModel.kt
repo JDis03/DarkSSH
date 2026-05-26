@@ -16,9 +16,9 @@ import androidx.lifecycle.viewModelScope
 import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
+import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.transport.SftpAuthState
 import com.darkssh.client.transport.SftpClient
-import com.darkssh.client.transport.SftpClientSSHJ
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.MainActivity
@@ -27,6 +27,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -48,12 +49,17 @@ sealed class DownloadTarget {
     }
 }
 
+enum class SortBy { NAME, SIZE, DATE, TYPE }
+
     data class SftpUiState(
         val currentPath: String = "/",
         val entries: List<SftpEntry> = emptyList(),
         val allEntries: List<SftpEntry> = emptyList(),
         val showHiddenFiles: Boolean = false,
+        val sortBy: SortBy = SortBy.NAME,
+        val sortAscending: Boolean = true,
         val isLoading: Boolean = false,
+        val isRefreshing: Boolean = false,
         val error: String? = null,
         val message: String? = null,
         val pathStack: List<String> = emptyList(),
@@ -93,15 +99,22 @@ class SftpViewModel @Inject constructor(
     private val hostRepository: HostRepository,
 ) : AndroidViewModel(application) {
 
+    companion object {
+        private val activeClients = ConcurrentHashMap<Long, SftpClient>()
+    }
+
     private val _uiState = MutableStateFlow(SftpUiState())
     val uiState: StateFlow<SftpUiState> = _uiState.asStateFlow()
 
-    private var sftpClient: SftpClient? = null
-    private var sftpClientSSHJ: SftpClientSSHJ? = null
+    private var sftpClient: SftpClient?
+        get() = _uiState.value.host?.let { activeClients[it.id] }
+        set(value) {
+            val hostId = _uiState.value.host?.id ?: return
+            if (value != null) activeClients[hostId] = value
+            else activeClients.remove(hostId)
+        }
     private var transferIdCounter = 0L
     private var downloadNotificationId = 1000
-
-    private val useSSHJ = true
 
     private var pendingRename: PendingRename? = null
 
@@ -111,7 +124,17 @@ class SftpViewModel @Inject constructor(
     )
 
     fun initialize(hostId: Long) {
-        if (_uiState.value.host != null) return
+        val existingHost = _uiState.value.host
+        if (existingHost != null) {
+            // Already initialized, check if we have an active client
+            val client = activeClients[hostId]
+            if (client != null && client.isConnected) {
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
+                if (_uiState.value.currentPath != "/") return
+                listDirectory(_uiState.value.currentPath)
+                return
+            }
+        }
 
         viewModelScope.launch {
             val h = hostRepository.getHostById(hostId) ?: run {
@@ -119,46 +142,48 @@ class SftpViewModel @Inject constructor(
                 return@launch
             }
             _uiState.value = _uiState.value.copy(host = h)
-            _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+
+            // Check if there's an existing connection from previous session
+            val existing = activeClients[hostId]
+            if (existing != null && existing.isConnected) {
+                sftpClient = existing
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
+                val pwd = existing.pwd()
+                _uiState.value = _uiState.value.copy(currentPath = pwd)
+                listDirectory(pwd)
+                return@launch
+            }
+
+            val storedPassword = CredentialStore.getPassword(hostId)
+            if (storedPassword != null) {
+                connectWithPassword(storedPassword)
+            } else {
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+            }
         }
     }
 
     fun connectWithPassword(password: String) {
+        val hostId = _uiState.value.host?.id ?: return
+        CredentialStore.putPassword(hostId, password)
         val h = _uiState.value.host ?: return
 
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
 
-            if (useSSHJ) {
-                val client = SftpClientSSHJ(h)
-                val result = client.connectWithPassword(password)
+            val client = SftpClient(h)
+            val result = client.connectWithPassword(password)
 
-                if (result.isSuccess) {
-                    sftpClientSSHJ = client
-                    _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
-                    val pwd = client.pwd()
-                    _uiState.value = _uiState.value.copy(currentPath = pwd)
-                    listDirectory(pwd)
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        authState = SftpAuthState.Failed(result.exceptionOrNull()?.message ?: "Authentication failed"),
-                    )
-                }
+            if (result.isSuccess) {
+                activeClients[hostId] = client
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
+                val pwd = client.pwd()
+                _uiState.value = _uiState.value.copy(currentPath = pwd)
+                listDirectory(pwd)
             } else {
-                val client = SftpClient(h)
-                val result = client.connectWithPassword(password)
-
-                if (result.isSuccess) {
-                    sftpClient = client
-                    _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
-                    val pwd = client.pwd()
-                    _uiState.value = _uiState.value.copy(currentPath = pwd)
-                    listDirectory(pwd)
-                } else {
-                    _uiState.value = _uiState.value.copy(
-                        authState = SftpAuthState.Failed(result.exceptionOrNull()?.message ?: "Authentication failed"),
-                    )
-                }
+                _uiState.value = _uiState.value.copy(
+                    authState = SftpAuthState.Failed(result.exceptionOrNull()?.message ?: "Authentication failed"),
+                )
             }
         }
     }
@@ -169,7 +194,25 @@ class SftpViewModel @Inject constructor(
     }
 
     private fun filterEntries(entries: List<SftpEntry>, showHidden: Boolean): List<SftpEntry> {
-        return if (showHidden) entries else entries.filterNot { it.name.startsWith(".") }
+        val filtered = if (showHidden) entries else entries.filterNot { it.name.startsWith(".") }
+        val s = _uiState.value.sortBy
+        val asc = _uiState.value.sortAscending
+        val comparator: Comparator<SftpEntry> = when (s) {
+            SortBy.NAME -> compareBy<SftpEntry> { it.name.lowercase() }
+            SortBy.SIZE -> compareBy<SftpEntry> { if (it.isDirectory) Long.MIN_VALUE else it.size }
+            SortBy.DATE -> compareBy<SftpEntry> { it.modifiedTime ?: Long.MIN_VALUE }
+            SortBy.TYPE -> compareBy<SftpEntry> { if (it.isDirectory) 0 else 1 }.thenBy { it.name.lowercase() }
+        }
+        return if (asc) filtered.sortedWith(comparator) else filtered.sortedWith(comparator.reversed())
+    }
+
+    fun changeSortStyle(sortBy: SortBy) {
+        val current = _uiState.value
+        val ascending = if (current.sortBy == sortBy) !current.sortAscending else true
+        _uiState.value = current.copy(sortBy = sortBy, sortAscending = ascending)
+        _uiState.value = _uiState.value.copy(
+            entries = filterEntries(current.allEntries, current.showHiddenFiles),
+        )
     }
 
     fun toggleShowHiddenFiles() {
@@ -183,17 +226,13 @@ class SftpViewModel @Inject constructor(
 
     fun listDirectory(path: String) {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
-            val result = if (useSSHJ) {
-                sftpClientSSHJ?.ls(path) ?: run {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
-                    return@launch
-                }
-            } else {
-                sftpClient?.ls(path) ?: run {
-                    _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
-                    return@launch
-                }
+            _uiState.value = _uiState.value.copy(isLoading = true, isRefreshing = false, error = null)
+
+            if (tryReconnectIfNeeded().not()) return@launch
+
+            val result = sftpClient?.ls(path) ?: run {
+                _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
+                return@launch
             }
 
             result.onSuccess { entries ->
@@ -202,15 +241,42 @@ class SftpViewModel @Inject constructor(
                     allEntries = entries,
                     entries = filterEntries(entries, showHidden),
                     isLoading = false,
+                    isRefreshing = false,
                     currentPath = path,
                     selectedEntries = emptySet(),
                 )
             }.onFailure { e ->
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
+                    isRefreshing = false,
                     error = e.message,
                 )
             }
+        }
+    }
+
+    private suspend fun tryReconnectIfNeeded(): Boolean {
+        val hostId = _uiState.value.host?.id ?: return false
+        val existing = activeClients[hostId]
+        if (existing != null && existing.isConnected) return true
+
+        val h = _uiState.value.host ?: return false
+        val password = CredentialStore.getPassword(h.id) ?: return false
+
+        return try {
+            val c = SftpClient(h)
+            if (c.connectWithPassword(password).isSuccess) {
+                activeClients[hostId] = c
+                true
+            } else false
+        } catch (_: Exception) { false }
+    }
+
+    fun refreshCurrentDirectory() {
+        val path = _uiState.value.currentPath
+        if (path.isNotEmpty()) {
+            _uiState.value = _uiState.value.copy(isRefreshing = true)
+            listDirectory(path)
         }
     }
 
@@ -322,7 +388,7 @@ class SftpViewModel @Inject constructor(
                     }
                 }
                 is DownloadTarget.FileTarget -> {
-                    sftpClientSSHJ?.downloadFile(remotePath, target.file) { progress ->
+                    sftpClient?.downloadFile(remotePath, target.file) { progress ->
                         if (counter++ % 5 == 0) {
                             _uiState.value = _uiState.value.copy(transferProgress = progress)
                             showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
@@ -394,11 +460,7 @@ class SftpViewModel @Inject constructor(
 
             try {
                 outputStream.use { stream ->
-                    val result = if (useSSHJ) {
-                        sftpClientSSHJ?.downloadToStream(remotePath, stream, onProgress)
-                    } else {
-                        sftpClient?.downloadToStream(remotePath, stream, onProgress)
-                    }
+                    val result = sftpClient?.downloadToStream(remotePath, stream, onProgress)
                     if (result?.isFailure == true) {
                         if (existingUri == null) {
                             app.contentResolver.delete(uri, null, null)
@@ -495,33 +557,25 @@ class SftpViewModel @Inject constructor(
         }
     }
 
-    fun uploadFile(localFile: File) {
+    fun uploadFile(localFile: File, originalName: String = localFile.name) {
         val basePath = _uiState.value.currentPath.trimEnd('/')
-        val remotePath = "$basePath/${localFile.name}"
+        val remotePath = "$basePath/$originalName"
 
         var counter = 0
         viewModelScope.launch(Dispatchers.IO) {
             val id = ++transferIdCounter
             val transfer = TransferInfo(
                 id = id,
-                fileName = localFile.name,
+                fileName = originalName,
                 remotePath = remotePath,
                 localPath = localFile.absolutePath,
                 isDownload = false,
             )
             addTransfer(transfer)
 
-            val result = if (useSSHJ) {
-                sftpClientSSHJ?.uploadFile(localFile, remotePath) { progress ->
-                    if (counter++ % 10 == 0) {
-                        _uiState.value = _uiState.value.copy(transferProgress = progress)
-                    }
-                }
-            } else {
-                sftpClient?.uploadFile(localFile, remotePath) { progress ->
-                    if (counter++ % 10 == 0) {
-                        _uiState.value = _uiState.value.copy(transferProgress = progress)
-                    }
+            val result = sftpClient?.uploadFile(localFile, remotePath) { progress ->
+                if (counter++ % 10 == 0) {
+                    _uiState.value = _uiState.value.copy(transferProgress = progress)
                 }
             }
 
@@ -541,11 +595,7 @@ class SftpViewModel @Inject constructor(
         val basePath = _uiState.value.currentPath.trimEnd('/')
         val path = "$basePath/$name"
         viewModelScope.launch {
-            val result = if (useSSHJ) {
-                sftpClientSSHJ?.mkdir(path)
-            } else {
-                sftpClient?.mkdir(path)
-            }
+            val result = sftpClient?.mkdir(path)
             if (result?.isSuccess == true) {
                 listDirectory(_uiState.value.currentPath)
             } else {
@@ -556,18 +606,10 @@ class SftpViewModel @Inject constructor(
 
     fun deleteEntry(entry: SftpEntry) {
         viewModelScope.launch {
-            val result = if (useSSHJ) {
-                if (entry.isDirectory) {
-                    sftpClientSSHJ?.rmdir(entry.path)
-                } else {
-                    sftpClientSSHJ?.rm(entry.path)
-                }
+            val result = if (entry.isDirectory) {
+                sftpClient?.rmdir(entry.path)
             } else {
-                if (entry.isDirectory) {
-                    sftpClient?.rmdir(entry.path)
-                } else {
-                    sftpClient?.rm(entry.path)
-                }
+                sftpClient?.rm(entry.path)
             }
             if (result?.isSuccess == true) {
                 listDirectory(_uiState.value.currentPath)
@@ -595,11 +637,7 @@ class SftpViewModel @Inject constructor(
         val newPath = "$basePath/$newName"
 
         viewModelScope.launch(Dispatchers.IO) {
-            val targetExists = if (useSSHJ) {
-                sftpClientSSHJ?.exists(newPath) ?: false
-            } else {
-                sftpClient?.exists(newPath) ?: false
-            }
+            val targetExists = sftpClient?.exists(newPath) ?: false
 
             if (targetExists) {
                 withContext(Dispatchers.Main) {
@@ -619,11 +657,7 @@ class SftpViewModel @Inject constructor(
 
         viewModelScope.launch(Dispatchers.IO) {
             if (conflict.entry.isDirectory) {
-                val rmdirResult = if (useSSHJ) {
-                    sftpClientSSHJ?.rmdir(conflict.targetPath)
-                } else {
-                    sftpClient?.rmdir(conflict.targetPath)
-                }
+                val rmdirResult = sftpClient?.rmdir(conflict.targetPath)
                 if (rmdirResult?.isSuccess != true) {
                     withContext(Dispatchers.Main) {
                         _uiState.value = _uiState.value.copy(
@@ -633,11 +667,7 @@ class SftpViewModel @Inject constructor(
                     return@launch
                 }
             } else {
-                val rmResult = if (useSSHJ) {
-                    sftpClientSSHJ?.rm(conflict.targetPath)
-                } else {
-                    sftpClient?.rm(conflict.targetPath)
-                }
+                val rmResult = sftpClient?.rm(conflict.targetPath)
                 if (rmResult?.isSuccess != true) {
                     withContext(Dispatchers.Main) {
                         _uiState.value = _uiState.value.copy(
@@ -652,11 +682,7 @@ class SftpViewModel @Inject constructor(
     }
 
     private suspend fun doRename(entry: SftpEntry, newPath: String) {
-        val result = if (useSSHJ) {
-            sftpClientSSHJ?.rename(entry.path, newPath)
-        } else {
-            sftpClient?.rename(entry.path, newPath)
-        }
+        val result = sftpClient?.rename(entry.path, newPath)
 
         withContext(Dispatchers.Main) {
             if (result?.isSuccess == true) {
@@ -684,9 +710,6 @@ class SftpViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        runBlocking {
-            sftpClient?.disconnect()
-            sftpClientSSHJ?.disconnect()
-        }
+        Timber.d("SftpViewModel cleared - connection kept alive in activeClients")
     }
 }

@@ -4,6 +4,7 @@ import android.util.Base64
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.KnownHost
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import com.trilead.ssh2.Connection
@@ -45,6 +46,31 @@ class SSH(
     private var connected = false
     @Volatile
     private var sessionOpen = false
+
+    @Volatile
+    private var keepAliveRunning = true
+
+    private fun startKeepAlive() {
+        keepAliveRunning = true
+        Thread {
+            while (keepAliveRunning && connected) {
+                try {
+                    Thread.sleep(30000)
+                    connection?.sendIgnorePacket()
+                    Timber.d("$TAG: Keepalive sent")
+                } catch (e: InterruptedException) {
+                    break
+                } catch (e: Exception) {
+                    Timber.d(e, "$TAG: Keepalive failed")
+                }
+            }
+        }.apply {
+            name = "SSH-KeepAlive"
+            isDaemon = true
+            start()
+        }
+    }
+
 
     override fun connect() {
         val hostname = host.hostname
@@ -115,6 +141,7 @@ class SSH(
                     Timber.d("$TAG: Attempting password authentication...")
                     if (conn.authenticateWithPassword(username, password)) {
                         Timber.d("$TAG: Password authentication successful!")
+                        CredentialStore.putPassword(host.id, password)
                         return true
                     } else {
                         Timber.d("$TAG: Password authentication failed")
@@ -188,6 +215,7 @@ class SSH(
         bridge.onConnected()
         Timber.d("$TAG: Adding connection monitor...")
         conn.addConnectionMonitor(this)
+        startKeepAlive()
         Timber.d("$TAG: Connection setup completed!")
     }
 
@@ -216,6 +244,7 @@ class SSH(
     }
 
     override fun close() {
+        keepAliveRunning = false
         connected = false
         sessionOpen = false
         try { session?.close() } catch (e: Exception) { Timber.d(e, "$TAG: Error closing session") }

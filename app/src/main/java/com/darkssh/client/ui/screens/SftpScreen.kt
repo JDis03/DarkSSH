@@ -3,7 +3,9 @@ package com.darkssh.client.ui.screens
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,12 +20,14 @@ import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -33,6 +37,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -50,7 +55,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -66,10 +73,14 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.darkssh.client.transport.SftpAuthState
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
+import com.darkssh.client.ui.screens.viewmodel.SortBy
 import timber.log.Timber
 import java.io.File
 import java.text.SimpleDateFormat
@@ -92,17 +103,22 @@ fun SftpScreen(
     var showDeleteDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showRenameDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showMenu by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
     val pickFileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
     ) { uri ->
         uri?.let {
             try {
+                val originalName = context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (nameIndex >= 0 && cursor.moveToFirst()) cursor.getString(nameIndex) else "unknown"
+                } ?: "unknown"
                 val tempFile = File.createTempFile("upload_", ".tmp", context.cacheDir)
                 context.contentResolver.openInputStream(uri)?.use { input ->
                     tempFile.outputStream().use { output -> input.copyTo(output) }
                 }
-                viewModel.uploadFile(tempFile)
+                viewModel.uploadFile(tempFile, originalName)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to pick file for upload")
             }
@@ -125,6 +141,17 @@ fun SftpScreen(
             snackbarHostState.showSnackbar(it)
             viewModel.clearMessage()
         }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshCurrentDirectory()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     if (showMkdirDialog) {
@@ -287,6 +314,34 @@ fun SftpScreen(
                         Icon(Icons.Default.Upload, contentDescription = "Upload")
                     }
                     Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, contentDescription = "Sort")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false },
+                        ) {
+                            SortBy.entries.forEach { sortBy ->
+                                val label = when (sortBy) {
+                                    SortBy.NAME -> "Name"
+                                    SortBy.SIZE -> "Size"
+                                    SortBy.DATE -> "Date"
+                                    SortBy.TYPE -> "Type"
+                                }
+                                val arrow = if (uiState.sortBy == sortBy) {
+                                    if (uiState.sortAscending) " ▲" else " ▼"
+                                } else ""
+                                DropdownMenuItem(
+                                    text = { Text("$label$arrow") },
+                                    onClick = {
+                                        viewModel.changeSortStyle(sortBy)
+                                        showSortMenu = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    Box {
                         IconButton(onClick = { showMenu = true }) {
                             Icon(Icons.Default.MoreVert, contentDescription = "More")
                         }
@@ -330,6 +385,11 @@ fun SftpScreen(
                 .padding(paddingValues)
                 .windowInsetsPadding(WindowInsets.imeAnimationTarget),
         ) {
+            BreadcrumbBar(
+                currentPath = uiState.currentPath,
+                onNavigate = { path -> viewModel.listDirectory(path) },
+            )
+
             uiState.transferProgress?.let { progress ->
                 TransferProgressBar(progress)
             }
@@ -338,25 +398,88 @@ fun SftpScreen(
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
 
-            LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(uiState.entries, key = { it.path }) { entry ->
-                    SftpEntryRow(
-                        entry = entry,
-                        onClick = {
-                            if (entry.isDirectory || entry.isSymlink) {
-                                viewModel.navigateTo(entry.path)
-                            } else {
+            PullToRefreshBox(
+                isRefreshing = uiState.isRefreshing,
+                onRefresh = { viewModel.refreshCurrentDirectory() },
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(uiState.entries, key = { it.path }) { entry ->
+                        SftpEntryRow(
+                            entry = entry,
+                            onClick = {
+                                if (entry.isDirectory || entry.isSymlink) {
+                                    viewModel.navigateTo(entry.path)
+                                } else {
+                                    viewModel.requestDownload(entry.path, entry.name)
+                                }
+                            },
+                            onRename = { showRenameDialog = entry },
+                            onDelete = { showDeleteDialog = entry },
+                            onDownload = {
                                 viewModel.requestDownload(entry.path, entry.name)
-                            }
-                        },
-                        onRename = { showRenameDialog = entry },
-                        onDelete = { showDeleteDialog = entry },
-                        onDownload = {
-                            viewModel.requestDownload(entry.path, entry.name)
-                        },
-                    )
+                            },
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Suppress("ktlint:standard:function-naming")
+@Composable
+private fun BreadcrumbBar(
+    currentPath: String,
+    onNavigate: (String) -> Unit,
+) {
+    val parts = buildList {
+        add("/")
+        if (currentPath != "/") {
+            val trimmed = currentPath.trimStart('/').trimEnd('/')
+            if (trimmed.isNotEmpty()) {
+                val segments = trimmed.split("/")
+                var accumulated = ""
+                for (seg in segments) {
+                    accumulated = "$accumulated/$seg"
+                    add(accumulated)
+                }
+            }
+        }
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        parts.forEachIndexed { index, path ->
+            if (index > 0) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowForward,
+                    contentDescription = null,
+                    modifier = Modifier.size(14.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            val label = if (index == 0) "root" else path.substringAfterLast("/")
+            Text(
+                text = label,
+                style = if (index == parts.lastIndex)
+                    MaterialTheme.typography.labelMedium
+                else
+                    MaterialTheme.typography.labelSmall,
+                color = if (index == parts.lastIndex)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .clickable { onNavigate(path) }
+                    .padding(horizontal = 4.dp, vertical = 2.dp),
+                maxLines = 1,
+            )
         }
     }
 }

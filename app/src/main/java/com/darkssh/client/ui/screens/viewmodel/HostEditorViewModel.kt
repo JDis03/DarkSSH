@@ -21,7 +21,7 @@ class HostEditorViewModel
         private val hostRepository: HostRepository,
         private val pubkeyRepository: PubkeyRepository,
     ) : ViewModel() {
-        private val hostId: Long = savedStateHandle["hostId"] ?: -1L
+        private val hostId: Long = savedStateHandle.get<String>("hostId")?.toLongOrNull() ?: -1L
 
         private val _host = MutableStateFlow<Host?>(null)
         val host: StateFlow<Host?> = _host

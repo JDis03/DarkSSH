@@ -5,8 +5,8 @@ sealed class Screen(
 ) {
     data object HostList : Screen("host_list")
 
-    data object HostEditor : Screen("host_editor?hostId={hostId}") {
-        fun createRoute(hostId: Long = -1L): String = if (hostId == -1L) "host_editor" else "host_editor?hostId=$hostId"
+    data object HostEditor : Screen("host_editor/{hostId}") {
+        fun createRoute(hostId: Long = -1L): String = "host_editor/$hostId"
     }
 
     data object Console : Screen("console/{hostId}") {
@@ -30,6 +30,8 @@ sealed class Screen(
     }
 
     data object Settings : Screen("settings")
+    
+    data object ServerSettings : Screen("server_settings")
 }
 
 enum class BottomTab(val route: String) {

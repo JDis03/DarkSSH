@@ -28,6 +28,7 @@ import com.darkssh.client.ui.screens.GeneratePubkeyScreen
 import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.HostListScreen
 import com.darkssh.client.ui.screens.PubkeyListScreen
+import com.darkssh.client.ui.screens.ServerSettingsScreen
 import com.darkssh.client.ui.screens.SettingsScreen
 import com.darkssh.client.ui.screens.SftpScreen
 
@@ -133,10 +134,17 @@ fun DarkSSHNavHost(
             composable(BottomTab.Settings.route) {
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
+                    onServerSettings = { navController.navigate(Screen.ServerSettings.route) },
+                )
+            }
+            
+            composable(Screen.ServerSettings.route) {
+                ServerSettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
                 )
             }
 
-            composable(Screen.HostEditor.route) {
+            composable(Screen.HostEditor.route) { backStackEntry ->
                 HostEditorScreen(
                     onSave = { navController.popBackStack() },
                     onCancel = { navController.popBackStack() },

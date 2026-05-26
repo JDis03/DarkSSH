@@ -19,4 +19,7 @@
     <string name="notification_channel_connections">SSH Connections</string>
     <string name="notification_channel_connections_desc">Active SSH terminal sessions</string>
     <string name="default_port">22</string>
+    <string name="copy_text">Copy</string>
+    <string name="paste_text">Paste</string>
+    <string name="text_selection_more">More…</string>
 </resources>

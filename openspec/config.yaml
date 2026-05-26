@@ -1,0 +1,44 @@
+schema: spec-driven
+
+context: |
+  Language: English
+  All artifacts must be written in English (proposals, design docs, tasks, specs).
+  
+  Note: The user will communicate with you in Spanish, but you should generate 
+  all documentation and artifacts in English for consistency with the codebase.
+  
+  # DarkSSH Project Context
+  Tech stack:
+    - Language: Kotlin
+    - UI Framework: Jetpack Compose + Material 3
+    - DI: Hilt (Dagger)
+    - Database: Room
+    - SSH Library: ConnectBot sshlib (org.connectbot:sshlib)
+    - Terminal: Termux terminal-view + terminal-emulator (copied into project)
+    - Crypto Provider: Conscrypt
+    - Min SDK: 24 (Android 7.0)
+    - Target SDK: 35
+    - Compile SDK: 36
+  
+  Architecture:
+    - DarkSSH: Modern SSH client built from scratch
+    - TerminalBridge: Connects SSH transport to Termux TerminalEmulator
+    - DarkTerminalSession: Extends TerminalSession, bridges SSH I/O
+    - TerminalView: Termux canvas-based rendering with drawTextRun (ligatures)
+    - TerminalRenderer: Text rendering with Android text shaper
+    - ConsoleScreen: Jetpack Compose wrapper for TerminalView (AndroidView)
+    - SftpScreen: SFTP file browser with MediaStore downloads
+  
+  Constraints:
+    - Git branch: dev (never push unless user explicitly asks)
+    - Conventional commits in English (feat:, fix:, refactor:)
+    - No termlib dependency (migrated to Termux terminal-view)
+    - Terminal rendering: canvas.drawTextRun() for ligature support
+    - Emulator initialization: wait for view dimensions before creating emulator
+    - Screen updates: direct callback to view.onScreenUpdated() (no Compose recomposition)
+    - IME management: handled in ConsoleScreen only (not in Terminal.kt)
+  
+  References:
+    - ConnectBot: /home/dark/Project/clientssh/connectbot/ (SSH patterns)
+    - Termux: /home/dark/Project/clientssh/termux-app-new/ (terminal reference)
+    - RustDesk: /home/dark/Project/rustdesk/ (SFTP UI reference)

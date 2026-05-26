@@ -7,6 +7,7 @@ import android.content.ServiceConnection
 import android.graphics.Color
 import android.os.Bundle
 import android.os.IBinder
+import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -66,5 +67,45 @@ class MainActivity : ComponentActivity() {
             isBound = false
         }
         terminalService = null
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            // Ctrl+Shift+V = Paste from clipboard
+            if (event.isCtrlPressed && event.isShiftPressed && event.keyCode == KeyEvent.KEYCODE_V) {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                val clip = clipboard.primaryClip
+                if (clip != null && clip.itemCount > 0) {
+                    val text = clip.getItemAt(0).text?.toString() ?: ""
+                    if (text.isNotEmpty()) {
+                        terminalService?.bridges?.value?.forEach { bridge ->
+                            if (bridge.isConnected.value) {
+                                bridge.write(text.encodeToByteArray())
+                            }
+                        }
+                    }
+                }
+                return true
+            }
+
+            // Volume Up = Increase font size (only when terminal is active)
+            if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+                val bridge = terminalService?.bridges?.value?.firstOrNull { it.isConnected.value }
+                if (bridge != null) {
+                    bridge.increaseFontSize()
+                    return true
+                }
+            }
+
+            // Volume Down = Decrease font size (only when terminal is active)
+            if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                val bridge = terminalService?.bridges?.value?.firstOrNull { it.isConnected.value }
+                if (bridge != null) {
+                    bridge.decreaseFontSize()
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 }

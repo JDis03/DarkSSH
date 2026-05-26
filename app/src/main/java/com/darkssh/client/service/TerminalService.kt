@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
@@ -13,6 +14,7 @@ import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.transport.SftpClient
 import com.darkssh.client.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -21,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.security.KeyPair
 import java.util.concurrent.ConcurrentHashMap
@@ -43,10 +46,13 @@ class TerminalService : Service() {
     private val _bridges = MutableStateFlow<List<TerminalBridge>>(emptyList())
     val bridges: StateFlow<List<TerminalBridge>> = _bridges
 
+    private val sftpClients = ConcurrentHashMap<Long, SftpClient>()
+
     val loadedKeypairs: ConcurrentHashMap<String, KeyPair> = ConcurrentHashMap()
 
     @Inject lateinit var hostRepository: HostRepository
     @Inject lateinit var knownHostRepository: KnownHostRepository
+    @Inject lateinit var clipboardManager: ClipboardManager
 
     private val binder = TerminalBinder()
 
@@ -74,7 +80,7 @@ class TerminalService : Service() {
                 stopSelf()
             }
         }
-        return START_NOT_STICKY
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -84,6 +90,10 @@ class TerminalService : Service() {
         serviceJob.cancel()
         _bridges.value.forEach { it.close() }
         _bridges.value = emptyList()
+        sftpClients.forEach { (_, client) ->
+            runBlocking { client.disconnect() }
+        }
+        sftpClients.clear()
         Timber.d("TerminalService destroyed")
     }
 
@@ -93,7 +103,7 @@ class TerminalService : Service() {
     }
 
     fun openConnection(host: Host): TerminalBridge {
-        val bridge = TerminalBridge(host, this, knownHostRepository)
+        val bridge = TerminalBridge(host, this, knownHostRepository, clipboardManager)
         _bridges.value = _bridges.value + bridge
 
         val notification = createConnectionNotification(host)

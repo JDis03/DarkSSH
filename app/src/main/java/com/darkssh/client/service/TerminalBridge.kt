@@ -1,9 +1,14 @@
 package com.darkssh.client.service
 
-import android.os.Looper
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Typeface
 import androidx.compose.ui.graphics.Color
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.terminal.DarkTerminalSession
+import com.darkssh.client.terminal.emulator.TerminalEmulator
+import com.darkssh.client.terminal.emulator.TerminalSessionClient
 import com.darkssh.client.transport.AbsTransport
 import com.darkssh.client.transport.SSH
 import kotlinx.coroutines.CancellationException
@@ -18,21 +23,33 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import org.connectbot.terminal.ProgressState
-import org.connectbot.terminal.TerminalDimensions
-import org.connectbot.terminal.TerminalEmulator
-import org.connectbot.terminal.TerminalEmulatorFactory
 import timber.log.Timber
 
 class TerminalBridge(
     val host: Host,
     private val terminalService: TerminalService,
     private val knownHostRepository: KnownHostRepository,
-) {
-    // Local echo control
-    private var localEchoEnabled = false
-    private var lastInputTime = 0L
-    private var lastServerResponse = 0L
+    private val clipboardManager: ClipboardManager,
+) : TerminalSessionClient {
+    private val _fontSize = MutableStateFlow(14f)
+    val fontSize: StateFlow<Float> = _fontSize
+
+    private var lastFontResizeTime = 0L
+
+    fun increaseFontSize() {
+        val now = System.currentTimeMillis()
+        if (now - lastFontResizeTime < 80) return
+        lastFontResizeTime = now
+        _fontSize.value = (_fontSize.value + 2f).coerceAtMost(36f)
+    }
+
+    fun decreaseFontSize() {
+        val now = System.currentTimeMillis()
+        if (now - lastFontResizeTime < 80) return
+        lastFontResizeTime = now
+        _fontSize.value = (_fontSize.value - 2f).coerceAtLeast(8f)
+    }
+
     private val bridgeJob = SupervisorJob()
     private val bridgeScope = CoroutineScope(bridgeJob + Dispatchers.Main)
 
@@ -48,36 +65,11 @@ class TerminalBridge(
         private set
 
     @Volatile
-    var terminalEmulator: TerminalEmulator? = null
+    var darkTerminalSession: DarkTerminalSession? = null
         private set
-    
-    // Accumulate terminal output for rendering
-    private val terminalOutput = StringBuilder()
-    val terminalOutputFlow = MutableStateFlow("")
-    
-    fun appendTerminalOutput(text: String) {
-        // FILTRO PRELIMINAR para evitar acumular códigos problemáticos
-        val cleanText = text
-            .replace(Regex("\\u001B\\[[0-9;]*[mGKHfJABCDsuhl]"), "") // Códigos ANSI básicos
-            .replace(Regex("[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]"), "") // Caracteres de control (excepto \t, \n, \r)
-        
-        terminalOutput.append(cleanText)
-        
-        // Mantener solo las últimas 20 líneas para estabilidad
-        val lines = terminalOutput.toString().split('\n')
-        if (lines.size > 30) {
-            val recentLines = lines.takeLast(20).joinToString("\n")
-            terminalOutput.clear()
-            terminalOutput.append(recentLines)
-        }
-        
-        terminalOutputFlow.value = terminalOutput.toString()
-    }
-    
-    fun clearTerminalOutput() {
-        terminalOutput.clear()
-        terminalOutputFlow.value = ""
-    }
+
+    val terminalEmulator: TerminalEmulator?
+        get() = darkTerminalSession?.emulator
 
     @Volatile
     var columns: Int = 80
@@ -92,6 +84,9 @@ class TerminalBridge(
     private val _isDisconnected = MutableStateFlow(false)
     val isDisconnected: StateFlow<Boolean> = _isDisconnected
 
+    /** Called by Terminal composable to receive screen update notifications. */
+    var onScreenUpdate: (() -> Unit)? = null
+
     private val _promptRequest = MutableStateFlow<PromptRequest?>(null)
     val promptRequest: StateFlow<PromptRequest?> = _promptRequest
 
@@ -101,79 +96,32 @@ class TerminalBridge(
     private var relay: Relay? = null
     private var pendingPrompt: CompletableDeferred<PromptResponse>? = null
 
-    @Suppress("ktlint:standard:argument-list-wrapping")
     fun createTerminalEmulator() {
         try {
-            Timber.d("Creating TerminalEmulator with size ${columns}x${rows}")
-            
-            val onKeyboardInput: (ByteArray) -> Unit = { data -> 
-                Timber.d("⌨️ onKeyboardInput callback triggered! ${data.size} bytes: ${data.joinToString(" ") { "%02x".format(it) }}")
+            Timber.d("Creating DarkTerminalSession")
+
+            darkTerminalSession = DarkTerminalSession(5000, this)
+            darkTerminalSession?.setKeyboardListener { data ->
                 try {
                     write(data)
-                    lastInputTime = System.currentTimeMillis()
-                    
-                    // LOCAL ECHO: Solo para caracteres imprimibles cuando esté habilitado
-                    if (localEchoEnabled) {
-                        val dataString = String(data, Charsets.UTF_8)
-                        if (dataString.isPrintable()) {
-                            terminalEmulator?.writeInput(data)
-                            Timber.d("🔄 Local echo: '$dataString'")
-                        }
-                    }
                 } catch (e: Exception) {
                     Timber.e(e, "Failed to handle keyboard input")
                 }
             }
-            val onBell: () -> Unit = { Timber.d("Bell!") }
-            val onResize: (TerminalDimensions) -> Unit = { dims ->
-                try {
-                    columns = dims.columns
-                    rows = dims.rows
-                    transportOperations.trySend(
-                        TransportOperation.SetDimensions(dims.columns, dims.rows, 0, 0),
-                    )
-                } catch (e: Exception) {
-                    Timber.e(e, "Failed to handle resize")
-                }
-            }
-            val onTitleChanged: (String) -> Unit = { _ -> }
-            val onProgressChanged: (ProgressState, Int) -> Unit = { state, progress -> 
-                Timber.d("Terminal progress: state=$state, progress=$progress")
-            }
 
-            terminalEmulator = TerminalEmulatorFactory.create(
-                initialRows = maxOf(1, rows),     // Ensure positive rows
-                initialCols = maxOf(1, columns),  // Ensure positive columns
-                defaultForeground = Color.White,
-                defaultBackground = Color.Black,
-                onKeyboardInput = onKeyboardInput,
-                onBell = onBell,
-                onResize = onResize,
-                onClipboardCopy = { text ->
-                    // OSC 52 clipboard support
-                    Timber.d("Clipboard copy: ${text.length} chars")
-                },
-                onProgressChange = onProgressChanged,
-            )
-            
-            // Observe terminal snapshot for UI rendering
-            // Note: snapshot is internal, so we need to use reflection or modify termlib
-            // For now, we'll rely on the relay data flow
-            Timber.d("TerminalEmulator created successfully")
+            Timber.d("DarkTerminalSession created successfully (emulator will be created by TerminalView)")
         } catch (e: Exception) {
-            Timber.e(e, "Failed to create TerminalEmulator")
+            Timber.e(e, "Failed to create DarkTerminalSession")
             throw e
         }
     }
 
     fun startConnection() {
-        // Create TerminalEmulator on Main thread (required for Looper.getMainLooper())
         bridgeScope.launch(Dispatchers.Main) {
             try {
                 createTerminalEmulator()
-                Timber.d("TerminalEmulator created successfully")
-                
-                // Now start connection on IO thread
+                Timber.d("DarkTerminalSession created successfully")
+
                 bridgeScope.launch(Dispatchers.IO) {
                     try {
                         val ssh = SSH(host, this@TerminalBridge, terminalService, knownHostRepository)
@@ -187,7 +135,7 @@ class TerminalBridge(
                     }
                 }
             } catch (e: Exception) {
-                Timber.e(e, "Failed to create TerminalEmulator")
+                Timber.e(e, "Failed to create DarkTerminalSession")
                 dispatchDisconnect("Failed to initialize terminal")
             }
         }
@@ -219,9 +167,7 @@ class TerminalBridge(
                     when (operation) {
                         is TransportOperation.WriteData -> {
                             val bytes = operation.data
-                            android.util.Log.d("TerminalBridge", "📤 Processor: writing ${bytes.size} bytes: '${String(bytes, Charsets.UTF_8)}' hex=${bytes.joinToString(" ") { "%02x".format(it) }}")
                             val t = transport ?: continue
-                            android.util.Log.d("TerminalBridge", "📤 Transport: connected=${t.isConnected()}, sessionOpen=${t.isSessionOpen()}")
                             t.write(bytes)
                             t.flush()
                         }
@@ -241,32 +187,7 @@ class TerminalBridge(
 
     fun onRelayData(data: ByteArray) {
         try {
-            val dataStr = String(data, Charsets.UTF_8)
-            Timber.d("🔄 Relay data received: ${data.size} bytes: '${dataStr.replace("\n", "\\n").replace("\r", "\\r")}'")
-            
-            lastServerResponse = System.currentTimeMillis()
-            
-            // Auto-disable local echo if server is responding quickly
-            if (lastServerResponse - lastInputTime < 100) {
-                if (localEchoEnabled) {
-                    localEchoEnabled = false
-                    Timber.d("🔇 Local echo disabled - server is responding")
-                }
-            }
-            
-            // Feed data to BOTH terminal emulator AND keep raw output for fallback rendering
-            terminalEmulator?.let { emulator ->
-                emulator.writeInput(data)
-                Timber.d("✅ Data written to terminal emulator")
-            } ?: run {
-                Timber.w("❌ TerminalEmulator is null, dropping ${data.size} bytes")
-            }
-            
-            // Solo acumular output si no hay emulador (fallback extremo)
-            if (terminalEmulator == null) {
-                appendTerminalOutput(dataStr)
-            }
-            // Con emulador funcionando, NO necesitamos acumular texto crudo
+            darkTerminalSession?.append(data)
         } catch (e: Exception) {
             Timber.e(e, "💥 Failed to process ${data.size} bytes")
         }
@@ -290,6 +211,8 @@ class TerminalBridge(
         transportOperations.close()
         transport?.close()
         transport = null
+        darkTerminalSession?.finish()
+        darkTerminalSession = null
         bridgeJob.cancel()
         cancelPendingPrompt()
         _isConnected.value = false
@@ -300,31 +223,11 @@ class TerminalBridge(
         columns = cols
         rows = newRows
         transportOperations.trySend(TransportOperation.SetDimensions(cols, newRows, width, height))
+        darkTerminalSession?.updateSize(cols, newRows, 0, 0)
     }
 
     fun write(data: ByteArray) {
         transportOperations.trySend(TransportOperation.WriteData(data))
-    }
-    
-    // Control functions for local echo
-    fun enableLocalEcho() {
-        localEchoEnabled = true
-        Timber.d("🔊 Local echo enabled")
-    }
-    
-    fun disableLocalEcho() {
-        localEchoEnabled = false
-        Timber.d("🔇 Local echo disabled")
-    }
-    
-    fun toggleLocalEcho(): Boolean {
-        localEchoEnabled = !localEchoEnabled
-        Timber.d("🎚️ Local echo toggled: $localEchoEnabled")
-        return localEchoEnabled
-    }
-
-    private fun flush() {
-        transportOperations.trySend(TransportOperation.Flush)
     }
 
     suspend fun promptForPassword(): String? {
@@ -384,11 +287,64 @@ class TerminalBridge(
         pendingPrompt = null
         _promptRequest.value = null
     }
-    
-    // Helper function for local echo
-    private fun String.isPrintable(): Boolean {
-        return this.all { char -> 
-            char.isLetterOrDigit() || char in " !\"#\$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
-        }
+
+    // TerminalSessionClient implementation
+
+    override fun onTextChanged(session: com.darkssh.client.terminal.emulator.TerminalSession) {
+        onScreenUpdate?.invoke()
     }
+
+    override fun onTitleChanged(session: com.darkssh.client.terminal.emulator.TerminalSession) {
+        Timber.d("Terminal title changed")
+    }
+
+    override fun onSessionFinished(session: com.darkssh.client.terminal.emulator.TerminalSession) {
+        dispatchDisconnect("Session finished")
+    }
+
+    override fun onCopyTextToClipboard(
+        session: com.darkssh.client.terminal.emulator.TerminalSession,
+        text: String,
+    ) {
+        val preview = if (text.length > 50) text.take(50) + "..." else text
+        Timber.d("[OSC52] Copied to clipboard: $preview")
+        
+        val clip = ClipData.newPlainText("terminal", text)
+        clipboardManager.setPrimaryClip(clip)
+    }
+
+    override fun onPasteTextFromClipboard(session: com.darkssh.client.terminal.emulator.TerminalSession?) {
+        Timber.d("Paste from clipboard requested")
+    }
+
+    override fun onBell(session: com.darkssh.client.terminal.emulator.TerminalSession) {
+        Timber.d("Bell!")
+    }
+
+    override fun onColorsChanged(session: com.darkssh.client.terminal.emulator.TerminalSession) {
+        Timber.d("Colors changed")
+    }
+
+    override fun onTerminalCursorStateChange(state: Boolean) {
+        // Cursor visibility changed
+    }
+
+    override fun setTerminalShellPid(
+        session: com.darkssh.client.terminal.emulator.TerminalSession,
+        pid: Int,
+    ) {
+        // No shell PID for SSH sessions
+    }
+
+    override fun getTerminalCursorStyle(): Int? {
+        return null // Use default cursor style
+    }
+
+    override fun logError(tag: String, message: String) = Timber.e("$tag: $message")
+    override fun logWarn(tag: String, message: String) = Timber.w("$tag: $message")
+    override fun logInfo(tag: String, message: String) = Timber.i("$tag: $message")
+    override fun logDebug(tag: String, message: String) = Timber.d("$tag: $message")
+    override fun logVerbose(tag: String, message: String) = Timber.v("$tag: $message")
+    override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) = Timber.e(e, "$tag: $message")
+    override fun logStackTrace(tag: String, e: Exception) = Timber.e(e, tag)
 }
