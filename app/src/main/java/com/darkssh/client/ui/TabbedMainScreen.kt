@@ -1,5 +1,6 @@
 package com.darkssh.client.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -55,6 +56,11 @@ fun TabbedMainScreen(
         if (pagerState.currentPage != currentTabIndex && currentTabIndex < tabs.size) {
             pagerState.animateScrollToPage(currentTabIndex)
         }
+    }
+
+    // Handle back button: always go to HostList first before exiting app
+    BackHandler(enabled = tabs.isNotEmpty() && !showHostPicker) {
+        showHostPicker = true
     }
 
     Surface(
@@ -150,6 +156,11 @@ fun TabbedMainScreen(
 
         // Host picker (simplified - just shows host list)
         if (showHostPicker) {
+            // Handle back when host picker is shown: close it if there are tabs open
+            BackHandler(enabled = tabs.isNotEmpty()) {
+                showHostPicker = false
+            }
+            
             Surface(modifier = Modifier.fillMaxSize()) {
                 HostListScreen(
                     onHostClick = { host ->
