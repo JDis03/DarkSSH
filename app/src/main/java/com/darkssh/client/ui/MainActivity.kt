@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             DarkSSHTheme {
-                DarkSSHNavHost(
+                TabbedMainScreen(
                     terminalService = terminalService,
                 )
             }

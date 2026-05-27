@@ -1,6 +1,7 @@
 package com.darkssh.client.data
 
 import androidx.room.TypeConverter
+import com.darkssh.client.data.entity.TabType
 
 class Converters {
     @TypeConverter
@@ -13,4 +14,10 @@ class Converters {
         } else {
             value.split(",").map { it.trim().toLong() }
         }
+
+    @TypeConverter
+    fun fromTabType(value: TabType): String = value.name
+
+    @TypeConverter
+    fun toTabType(value: String): TabType = TabType.valueOf(value)
 }
