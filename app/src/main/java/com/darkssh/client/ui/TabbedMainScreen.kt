@@ -85,12 +85,12 @@ fun TabbedMainScreen(
                 // Show host list when no tabs
                 HostListScreen(
                     onHostClick = { host ->
-                        tabManager.createTab(TabType.SSH_TERMINAL, host.id, host.nickname)
+                        tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
                     },
                     onAddHostClick = { /* TODO: Navigate to host editor */ },
                     onEditHostClick = { /* TODO: Navigate to host editor */ },
                     onSftpClick = { host ->
-                        tabManager.createTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
+                        tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
                     },
                 )
             } else {
@@ -164,13 +164,13 @@ fun TabbedMainScreen(
             Surface(modifier = Modifier.fillMaxSize()) {
                 HostListScreen(
                     onHostClick = { host ->
-                        tabManager.createTab(TabType.SSH_TERMINAL, host.id, host.nickname)
+                        tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
                         showHostPicker = false
                     },
                     onAddHostClick = { /* TODO */ },
                     onEditHostClick = { /* TODO */ },
                     onSftpClick = { host ->
-                        tabManager.createTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
+                        tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
                         showHostPicker = false
                     },
                 )

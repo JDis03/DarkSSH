@@ -40,25 +40,48 @@ class TabManager
             }
         }
 
-        fun createTab(
-            type: TabType,
-            hostId: Long,
-            title: String = "",
-        ) {
-            viewModelScope.launch {
-                val position = _tabs.value.size
-                val tab =
-                    Tab(
-                        type = type,
-                        hostId = hostId,
-                        position = position,
-                        title = title,
-                    )
-                tabRepository.insertTab(tab)
-                // Switch to newly created tab
-                _currentTabIndex.value = position
-            }
+    fun createTab(
+        type: TabType,
+        hostId: Long,
+        title: String = "",
+    ) {
+        viewModelScope.launch {
+            val position = _tabs.value.size
+            val tab =
+                Tab(
+                    type = type,
+                    hostId = hostId,
+                    position = position,
+                    title = title,
+                )
+            tabRepository.insertTab(tab)
+            // Switch to newly created tab
+            _currentTabIndex.value = position
         }
+    }
+
+    /**
+     * Creates a tab or switches to an existing one with the same host and type.
+     * If a tab already exists for this host+type combination, switches to it.
+     * Otherwise, creates a new tab.
+     */
+    fun createOrSwitchToTab(
+        type: TabType,
+        hostId: Long,
+        title: String = "",
+    ) {
+        val existingTabIndex = _tabs.value.indexOfFirst { 
+            it.type == type && it.hostId == hostId 
+        }
+        
+        if (existingTabIndex >= 0) {
+            // Tab already exists, switch to it
+            switchTab(existingTabIndex)
+        } else {
+            // Create new tab
+            createTab(type, hostId, title)
+        }
+    }
 
         fun closeTab(tabId: String) {
             viewModelScope.launch {

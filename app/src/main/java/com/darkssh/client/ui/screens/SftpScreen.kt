@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -289,26 +290,9 @@ fun SftpScreen(
         else -> {}
     }
 
-    Scaffold(
-        modifier = modifier,
-        contentWindowInsets = WindowInsets.imeAnimationTarget,
-        topBar = {
-            if (!inTab) {
-                TopAppBar(
-                    title = {
-                        Text(
-                            uiState.currentPath,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
+    // Actions Composable - to reuse in both TopAppBar modes
+    @Composable
+    fun SftpActions() {
                     IconButton(onClick = { viewModel.navigateUp() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
                     }
@@ -398,8 +382,37 @@ fun SftpScreen(
                             }
                         }
                     }
-                },
-            )
+    }
+
+    Scaffold(
+        modifier = modifier,
+        contentWindowInsets = WindowInsets.imeAnimationTarget,
+        topBar = {
+            // Show TopAppBar with different content based on inTab
+            if (!inTab) {
+                // Full TopAppBar with title and navigation
+                TopAppBar(
+                    title = {
+                        Text(
+                            uiState.currentPath,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    actions = { SftpActions() },
+                )
+            } else {
+                // Compact TopAppBar with only actions (for tab mode)
+                TopAppBar(
+                    title = { }, // Empty title, TabBar handles this
+                    actions = { SftpActions() },
+                )
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
