@@ -3,6 +3,7 @@ package com.darkssh.client.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.AlertDialog
@@ -52,7 +53,7 @@ fun TabbedMainScreen(
         modifier = Modifier.fillMaxSize(),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column {
+        Column(modifier = Modifier.statusBarsPadding()) {
             // Tab bar at top
             if (tabs.isNotEmpty()) {
                 TabBar(
