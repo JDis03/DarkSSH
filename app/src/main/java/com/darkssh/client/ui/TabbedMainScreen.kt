@@ -40,6 +40,7 @@ fun TabbedMainScreen(
     val tabs by tabManager.tabs.collectAsState()
     val pagerState = rememberPagerState(pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
+    val currentTabIndex by tabManager.currentTabIndex.collectAsState()
 
     var showHostPicker by remember { mutableStateOf(false) }
     var showAddTabDialog by remember { mutableStateOf(false) }
@@ -47,6 +48,13 @@ fun TabbedMainScreen(
     // Sync pager with tab manager
     LaunchedEffect(pagerState.currentPage) {
         tabManager.switchTab(pagerState.currentPage)
+    }
+
+    // Sync tab manager with pager (for programmatic tab changes)
+    LaunchedEffect(currentTabIndex) {
+        if (pagerState.currentPage != currentTabIndex && currentTabIndex < tabs.size) {
+            pagerState.animateScrollToPage(currentTabIndex)
+        }
     }
 
     Surface(
@@ -92,12 +100,14 @@ fun TabbedMainScreen(
                                 hostId = tab.hostId,
                                 onBack = { /* Tabs don't have back */ },
                                 terminalService = terminalService,
+                                inTab = true,
                             )
                         }
                         TabType.SFTP_BROWSER -> {
                             SftpScreen(
                                 hostId = tab.hostId,
                                 onBack = { /* Tabs don't have back */ },
+                                inTab = true,
                             )
                         }
                     }

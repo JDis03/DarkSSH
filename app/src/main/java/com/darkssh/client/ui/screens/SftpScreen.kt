@@ -98,6 +98,7 @@ fun SftpScreen(
     hostId: Long,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    inTab: Boolean = false,
     viewModel: SftpViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -292,10 +293,11 @@ fun SftpScreen(
         modifier = modifier,
         contentWindowInsets = WindowInsets.imeAnimationTarget,
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        uiState.currentPath,
+            if (!inTab) {
+                TopAppBar(
+                    title = {
+                        Text(
+                            uiState.currentPath,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
@@ -398,6 +400,7 @@ fun SftpScreen(
                     }
                 },
             )
+            }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { paddingValues ->
@@ -625,17 +628,20 @@ private fun SftpErrorScreen(
     message: String,
     onRetry: () -> Unit,
     onBack: () -> Unit,
+    inTab: Boolean = false,
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("SFTP Connection Failed") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
+            if (!inTab) {
+                TopAppBar(
+                    title = { Text("SFTP Connection Failed") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                )
+            }
         },
     ) { paddingValues ->
         Column(

@@ -74,6 +74,7 @@ fun ConsoleScreen(
     onBack: () -> Unit,
     terminalService: TerminalService? = null,
     modifier: Modifier = Modifier,
+    inTab: Boolean = false,
     viewModel: ConsoleViewModel = hiltViewModel(),
 ) {
     val bridge by viewModel.bridge.collectAsState()
@@ -114,8 +115,9 @@ fun ConsoleScreen(
         modifier = modifier,
         contentWindowInsets = WindowInsets.imeAnimationTarget,
         topBar = {
-            TopAppBar(
-                title = { Text(host?.nickname?.ifBlank { host?.hostname } ?: "Terminal") },
+            if (!inTab) {
+                TopAppBar(
+                    title = { Text(host?.nickname?.ifBlank { host?.hostname } ?: "Terminal") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -167,6 +169,7 @@ fun ConsoleScreen(
                     }
                 },
             )
+            }
         },
     ) { innerPadding ->
         val layoutDirection = LocalLayoutDirection.current
