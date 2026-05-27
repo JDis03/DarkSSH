@@ -1,6 +1,7 @@
 package com.darkssh.client
 
 import android.app.Application
+import com.darkssh.client.util.FileLoggingTree
 import dagger.hilt.android.HiltAndroidApp
 import org.apache.sshd.common.util.OsUtils
 import org.apache.sshd.common.util.io.PathUtils
@@ -10,16 +11,32 @@ import java.security.Security
 
 @HiltAndroidApp
 class DarkSSHApp : Application() {
+    
+    private var fileLoggingTree: FileLoggingTree? = null
+    
     override fun onCreate() {
         super.onCreate()
+        
+        // Always plant FileLoggingTree for debug logs
+        fileLoggingTree = FileLoggingTree(this)
+        Timber.plant(fileLoggingTree!!)
+        
+        // Also plant DebugTree for logcat in debug builds
         if (BuildConfig.DEBUG) {
             Timber.plant(Timber.DebugTree())
         }
+        
+        Timber.i("DarkSSH", "App started - version ${BuildConfig.VERSION_NAME}")
         
         // Configure Apache SSHD for Android
         initializeSshdForAndroid()
         
         instance = this
+    }
+    
+    override fun onTerminate() {
+        fileLoggingTree?.close()
+        super.onTerminate()
     }
     
     private fun initializeSshdForAndroid() {
@@ -49,5 +66,7 @@ class DarkSSHApp : Application() {
     companion object {
         lateinit var instance: DarkSSHApp
             private set
+        
+        fun getFileLoggingTree(): FileLoggingTree? = instance.fileLoggingTree
     }
 }

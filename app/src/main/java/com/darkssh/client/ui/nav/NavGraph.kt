@@ -24,6 +24,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.ConsoleScreen
+import com.darkssh.client.ui.screens.DebugLogsScreen
 import com.darkssh.client.ui.screens.GeneratePubkeyScreen
 import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.HostListScreen
@@ -135,11 +136,18 @@ fun DarkSSHNavHost(
                 SettingsScreen(
                     onBack = { navController.popBackStack() },
                     onServerSettings = { navController.navigate(Screen.ServerSettings.route) },
+                    onDebugLogs = { navController.navigate(Screen.DebugLogs.route) },
                 )
             }
             
             composable(Screen.ServerSettings.route) {
                 ServerSettingsScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                )
+            }
+            
+            composable(Screen.DebugLogs.route) {
+                DebugLogsScreen(
                     onNavigateBack = { navController.popBackStack() },
                 )
             }

@@ -32,6 +32,8 @@ sealed class Screen(
     data object Settings : Screen("settings")
     
     data object ServerSettings : Screen("server_settings")
+    
+    data object DebugLogs : Screen("debug_logs")
 }
 
 enum class BottomTab(val route: String) {

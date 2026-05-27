@@ -10,6 +10,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -39,6 +40,7 @@ import com.darkssh.client.util.FontManager
 fun SettingsScreen(
     onBack: () -> Unit,
     onServerSettings: () -> Unit = {},
+    onDebugLogs: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -75,6 +77,21 @@ fun SettingsScreen(
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                 },
                 modifier = Modifier.clickable { onServerSettings() }
+            )
+            
+            HorizontalDivider()
+            
+            // Debug Logs Section
+            ListItem(
+                headlineContent = { Text("Debug Logs") },
+                supportingContent = { Text("View transfer logs and debug info") },
+                leadingContent = {
+                    Icon(Icons.Default.BugReport, contentDescription = null)
+                },
+                trailingContent = {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                },
+                modifier = Modifier.clickable { onDebugLogs() }
             )
             
             HorizontalDivider()

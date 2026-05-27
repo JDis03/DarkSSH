@@ -28,6 +28,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.ContentCut
+import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -78,6 +81,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.darkssh.client.transport.SftpAuthState
 import com.darkssh.client.transport.SftpEntry
+import kotlinx.coroutines.launch
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
 import com.darkssh.client.ui.screens.viewmodel.SortBy
@@ -99,6 +103,12 @@ fun SftpScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    
+    // Debug: Log when transferProgress changes
+    androidx.compose.runtime.LaunchedEffect(uiState.transferProgress) {
+        timber.log.Timber.d("SftpScreen: transferProgress changed to ${uiState.transferProgress?.percentage}%")
+    }
     var showMkdirDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showRenameDialog by remember { mutableStateOf<SftpEntry?>(null) }
@@ -313,6 +323,19 @@ fun SftpScreen(
                     ) {
                         Icon(Icons.Default.Upload, contentDescription = "Upload")
                     }
+                    // Paste button (only visible when clipboard has data)
+                    if (viewModel.hasClipboardData()) {
+                        IconButton(onClick = { viewModel.pasteFiles() }) {
+                            Icon(
+                                Icons.Default.ContentPaste,
+                                contentDescription = "Paste (${viewModel.getClipboardFileCount()} files)",
+                                tint = when (viewModel.getClipboardOperation()) {
+                                    com.darkssh.client.ui.screens.viewmodel.SftpClipboard.Operation.CUT -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
+                            )
+                        }
+                    }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(Icons.Default.Sort, contentDescription = "Sort")
@@ -390,8 +413,14 @@ fun SftpScreen(
                 onNavigate = { path -> viewModel.listDirectory(path) },
             )
 
+            // Show transfer progress dialog (like File Manager+)
             uiState.transferProgress?.let { progress ->
-                TransferProgressBar(progress)
+                TransferProgressDialog(
+                    progress = progress,
+                    isUpload = true,  // TODO: Detect if upload or download
+                    onHide = { /* TODO: Hide but keep transfer running */ },
+                    onCancel = { /* TODO: Cancel transfer */ }
+                )
             }
 
             if (uiState.isLoading) {
@@ -418,6 +447,18 @@ fun SftpScreen(
                             onDelete = { showDeleteDialog = entry },
                             onDownload = {
                                 viewModel.requestDownload(entry.path, entry.name)
+                            },
+                            onCopy = {
+                                viewModel.copyFiles(listOf(entry))
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Copied ${entry.name}")
+                                }
+                            },
+                            onCut = {
+                                viewModel.cutFiles(listOf(entry))
+                                scope.launch {
+                                    snackbarHostState.showSnackbar("Cut ${entry.name}")
+                                }
                             },
                         )
                     }
@@ -628,6 +669,8 @@ private fun SftpEntryRow(
     onRename: () -> Unit,
     onDelete: () -> Unit,
     onDownload: () -> Unit,
+    onCopy: () -> Unit = {},
+    onCut: () -> Unit = {},
 ) {
     var showContext by remember { mutableStateOf(false) }
 
@@ -693,6 +736,26 @@ private fun SftpEntryRow(
                 expanded = showContext,
                 onDismissRequest = { showContext = false },
             ) {
+                DropdownMenuItem(
+                    text = { Text("Copy") },
+                    onClick = {
+                        showContext = false
+                        onCopy()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.ContentCopy, contentDescription = null)
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text("Cut") },
+                    onClick = {
+                        showContext = false
+                        onCut()
+                    },
+                    leadingIcon = {
+                        Icon(Icons.Default.ContentCut, contentDescription = null)
+                    },
+                )
                 DropdownMenuItem(
                     text = { Text("Rename") },
                     onClick = {

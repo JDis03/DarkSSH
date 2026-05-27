@@ -47,3 +47,7 @@ sshlib/
 
 # Other
 mosh/
+
+# Reference APKs (decompiled sources)
+reference/
+pictures/
