@@ -81,7 +81,7 @@ fun TabbedMainScreen(
         color = MaterialTheme.colorScheme.background,
     ) {
         Column(modifier = Modifier.statusBarsPadding()) {
-            // Tab bar or back button
+            // Tab bar
             if (tabs.isNotEmpty()) {
                 TabBar(
                     tabs = tabs,
@@ -89,16 +89,6 @@ fun TabbedMainScreen(
                     onAddTab = { showAddTabDialog = true },
                     onCloseTab = { tabId ->
                         tabManager.closeTab(tabId)
-                    },
-                )
-            } else if (tabs.isEmpty()) {
-                // Show back button when no tabs (empty state)
-                androidx.compose.material3.TopAppBar(
-                    title = { Text("Tabs") },
-                    navigationIcon = {
-                        androidx.compose.material3.IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                        }
                     },
                 )
             }
