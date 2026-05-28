@@ -39,9 +39,11 @@ fun TabbedMainScreen(
     tabManager: TabManager = hiltViewModel(),
 ) {
     val tabs by tabManager.tabs.collectAsState()
-    val pagerState = rememberPagerState(pageCount = { tabs.size })
-    val scope = rememberCoroutineScope()
     val currentTabIndex by tabManager.currentTabIndex.collectAsState()
+    // Ensure initialPage is valid (within bounds)
+    val initialPage = if (tabs.isNotEmpty()) currentTabIndex.coerceIn(0, tabs.size - 1) else 0
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
+    val scope = rememberCoroutineScope()
 
     var showHostPicker by remember { mutableStateOf(tabs.isEmpty()) }
     var showAddTabDialog by remember { mutableStateOf(false) }
