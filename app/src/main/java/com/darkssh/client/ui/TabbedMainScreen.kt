@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -44,6 +45,7 @@ import kotlinx.coroutines.launch
 fun TabbedMainScreen(
     terminalService: TerminalService? = null,
     tabManager: TabManager = hiltViewModel(),
+    onBack: () -> Unit = {},
 ) {
     val tabs by tabManager.tabs.collectAsState()
     val currentTabIndex by tabManager.currentTabIndex.collectAsState()
@@ -79,7 +81,7 @@ fun TabbedMainScreen(
         color = MaterialTheme.colorScheme.background,
     ) {
         Column(modifier = Modifier.statusBarsPadding()) {
-            // Tab bar at top
+            // Tab bar or back button
             if (tabs.isNotEmpty()) {
                 TabBar(
                     tabs = tabs,
@@ -87,6 +89,16 @@ fun TabbedMainScreen(
                     onAddTab = { showAddTabDialog = true },
                     onCloseTab = { tabId ->
                         tabManager.closeTab(tabId)
+                    },
+                )
+            } else if (tabs.isEmpty()) {
+                // Show back button when no tabs (empty state)
+                androidx.compose.material3.TopAppBar(
+                    title = { Text("Tabs") },
+                    navigationIcon = {
+                        androidx.compose.material3.IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
                     },
                 )
             }

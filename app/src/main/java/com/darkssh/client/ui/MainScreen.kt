@@ -21,6 +21,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.HostListScreen
@@ -37,10 +38,15 @@ fun MainScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showServerSettings by remember { mutableStateOf(false) }
     var showDebugLogs by remember { mutableStateOf(false) }
+    
+    // Get tabs state to conditionally hide bottom bar
+    val tabs by tabManager.tabs.collectAsState()
 
     Scaffold(
         bottomBar = {
-            NavigationBar {
+            // Only show bottom bar when in Hosts or Settings, not when tabs are open
+            if (selectedTab != 1 || tabs.isEmpty()) {
+                NavigationBar {
                 NavigationBarItem(
                     icon = { Icon(Icons.Default.Computer, contentDescription = null) },
                     label = { Text("Hosts") },
@@ -59,6 +65,7 @@ fun MainScreen(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
                 )
+                }
             }
         },
     ) { paddingValues ->
@@ -84,6 +91,7 @@ fun MainScreen(
                 TabbedMainScreen(
                     terminalService = terminalService,
                     tabManager = tabManager,
+                    onBack = { selectedTab = 0 }, // Back to Hosts
                 )
             }
             2 -> {
