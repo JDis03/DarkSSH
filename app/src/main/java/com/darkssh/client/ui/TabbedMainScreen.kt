@@ -52,15 +52,8 @@ fun TabbedMainScreen(
     val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { tabs.size })
     val scope = rememberCoroutineScope()
 
-    var showHostPicker by remember { mutableStateOf(tabs.isEmpty()) }
+    var showHostPicker by remember { mutableStateOf(false) }
     var showAddTabDialog by remember { mutableStateOf(false) }
-
-    // Initialize host picker when tabs are empty
-    LaunchedEffect(tabs.isEmpty()) {
-        if (tabs.isEmpty()) {
-            showHostPicker = true
-        }
-    }
 
     // Sync pager with tab manager
     LaunchedEffect(pagerState.currentPage) {
