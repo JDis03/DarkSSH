@@ -17,10 +17,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.HostListScreen
 import com.darkssh.client.ui.screens.SettingsScreen
+import com.darkssh.client.ui.screens.ServerSettingsScreen
+import com.darkssh.client.ui.screens.DebugLogsScreen
 import com.darkssh.client.ui.viewmodel.TabManager
 
 @Composable
@@ -29,6 +35,8 @@ fun MainScreen(
     tabManager: TabManager = hiltViewModel(),
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showServerSettings by remember { mutableStateOf(false) }
+    var showDebugLogs by remember { mutableStateOf(false) }
 
     Scaffold(
         bottomBar = {
@@ -80,11 +88,25 @@ fun MainScreen(
             }
             2 -> {
                 // Tab 3: Settings
-                SettingsScreen(
-                    onBack = { selectedTab = 0 }, // Go back to Hosts
-                    onServerSettings = { /* TODO */ },
-                    onDebugLogs = { /* TODO */ },
-                )
+                when {
+                    showServerSettings -> {
+                        ServerSettingsScreen(
+                            onNavigateBack = { showServerSettings = false },
+                        )
+                    }
+                    showDebugLogs -> {
+                        DebugLogsScreen(
+                            onNavigateBack = { showDebugLogs = false },
+                        )
+                    }
+                    else -> {
+                        SettingsScreen(
+                            onBack = { selectedTab = 0 }, // Go back to Hosts
+                            onServerSettings = { showServerSettings = true },
+                            onDebugLogs = { showDebugLogs = true },
+                        )
+                    }
+                }
             }
         }
     }
