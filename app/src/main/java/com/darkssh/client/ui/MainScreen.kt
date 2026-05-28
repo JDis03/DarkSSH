@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.activity.ComponentActivity
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
@@ -155,9 +156,7 @@ fun MainScreen(
                 TextButton(
                     onClick = {
                         // Exit the app
-                        (System.getProperty("java.lang.Runtime") as? Any)?.let {
-                            Runtime.getRuntime().exit(0)
-                        }
+                        (context as? ComponentActivity)?.finishAffinity()
                     }
                 ) {
                     Text("Exit")
