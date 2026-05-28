@@ -86,13 +86,29 @@ class TabManager
         fun closeTab(tabId: String) {
             viewModelScope.launch {
                 val tab = tabRepository.getTabById(tabId) ?: return@launch
+                val closedTabIndex = _tabs.value.indexOfFirst { it.id == tabId }
+                
                 tabRepository.deleteTab(tab)
+                
                 // Reorder remaining tabs
                 val remainingTabs = _tabs.value.filter { it.id != tabId }
                 remainingTabs.forEachIndexed { index, t ->
                     if (t.position != index) {
                         tabRepository.updateTabPosition(t.id, index)
                     }
+                }
+                
+                // Adjust currentTabIndex if needed
+                if (closedTabIndex >= 0 && remainingTabs.isNotEmpty()) {
+                    // If closed tab was the current one, switch to the previous tab or the first one
+                    if (_currentTabIndex.value >= closedTabIndex) {
+                        _currentTabIndex.value = (_currentTabIndex.value - 1).coerceAtLeast(0)
+                    }
+                    // Ensure currentTabIndex is still valid
+                    _currentTabIndex.value = _currentTabIndex.value.coerceIn(0, remainingTabs.size - 1)
+                } else if (remainingTabs.isEmpty()) {
+                    // No tabs left, reset index
+                    _currentTabIndex.value = 0
                 }
             }
         }
