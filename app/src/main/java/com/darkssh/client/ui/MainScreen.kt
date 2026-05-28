@@ -22,6 +22,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
+import androidx.activity.compose.BackHandler
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.HostListScreen
@@ -41,6 +42,11 @@ fun MainScreen(
     
     // Get tabs state to conditionally hide bottom bar
     val tabs by tabManager.tabs.collectAsState()
+    
+    // Handle back: if in Tabs, go to Hosts; otherwise let system handle
+    BackHandler(enabled = selectedTab == 1) {
+        selectedTab = 0
+    }
 
     Scaffold(
         bottomBar = {
