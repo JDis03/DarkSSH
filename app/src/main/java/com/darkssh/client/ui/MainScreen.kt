@@ -6,16 +6,19 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tab
 import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,13 +42,30 @@ fun MainScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showServerSettings by remember { mutableStateOf(false) }
     var showDebugLogs by remember { mutableStateOf(false) }
+    var showExitDialog by remember { mutableStateOf(false) }
+    
+    // Get context for finishing activity
+    val context = LocalContext.current
     
     // Get tabs state to conditionally hide bottom bar
     val tabs by tabManager.tabs.collectAsState()
     
-    // Handle back: if in Tabs, go to Hosts; otherwise let system handle
-    BackHandler(enabled = selectedTab == 1) {
-        selectedTab = 0
+    // Handle back gesture
+    BackHandler {
+        when (selectedTab) {
+            1 -> {
+                // In Tabs: go to Hosts
+                selectedTab = 0
+            }
+            2 -> {
+                // In Settings: go to Hosts
+                selectedTab = 0
+            }
+            0 -> {
+                // In Hosts: ask for confirmation to exit
+                showExitDialog = true
+            }
+        }
     }
 
     Scaffold(
@@ -123,5 +143,31 @@ fun MainScreen(
                 }
             }
         }
+    }
+    
+    // Exit confirmation dialog
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Exit DarkSSH?") },
+            text = { Text("Are you sure you want to exit the application?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        // Exit the app
+                        (System.getProperty("java.lang.Runtime") as? Any)?.let {
+                            Runtime.getRuntime().exit(0)
+                        }
+                    }
+                ) {
+                    Text("Exit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
 }
