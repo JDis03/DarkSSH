@@ -46,6 +46,9 @@ class TerminalService : Service() {
     private val _bridges = MutableStateFlow<List<TerminalBridge>>(emptyList())
     val bridges: StateFlow<List<TerminalBridge>> = _bridges
 
+    private val _activeBridge = MutableStateFlow<TerminalBridge?>(null)
+    val activeBridge: StateFlow<TerminalBridge?> = _activeBridge
+
     private val sftpClients = ConcurrentHashMap<Long, SftpClient>()
 
     val loadedKeypairs: ConcurrentHashMap<String, KeyPair> = ConcurrentHashMap()
@@ -97,13 +100,13 @@ class TerminalService : Service() {
         Timber.d("TerminalService destroyed")
     }
 
-    suspend fun openConnection(hostId: Long): TerminalBridge? {
+    suspend fun openConnection(hostId: Long, tabId: String? = null): TerminalBridge? {
         val host = hostRepository.getHostById(hostId) ?: return null
-        return openConnection(host)
+        return openConnection(host, tabId)
     }
 
-    fun openConnection(host: Host): TerminalBridge {
-        val bridge = TerminalBridge(host, this, knownHostRepository, clipboardManager)
+    fun openConnection(host: Host, tabId: String? = null): TerminalBridge {
+        val bridge = TerminalBridge(host, this, knownHostRepository, clipboardManager, tabId)
         _bridges.value = _bridges.value + bridge
 
         val notification = createConnectionNotification(host)
@@ -113,10 +116,19 @@ class TerminalService : Service() {
         return bridge
     }
 
+    fun setActiveBridge(bridge: TerminalBridge?) {
+        _activeBridge.value = bridge
+    }
+
     fun onBridgeDisconnected(bridge: TerminalBridge, reason: DisconnectReason) {
         val currentBridges = _bridges.value.toMutableList()
         currentBridges.remove(bridge)
         _bridges.value = currentBridges
+
+        // Clear active bridge if it was the one disconnected
+        if (_activeBridge.value == bridge) {
+            _activeBridge.value = currentBridges.firstOrNull()
+        }
 
         bridge.close()
 

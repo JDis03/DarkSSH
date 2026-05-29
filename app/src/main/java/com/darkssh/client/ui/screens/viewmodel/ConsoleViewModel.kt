@@ -49,7 +49,7 @@ class ConsoleViewModel
             terminalService = service
         }
 
-        fun connect(hostId: Long) {
+        fun connect(hostId: Long, tabId: String? = null) {
             connectionJob?.cancel()
             observeJobs.forEach { it.cancel() }
             observeJobs.clear()
@@ -60,14 +60,21 @@ class ConsoleViewModel
 
                 val service = terminalService ?: return@launch
 
-                val existingBridge = service.bridges.value.find { it.host.id == hostId }
+                // If we have a tabId, look for bridge with matching tabId
+                // Otherwise, look for any bridge with matching hostId (legacy behavior)
+                val existingBridge = if (tabId != null) {
+                    service.bridges.value.find { it.tabId == tabId }
+                } else {
+                    service.bridges.value.find { it.host.id == hostId && !it.isDisconnected.value }
+                }
+
                 if (existingBridge != null && !existingBridge.isDisconnected.value) {
                     _bridge.value = existingBridge
                     _isDisconnected.value = false
                     _disconnectMessage.value = null
                     observeBridge(existingBridge)
                 } else {
-                    val b = service.openConnection(h)
+                    val b = service.openConnection(h, tabId)
                     _bridge.value = b
                     _isDisconnected.value = false
                     _disconnectMessage.value = null

@@ -117,7 +117,7 @@ fun MainScreen(
                     HostListScreen(
                         modifier = Modifier.padding(paddingValues),
                         onHostClick = { host ->
-                            tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
+                            tabManager.createTabAndSwitch(TabType.SSH_TERMINAL, host.id, host.nickname)
                             selectedTab = 1 // Switch to Tabs view
                         },
                         onAddHostClick = {
@@ -129,7 +129,7 @@ fun MainScreen(
                             showHostEditor = true
                         },
                         onSftpClick = { host ->
-                            tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
+                            tabManager.createTabAndSwitch(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
                             selectedTab = 1 // Switch to Tabs view
                         },
                     )

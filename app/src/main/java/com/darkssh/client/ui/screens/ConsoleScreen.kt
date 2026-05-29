@@ -75,7 +75,9 @@ fun ConsoleScreen(
     terminalService: TerminalService? = null,
     modifier: Modifier = Modifier,
     inTab: Boolean = false,
-    viewModel: ConsoleViewModel = hiltViewModel(),
+    tabId: String? = null,
+    isActive: Boolean = true,
+    viewModel: ConsoleViewModel = hiltViewModel(key = tabId ?: "console_$hostId"),
 ) {
     val bridge by viewModel.bridge.collectAsState()
     val host by viewModel.host.collectAsState()
@@ -103,11 +105,18 @@ fun ConsoleScreen(
         showSoftwareKeyboard = imeVisible
     }
 
-    DisposableEffect(hostId) {
+    DisposableEffect(hostId, tabId) {
         viewModel.setTerminalService(terminalService)
-        viewModel.connect(hostId)
+        viewModel.connect(hostId, tabId)
         onDispose {
             viewModel.detachFromBridge()
+        }
+    }
+
+    // Update active bridge when this tab becomes active
+    LaunchedEffect(isActive, bridge) {
+        if (isActive && bridge != null) {
+            terminalService?.setActiveBridge(bridge)
         }
     }
 

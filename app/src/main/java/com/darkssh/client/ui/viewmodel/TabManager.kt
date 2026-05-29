@@ -31,10 +31,18 @@ class TabManager
         private fun loadTabs() {
             viewModelScope.launch {
                 tabRepository.getAllTabs().collect { tabs ->
+                    val previousSize = _tabs.value.size
                     _tabs.value = tabs
-                    // Ensure currentTabIndex is valid
-                    if (_currentTabIndex.value >= tabs.size) {
-                        _currentTabIndex.value = (tabs.size - 1).coerceAtLeast(0)
+                    
+                    // If a new tab was added and we should switch to it
+                    if (shouldSwitchToNewTab && tabs.size > previousSize) {
+                        _currentTabIndex.value = tabs.size - 1
+                        shouldSwitchToNewTab = false
+                    } else {
+                        // Ensure currentTabIndex is valid
+                        if (_currentTabIndex.value >= tabs.size) {
+                            _currentTabIndex.value = (tabs.size - 1).coerceAtLeast(0)
+                        }
                     }
                 }
             }
@@ -55,9 +63,20 @@ class TabManager
                     title = title,
                 )
             tabRepository.insertTab(tab)
-            // Switch to newly created tab
-            _currentTabIndex.value = position
+            // Note: _currentTabIndex will be updated when _tabs Flow emits the new list
+            // in the switchToNewTab check below
         }
+    }
+    
+    private var shouldSwitchToNewTab = false
+    
+    fun createTabAndSwitch(
+        type: TabType,
+        hostId: Long,
+        title: String = "",
+    ) {
+        shouldSwitchToNewTab = true
+        createTab(type, hostId, title)
     }
 
     /**

@@ -30,6 +30,7 @@ class TerminalBridge(
     private val terminalService: TerminalService,
     private val knownHostRepository: KnownHostRepository,
     private val clipboardManager: ClipboardManager,
+    val tabId: String? = null,
 ) : TerminalSessionClient {
     private val _fontSize = MutableStateFlow(14f)
     val fontSize: StateFlow<Float> = _fontSize

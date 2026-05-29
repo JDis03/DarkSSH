@@ -134,8 +134,8 @@ class MainActivity : ComponentActivity() {
 
             // Volume Up = Increase font size (only when terminal is active)
             if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                val bridge = terminalService?.bridges?.value?.firstOrNull { it.isConnected.value }
-                if (bridge != null) {
+                val bridge = terminalService?.activeBridge?.value
+                if (bridge != null && bridge.isConnected.value) {
                     bridge.increaseFontSize()
                     return true
                 }
@@ -143,8 +143,8 @@ class MainActivity : ComponentActivity() {
 
             // Volume Down = Decrease font size (only when terminal is active)
             if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                val bridge = terminalService?.bridges?.value?.firstOrNull { it.isConnected.value }
-                if (bridge != null) {
+                val bridge = terminalService?.activeBridge?.value
+                if (bridge != null && bridge.isConnected.value) {
                     bridge.decreaseFontSize()
                     return true
                 }
