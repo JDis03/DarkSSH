@@ -30,6 +30,7 @@ import androidx.activity.compose.BackHandler
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.HostListScreen
+import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.SettingsScreen
 import com.darkssh.client.ui.screens.ServerSettingsScreen
 import com.darkssh.client.ui.screens.DebugLogsScreen
@@ -44,6 +45,8 @@ fun MainScreen(
     var showServerSettings by remember { mutableStateOf(false) }
     var showDebugLogs by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
+    var showHostEditor by remember { mutableStateOf(false) }
+    var editingHostId by remember { mutableStateOf<Long?>(null) }
     
     // Get context for finishing activity
     val context = LocalContext.current
@@ -99,19 +102,38 @@ fun MainScreen(
         when (selectedTab) {
             0 -> {
                 // Tab 1: Hosts
-                HostListScreen(
-                    modifier = Modifier.padding(paddingValues),
-                    onHostClick = { host ->
-                        tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
-                        selectedTab = 1 // Switch to Tabs view
-                    },
-                    onAddHostClick = { /* TODO: Navigate to host editor */ },
-                    onEditHostClick = { /* TODO: Navigate to host editor */ },
-                    onSftpClick = { host ->
-                        tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
-                        selectedTab = 1 // Switch to Tabs view
-                    },
-                )
+                if (showHostEditor) {
+                    HostEditorScreen(
+                        onSave = {
+                            showHostEditor = false
+                            editingHostId = null
+                        },
+                        onCancel = {
+                            showHostEditor = false
+                            editingHostId = null
+                        },
+                    )
+                } else {
+                    HostListScreen(
+                        modifier = Modifier.padding(paddingValues),
+                        onHostClick = { host ->
+                            tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
+                            selectedTab = 1 // Switch to Tabs view
+                        },
+                        onAddHostClick = {
+                            editingHostId = null
+                            showHostEditor = true
+                        },
+                        onEditHostClick = { host ->
+                            editingHostId = host.id
+                            showHostEditor = true
+                        },
+                        onSftpClick = { host ->
+                            tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
+                            selectedTab = 1 // Switch to Tabs view
+                        },
+                    )
+                }
             }
             1 -> {
                 // Tab 2: Tabs (Vivaldi-style tabbed interface)
