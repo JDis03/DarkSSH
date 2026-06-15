@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import java.security.KeyPair
 import java.util.concurrent.ConcurrentHashMap
@@ -55,6 +56,7 @@ class TerminalService : Service() {
 
     @Inject lateinit var hostRepository: HostRepository
     @Inject lateinit var knownHostRepository: KnownHostRepository
+    @Inject lateinit var tabRepository: com.darkssh.client.data.repository.TabRepository
     @Inject lateinit var clipboardManager: ClipboardManager
 
     private val binder = TerminalBinder()
@@ -90,13 +92,29 @@ class TerminalService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        serviceJob.cancel()
+        
+        // Close all bridges first
         _bridges.value.forEach { it.close() }
         _bridges.value = emptyList()
-        sftpClients.forEach { (_, client) ->
-            runBlocking { client.disconnect() }
+        
+        // Disconnect SFTP clients with timeout
+        // Use runBlocking with timeout to prevent ANR but still cleanup properly
+        sftpClients.forEach { (hostId, client) ->
+            try {
+                runBlocking {
+                    withTimeoutOrNull(1500L) {
+                        client.disconnect()
+                    } ?: Timber.w("SFTP disconnect timeout for host $hostId")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to disconnect SFTP client for host $hostId")
+            }
         }
         sftpClients.clear()
+        
+        // Cancel service scope
+        serviceJob.cancel()
+        
         Timber.d("TerminalService destroyed")
     }
 
@@ -106,7 +124,7 @@ class TerminalService : Service() {
     }
 
     fun openConnection(host: Host, tabId: String? = null): TerminalBridge {
-        val bridge = TerminalBridge(host, this, knownHostRepository, clipboardManager, tabId)
+        val bridge = TerminalBridge(host, this, knownHostRepository, tabRepository, clipboardManager, tabId)
         _bridges.value = _bridges.value + bridge
 
         val notification = createConnectionNotification(host)

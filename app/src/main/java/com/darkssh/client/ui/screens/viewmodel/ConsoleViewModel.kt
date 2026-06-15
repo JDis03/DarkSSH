@@ -33,10 +33,15 @@ class ConsoleViewModel
 
         private val _disconnectMessage = MutableStateFlow<String?>(null)
         val disconnectMessage: StateFlow<String?> = _disconnectMessage
+        
+        private val _disconnectReason = MutableStateFlow<com.darkssh.client.service.DisconnectReason?>(null)
+        val disconnectReason: StateFlow<com.darkssh.client.service.DisconnectReason?> = _disconnectReason
 
         private var terminalService: TerminalService? = null
         private var connectionJob: Job? = null
         private var observeJobs = mutableListOf<Job>()
+        private var currentTabId: String? = null
+        private var currentHostId: Long = -1L
 
         fun loadHost(hostId: Long) {
             viewModelScope.launch {
@@ -53,6 +58,8 @@ class ConsoleViewModel
             connectionJob?.cancel()
             observeJobs.forEach { it.cancel() }
             observeJobs.clear()
+            currentTabId = tabId
+            currentHostId = hostId
 
             viewModelScope.launch {
                 val h = hostRepository.getHostById(hostId) ?: return@launch
@@ -100,6 +107,32 @@ class ConsoleViewModel
                     }
                 },
             )
+            observeJobs.add(
+                viewModelScope.launch {
+                    b.disconnectReason.collect { reason ->
+                        _disconnectReason.value = reason
+                    }
+                },
+            )
+            // Detect silent disconnects: wait until connected, then watch for isConnected→false
+            // without isDisconnected being set (e.g. network timeout with no TCP RST)
+            observeJobs.add(
+                viewModelScope.launch {
+                    var wasConnected = false
+                    b.isConnected.collect { connected ->
+                        if (connected) {
+                            wasConnected = true
+                        } else if (wasConnected && !b.isDisconnected.value) {
+                            // Was connected, now not connected, but no disconnect event fired
+                            Timber.w("Silent disconnect detected for ${b.host.nickname}")
+                            _isDisconnected.value = true
+                            if (_disconnectMessage.value == null) {
+                                _disconnectMessage.value = "Connection lost"
+                            }
+                        }
+                    }
+                },
+            )
         }
 
         fun disconnect() {
@@ -122,10 +155,12 @@ class ConsoleViewModel
             _bridge.value = null
             _isDisconnected.value = false
             _disconnectMessage.value = null
+            _disconnectReason.value = null
 
             viewModelScope.launch {
                 val service = terminalService ?: return@launch
-                val b = service.openConnection(h)
+                // Pass tabId to associate the new bridge with the existing tab
+                val b = service.openConnection(h, currentTabId)
                 _bridge.value = b
                 observeBridge(b)
             }

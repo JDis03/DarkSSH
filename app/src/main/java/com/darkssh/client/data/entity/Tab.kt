@@ -3,6 +3,7 @@ package com.darkssh.client.data.entity
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
+import com.darkssh.client.data.model.OsType
 import java.util.UUID
 
 enum class TabType {
@@ -25,4 +26,5 @@ data class Tab(
     val createdAt: Long = System.currentTimeMillis(),
     val title: String = "",
     val themeId: String? = null, // For terminal theme
+    val osType: OsType = OsType.UNKNOWN, // Detected OS from remote server
 )

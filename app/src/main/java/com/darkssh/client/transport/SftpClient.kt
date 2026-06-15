@@ -3,12 +3,15 @@ package com.darkssh.client.transport
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.util.DebugLogger
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 import com.hierynomus.sshj.key.KeyAlgorithms
 import net.schmizz.keepalive.KeepAliveProvider
 import net.schmizz.sshj.AndroidConfig
@@ -349,6 +352,12 @@ class SftpClient(private val host: Host) {
     ): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val client = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
+            
+            // Verify connection is alive before attempting upload
+            if (!client.isConnected) {
+                return@withContext Result.failure(Exception("SSH connection lost"))
+            }
+            
             val totalSize = localFile.length()
             val startTime = System.currentTimeMillis()
             
@@ -367,12 +376,26 @@ class SftpClient(private val host: Host) {
                     val buffer = ByteArray(256 * 1024)  // 256KB buffer
                     var totalTransferred = 0L
                     var lastReportedBytes = 0L
+                    var lastFlushedBytes = 0L
                     val reportInterval = 256 * 1024L  // Report every 256KB
+                    val flushInterval = 512 * 1024L   // Flush every 512KB to prevent buffering slowdown
                     
                     var bytesRead: Int
                     while (input.read(buffer).also { bytesRead = it } != -1) {
+                        // Check for cancellation
+                        val job = coroutineContext[Job]
+                        if (job?.isActive == false) {
+                            throw kotlinx.coroutines.CancellationException("Upload cancelled")
+                        }
+                        
                         stdin.write(buffer, 0, bytesRead)
                         totalTransferred += bytesRead
+                        
+                        // Flush periodically to prevent buffer accumulation (improves speed with latency)
+                        if (totalTransferred - lastFlushedBytes >= flushInterval) {
+                            stdin.flush()
+                            lastFlushedBytes = totalTransferred
+                        }
                         
                         // Report progress
                         if (totalTransferred - lastReportedBytes >= reportInterval || totalTransferred >= totalSize) {
@@ -415,6 +438,15 @@ class SftpClient(private val host: Host) {
                 DebugLogger.i("SftpClient", "SSH upload completed: ${localFile.name}")
                 Result.success(Unit)
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            DebugLogger.w("SftpClient", "SSH upload cancelled: ${localFile.name}")
+            Timber.d("Upload cancelled by user: ${localFile.name}")
+            // Rethrow to propagate cancellation
+            throw e
+        } catch (e: java.net.SocketException) {
+            DebugLogger.e("SftpClient", "SSH upload socket error: ${localFile.name} - ${e.message}")
+            Timber.e(e, "Socket error during SSH upload (connection may be stale): ${localFile.name}")
+            Result.failure(Exception("Connection error: ${e.message}. Try reconnecting."))
         } catch (e: Exception) {
             DebugLogger.e("SftpClient", "SSH upload failed: ${localFile.name} - ${e.message}")
             Timber.e(e, "Failed to upload via SSH: ${localFile.name}")

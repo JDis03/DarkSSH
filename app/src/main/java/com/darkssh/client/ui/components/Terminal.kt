@@ -93,6 +93,7 @@ fun Terminal(
                 })
 
                 // Renderer MUST exist before onSizeChanged fires
+                // Use actual font size (like Termius) - recalculates cols/rows automatically
                 setTextSize(fontSize.toInt())
                 setTypeface(typeface)
                 prevFontSize = fontSize
@@ -107,7 +108,7 @@ fun Terminal(
         },
         modifier = modifier,
         update = { view ->
-            // Only update renderer when font actually changes
+            // Only update when font actually changes
             if (fontSize != prevFontSize) {
                 view.setTextSize(fontSize.toInt())
                 prevFontSize = fontSize

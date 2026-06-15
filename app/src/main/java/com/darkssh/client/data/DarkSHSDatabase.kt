@@ -16,7 +16,7 @@ import com.darkssh.client.data.entity.Tab
 
 @Database(
     entities = [Host::class, Pubkey::class, PortForward::class, KnownHost::class, Tab::class],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)

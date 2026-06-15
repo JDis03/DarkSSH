@@ -55,13 +55,20 @@ class TabManager
     ) {
         viewModelScope.launch {
             val position = _tabs.value.size
+            
+            // Try to reuse osType from previous tab of same host (avoid icon flicker)
+            val previousTab = _tabs.value.find { it.hostId == hostId && it.type == type }
+            val cachedOsType = previousTab?.osType ?: com.darkssh.client.data.model.OsType.UNKNOWN
+            
             val tab =
                 Tab(
                     type = type,
                     hostId = hostId,
                     position = position,
                     title = title,
+                    osType = cachedOsType,
                 )
+            com.darkssh.client.util.DebugLogger.Tab.created(tab.id, hostId, type.name)
             tabRepository.insertTab(tab)
             // Note: _currentTabIndex will be updated when _tabs Flow emits the new list
             // in the switchToNewTab check below
@@ -107,6 +114,7 @@ class TabManager
                 val tab = tabRepository.getTabById(tabId) ?: return@launch
                 val closedTabIndex = _tabs.value.indexOfFirst { it.id == tabId }
                 
+                com.darkssh.client.util.DebugLogger.Tab.closed(tabId)
                 tabRepository.deleteTab(tab)
                 
                 // Reorder remaining tabs
@@ -134,7 +142,11 @@ class TabManager
 
         fun switchTab(index: Int) {
             if (index >= 0 && index < _tabs.value.size) {
+                val oldIndex = _currentTabIndex.value
                 _currentTabIndex.value = index
+                if (oldIndex != index) {
+                    com.darkssh.client.util.DebugLogger.Tab.switched(oldIndex, index)
+                }
             }
         }
 

@@ -388,6 +388,11 @@ public final class TerminalEmulator {
         this.mCellHeightPixels = cellHeightPixels;
 
         if (mRows == rows && mColumns == columns) {
+            // Size didn't change, but cell dimensions might have (zoom)
+            // Still notify client to update PTY if needed
+            if (mClient != null) {
+                mClient.onTerminalSizeChanged(columns, rows, cellWidthPixels, cellHeightPixels);
+            }
             return;
         } else if (columns < 2 || rows < 2) {
             throw new IllegalArgumentException("rows=" + rows + ", columns=" + columns);
@@ -411,6 +416,11 @@ public final class TerminalEmulator {
         }
 
         resizeScreen();
+        
+        // Notify client about the size change (for PTY window size updates)
+        if (mClient != null) {
+            mClient.onTerminalSizeChanged(columns, rows, cellWidthPixels, cellHeightPixels);
+        }
     }
 
     private void resizeScreen() {

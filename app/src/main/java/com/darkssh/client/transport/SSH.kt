@@ -12,6 +12,7 @@ import com.trilead.ssh2.ConnectionMonitor
 import com.trilead.ssh2.InteractiveCallback
 import com.trilead.ssh2.ServerHostKeyVerifier
 import com.trilead.ssh2.Session
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.io.IOException
@@ -34,6 +35,9 @@ class SSH(
 
     @Volatile
     private var connection: Connection? = null
+    
+    /** Expose connection for OS detection (read-only) */
+    fun getConnection(): Connection? = connection
     @Volatile
     private var session: Session? = null
     @Volatile
@@ -134,6 +138,20 @@ class SSH(
             }
 
             if (canTryPassword && conn.isAuthMethodAvailable(username, "password")) {
+                // Try saved password first
+                val savedPassword = CredentialStore.getPassword(host.id)
+                if (savedPassword != null) {
+                    Timber.d("$TAG: Trying saved password...")
+                    if (conn.authenticateWithPassword(username, savedPassword)) {
+                        Timber.d("$TAG: Saved password authentication successful!")
+                        return true
+                    } else {
+                        Timber.d("$TAG: Saved password authentication failed, removing...")
+                        CredentialStore.remove(host.id)
+                    }
+                }
+                
+                // Prompt for password
                 Timber.d("$TAG: Prompting for password...")
                 val password = bridge.promptForPasswordBlocking()
                 Timber.d("$TAG: Password received: ${if (password != null) "[HIDDEN]" else "null"}")
@@ -141,7 +159,7 @@ class SSH(
                     Timber.d("$TAG: Attempting password authentication...")
                     if (conn.authenticateWithPassword(username, password)) {
                         Timber.d("$TAG: Password authentication successful!")
-                        CredentialStore.putPassword(host.id, password)
+                        CredentialStore.putPassword(host.id, password, remember = host.stayConnected)
                         return true
                     } else {
                         Timber.d("$TAG: Password authentication failed")
@@ -304,7 +322,8 @@ class SSH(
         ): Boolean {
             val keyData = Base64.encodeToString(serverHostKey, Base64.NO_WRAP)
 
-            val existing = runBlocking {
+            // Use IO dispatcher for database operations in blocking context
+            val existing = runBlocking(Dispatchers.IO) {
                 knownHostRepository.getByHostIdAndAlgo(host.id, serverHostKeyAlgorithm)
             }
             
@@ -312,7 +331,7 @@ class SSH(
                 val fingerprints = buildFingerprints(serverHostKeyAlgorithm, serverHostKey)
                 val accepted = bridge.promptForHostKeyVerificationBlocking(hostname, port, fingerprints)
                 if (accepted) {
-                    runBlocking {
+                    runBlocking(Dispatchers.IO) {
                         knownHostRepository.insert(
                             KnownHost(
                                 hostId = host.id,

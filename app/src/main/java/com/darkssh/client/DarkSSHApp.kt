@@ -1,6 +1,7 @@
 package com.darkssh.client
 
 import android.app.Application
+import com.darkssh.client.service.EncryptedCredentialStore
 import com.darkssh.client.util.FileLoggingTree
 import dagger.hilt.android.HiltAndroidApp
 import org.apache.sshd.common.util.OsUtils
@@ -27,6 +28,9 @@ class DarkSSHApp : Application() {
         }
         
         Timber.i("DarkSSH", "App started - version ${BuildConfig.VERSION_NAME}")
+        
+        // Initialize encrypted credential store
+        EncryptedCredentialStore.init(this)
         
         // Configure Apache SSHD for Android
         initializeSshdForAndroid()

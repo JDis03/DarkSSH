@@ -434,8 +434,12 @@ fun SftpScreen(
                 TransferProgressDialog(
                     progress = progress,
                     isUpload = true,  // TODO: Detect if upload or download
-                    onHide = { /* TODO: Hide but keep transfer running */ },
-                    onCancel = { /* TODO: Cancel transfer */ }
+                    onHide = { 
+                        viewModel.hideTransferDialog()
+                    },
+                    onCancel = { 
+                        viewModel.cancelTransfer()
+                    }
                 )
             }
 

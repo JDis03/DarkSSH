@@ -25,6 +25,8 @@ public interface TerminalSessionClient {
     void onColorsChanged(@NonNull TerminalSession session);
 
     void onTerminalCursorStateChange(boolean state);
+    
+    void onTerminalSizeChanged(int columns, int rows, int cellWidthPixels, int cellHeightPixels);
 
     void setTerminalShellPid(@NonNull TerminalSession session, int pid);
 

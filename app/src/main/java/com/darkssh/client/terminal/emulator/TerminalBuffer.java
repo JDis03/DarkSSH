@@ -152,6 +152,10 @@ public final class TerminalBuffer {
         return mActiveTranscriptRows + mScreenRows;
     }
 
+    public int getScreenRows() {
+        return mScreenRows;
+    }
+
     /**
      * Convert a row value from the public external coordinate system to our internal private coordinate system.
      *
@@ -174,8 +178,10 @@ public final class TerminalBuffer {
      * @return The row corresponding to the input argument in the private coordinate system.
      */
     public int externalToInternalRow(int externalRow) {
-        if (externalRow < -mActiveTranscriptRows || externalRow > mScreenRows)
-            throw new IllegalArgumentException("extRow=" + externalRow + ", mScreenRows=" + mScreenRows + ", mActiveTranscriptRows=" + mActiveTranscriptRows);
+        if (externalRow < -mActiveTranscriptRows || externalRow > mScreenRows) {
+            // Clamp instead of throwing during resize race conditions
+            externalRow = Math.max(-mActiveTranscriptRows, Math.min(mScreenRows - 1, externalRow));
+        }
         final int internalRow = mScreenFirstRow + externalRow;
         return (internalRow < 0) ? (mTotalRows + internalRow) : (internalRow % mTotalRows);
     }

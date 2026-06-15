@@ -82,4 +82,10 @@ class HostEditorViewModel
                 }
             }
         }
+
+        fun loadHost(hostId: Long) {
+            viewModelScope.launch {
+                _host.value = hostRepository.getHostById(hostId)
+            }
+        }
     }

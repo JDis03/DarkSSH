@@ -83,6 +83,7 @@ fun ConsoleScreen(
     val host by viewModel.host.collectAsState()
     val isDisconnected by viewModel.isDisconnected.collectAsState()
     val disconnectMessage by viewModel.disconnectMessage.collectAsState()
+    val disconnectReason by viewModel.disconnectReason.collectAsState()
     val isConnected by bridge?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) }
     val currentPrompt by bridge?.promptRequest?.collectAsState()
         ?: remember { mutableStateOf(null) }
@@ -119,6 +120,7 @@ fun ConsoleScreen(
             terminalService?.setActiveBridge(bridge)
         }
     }
+
 
     Scaffold(
         modifier = modifier,
@@ -204,7 +206,8 @@ fun ConsoleScreen(
                     fontSize = fontSize,
                     typeface = terminalTypeface,
                 )
-            } else if (isDisconnected) {
+            } else if (isDisconnected && disconnectReason != com.darkssh.client.service.DisconnectReason.USER_REQUESTED) {
+                // Only show reconnect overlay if disconnect was NOT user-requested
                 DisconnectedOverlay(
                     message = disconnectMessage ?: "Disconnected",
                     onReconnect = { viewModel.reconnect() },

@@ -57,12 +57,15 @@ public final class TerminalRenderer {
     public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
         final boolean reverseVideo = mEmulator.isReverseVideo();
-        final int endRow = topRow + mEmulator.mRows;
         final int columns = mEmulator.mColumns;
         final int cursorCol = mEmulator.getCursorCol();
         final int cursorRow = mEmulator.getCursorRow();
         final boolean cursorVisible = mEmulator.shouldCursorBeVisible();
         final TerminalBuffer screen = mEmulator.getScreen();
+        // Snapshot screen rows from the buffer to avoid race condition during resize:
+        // mEmulator.mRows may differ from screen.mScreenRows if a resize is in progress.
+        final int screenRows = screen.getScreenRows();
+        final int endRow = topRow + screenRows;
         final int[] palette = mEmulator.mColors.mCurrentColors;
         final int cursorShape = mEmulator.getCursorStyle();
 

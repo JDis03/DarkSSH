@@ -79,7 +79,6 @@ ksp {
 }
 
 dependencies {
-    implementation(libs.sshlib)
     implementation(libs.sshj)
     implementation(libs.sshd.core)
     implementation(libs.sshd.sftp)
@@ -92,6 +91,10 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.security.crypto)
+    implementation(libs.sshlib) {
+        exclude(group = "com.google.crypto.tink", module = "tink")
+    }
 
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
@@ -107,6 +110,8 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    implementation(libs.androidx.work.runtime.ktx)
 
     implementation(libs.hilt.android)
     implementation(libs.androidx.hilt.navigation.compose)

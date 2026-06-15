@@ -1,3 +1,15 @@
+## 2026-06-13 11:55 — ClientSSH
+**Summary**: Fixes: WorkManager upload con ForegroundServiceType correcto, velocidad de upload (startTime propagado desde Worker), terminal crash por race condition en resize (clamp en externalToInternalRow), reconexión de pestaña SSH (tabId en reconnect + detección de silent disconnects)
+**Verified**: not recorded
+**Completed**: none
+---
+---
+## 2026-06-09 23:44 — ClientSSH
+**Summary**: Implementada detección automática de OS en pestañas SSH (iconos Arch/Ubuntu/Debian/etc estilo Termius) + fix de zoom del terminal para que TUIs se ajusten automáticamente (htop/vim) sin desbordarse de pantalla. Cambio clave: usar setTextSize() real en lugar de canvas.scale() para que cols/rows se recalculen. Agregado onTerminalSizeChanged callback, migración DB v3 con osType field, iconos vectoriales de distros, OsDetector con script shell.
+**Verified**: Build exitoso, APK instalado en 192.168.50.77:5555 vía WiFi. Pendiente: verificación manual del comportamiento de zoom (debería comportarse como Termius ahora).
+**Completed**: none
+---
+---
 # Session Progress Log
 
 ## Current State

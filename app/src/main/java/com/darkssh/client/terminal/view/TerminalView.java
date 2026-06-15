@@ -71,6 +71,8 @@ public final class TerminalView extends View {
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
+    private float mMinScaleFactor = 0.5f;
+    private float mMaxScaleFactor = 2.5f;
     final GestureAndScaleRecognizer mGestureRecognizer;
 
     /** Keep track of where mouse touch event started which we report as mouse scroll. */
@@ -169,6 +171,8 @@ public final class TerminalView extends View {
             @Override
             public boolean onScroll(MotionEvent e, float distanceX, float distanceY) {
                 if (mEmulator == null) return true;
+                // Don't scroll while a scale (pinch zoom) gesture is in progress
+                if (mGestureRecognizer.isInProgress()) return false;
                 if (mEmulator.isMouseTrackingActive() && e.isFromSource(InputDevice.SOURCE_MOUSE)) {
                     // If moving with mouse pointer while pressing button, report that instead of scroll.
                     // This means that we never report moving with button press-events for touch input,
@@ -190,6 +194,8 @@ public final class TerminalView extends View {
                 if (mEmulator == null || isSelectingText()) return true;
                 mScaleFactor *= scale;
                 mScaleFactor = mClient.onScale(mScaleFactor);
+                mScaleFactor = Math.max(mMinScaleFactor, Math.min(mMaxScaleFactor, mScaleFactor));
+                invalidate();
                 return true;
             }
 
@@ -516,6 +522,15 @@ public final class TerminalView extends View {
         updateSize();
     }
 
+    public void setScaleFactor(float scaleFactor) {
+        mScaleFactor = Math.max(mMinScaleFactor, Math.min(mMaxScaleFactor, scaleFactor));
+        invalidate();
+    }
+
+    public float getScaleFactor() {
+        return mScaleFactor;
+    }
+
     public void setTypeface(Typeface newTypeface) {
         mRenderer = new TerminalRenderer(mRenderer.mTextSize, newTypeface);
         updateSize();
@@ -544,8 +559,10 @@ public final class TerminalView extends View {
      * @return Array with the column and row.
      */
     public int[] getColumnAndRow(MotionEvent event, boolean relativeToScroll) {
-        int column = (int) (event.getX() / mRenderer.mFontWidth);
-        int row = (int) ((event.getY() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
+        float x = event.getX() / mScaleFactor;
+        float y = event.getY() / mScaleFactor;
+        int column = (int) (x / mRenderer.mFontWidth);
+        int row = (int) ((y - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
         if (relativeToScroll) {
             row += mTopRow;
         }
@@ -986,7 +1003,8 @@ public final class TerminalView extends View {
         int viewHeight = getHeight();
         if (viewWidth == 0 || viewHeight == 0 || mTermSession == null) return;
 
-        // Set to 80 and 24 if you want to enable vttest.
+        // Cols/rows calculated from actual font metrics (setTextSize handles the sizing)
+        // No canvas scale factor needed - Termius approach
         int newColumns = Math.max(4, (int) (viewWidth / mRenderer.mFontWidth));
         int newRows = Math.max(4, (viewHeight - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
 
@@ -1016,6 +1034,8 @@ public final class TerminalView extends View {
                 mTextSelectionCursorController.getSelectors(sel);
             }
 
+            // Render at 1:1 - font size is managed via setTextSize(), not canvas scaling
+            // This ensures cols/rows always fit the screen (like Termius)
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
 
             // render the text selection handles
@@ -1032,22 +1052,22 @@ public final class TerminalView extends View {
     }
 
     public int getCursorX(float x) {
-        return (int) (x / mRenderer.mFontWidth);
+        return (int) ((x / mScaleFactor) / mRenderer.mFontWidth);
     }
 
     public int getCursorY(float y) {
-        return (int) (((y - 40) / mRenderer.mFontLineSpacing) + mTopRow);
+        return (int) ((((y / mScaleFactor) - 40) / mRenderer.mFontLineSpacing) + mTopRow);
     }
 
     public int getPointX(int cx) {
         if (cx > mEmulator.mColumns) {
             cx = mEmulator.mColumns;
         }
-        return Math.round(cx * mRenderer.mFontWidth);
+        return Math.round((float) (cx * mRenderer.mFontWidth) * mScaleFactor);
     }
 
     public int getPointY(int cy) {
-        return Math.round((cy - mTopRow) * mRenderer.mFontLineSpacing);
+        return Math.round((float) ((cy - mTopRow) * mRenderer.mFontLineSpacing) * mScaleFactor);
     }
 
     public int getTopRow() {

@@ -104,6 +104,7 @@ fun MainScreen(
                 // Tab 1: Hosts
                 if (showHostEditor) {
                     HostEditorScreen(
+                        hostId = editingHostId ?: -1L,
                         onSave = {
                             showHostEditor = false
                             editingHostId = null

@@ -48,11 +48,18 @@ import com.darkssh.client.ui.screens.viewmodel.HostEditorViewModel
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HostEditorScreen(
+    hostId: Long = -1L,
     onSave: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
     viewModel: HostEditorViewModel = hiltViewModel(),
 ) {
+    // Load host if editing an existing one (needed when not using NavHost navigation)
+    LaunchedEffect(hostId) {
+        if (hostId > 0) {
+            viewModel.loadHost(hostId)
+        }
+    }
     val host by viewModel.host.collectAsState()
     val pubkeys by viewModel.pubkeys.collectAsState()
     

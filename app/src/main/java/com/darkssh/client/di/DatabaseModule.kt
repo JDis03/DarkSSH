@@ -40,6 +40,14 @@ object DatabaseModule {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_tabs_position ON tabs (position)")
             }
         }
+    
+    private val MIGRATION_2_3 =
+        object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add osType column to tabs table (defaults to UNKNOWN)
+                db.execSQL("ALTER TABLE tabs ADD COLUMN osType TEXT NOT NULL DEFAULT 'UNKNOWN'")
+            }
+        }
 
     @Provides
     @Singleton
@@ -48,7 +56,7 @@ object DatabaseModule {
     ): DarkSHSDatabase =
         Room
             .databaseBuilder(context, DarkSHSDatabase::class.java, DarkSHSDatabase.DATABASE_NAME)
-            .addMigrations(MIGRATION_1_2)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
             .build()
 
     @Provides

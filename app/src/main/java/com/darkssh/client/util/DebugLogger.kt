@@ -159,25 +159,78 @@ class FileLoggingTree(private val context: Context) : Timber.Tree() {
     }
 }
 
-// Helper object for easy logging
+// Helper object for easy logging with DarkKeyboard-style formatting
 object DebugLogger {
-    fun d(tag: String, message: String) {
-        Timber.tag(tag).d(message)
+    private const val APP_TAG = "DarkSSH"
+    
+    fun d(component: String, message: String) {
+        Timber.tag("$APP_TAG/$component").d(message)
     }
     
-    fun i(tag: String, message: String) {
-        Timber.tag(tag).i(message)
+    fun i(component: String, message: String) {
+        Timber.tag("$APP_TAG/$component").i(message)
     }
     
-    fun w(tag: String, message: String) {
-        Timber.tag(tag).w(message)
-    }
-    
-    fun e(tag: String, message: String, throwable: Throwable? = null) {
+    fun w(component: String, message: String, throwable: Throwable? = null) {
         if (throwable != null) {
-            Timber.tag(tag).e(throwable, message)
+            Timber.tag("$APP_TAG/$component").w(throwable, message)
         } else {
-            Timber.tag(tag).e(message)
+            Timber.tag("$APP_TAG/$component").w(message)
+        }
+    }
+    
+    fun e(component: String, message: String, throwable: Throwable? = null) {
+        if (throwable != null) {
+            Timber.tag("$APP_TAG/$component").e(throwable, message)
+        } else {
+            Timber.tag("$APP_TAG/$component").e(message)
+        }
+    }
+    
+    fun v(component: String, message: String) {
+        Timber.tag("$APP_TAG/$component").v(message)
+    }
+    
+    // Specialized loggers for common components
+    object Tab {
+        fun created(tabId: String, hostId: Long, type: String) {
+            d("TabManager", "Tab created: id=$tabId, host=$hostId, type=$type")
+        }
+        
+        fun closed(tabId: String) {
+            d("TabManager", "Tab closed: id=$tabId")
+        }
+        
+        fun switched(fromIndex: Int, toIndex: Int) {
+            d("TabManager", "Tab switched: $fromIndex -> $toIndex")
+        }
+    }
+    
+    object Bridge {
+        fun created(tabId: String?, hostId: Long) {
+            d("TerminalBridge", "Bridge created: tabId=$tabId, host=$hostId")
+        }
+        
+        fun connected(host: String) {
+            i("TerminalBridge", "Connected to $host")
+        }
+        
+        fun disconnected(host: String, reason: String) {
+            w("TerminalBridge", "Disconnected from $host: $reason")
+        }
+        
+        fun error(host: String, error: String, throwable: Throwable? = null) {
+            e("TerminalBridge", "Error on $host: $error", throwable)
+        }
+    }
+    
+    object UI {
+        fun volumeZoom(direction: String, fontSize: Float) {
+            v("UI/Zoom", "Volume $direction: fontSize=$fontSize")
+        }
+        
+        fun tabVisible(tabId: String, isVisible: Boolean) {
+            v("UI/Tab", "Tab $tabId visibility: $isVisible")
         }
     }
 }
