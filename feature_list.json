@@ -98,35 +98,35 @@
     },
     {
       "id": "leak-004",
-      "name": "Missing Tab Cleanup on Tab Close",
-      "description": "No centralized cleanup when tab is closed - TerminalBridge, SftpClient, observer jobs, Room Tab entity all leak",
+      "name": "Missing SFTP Client Cleanup on Tab Close",
+      "description": "When SFTP tab closes, SftpClient is not disconnected from activeClients map, causing connection leak",
       "dependencies": [],
       "status": "not-started",
-      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #5. No TerminalService.closeTab() function exists"
+      "evidence": "See IMPLEMENTATION_STATUS.md Gap #1. TabbedMainScreen.onCloseTab only closes TerminalBridge, not SftpClient. Need to add SFTP disconnect logic."
     },
     {
       "id": "openspec-001",
       "name": "OpenSpec: Tab Entity + Database Migration",
       "description": "Create Room Tab entity, TabDao, TabRepository, migration v3->v4 for tabs table (tasks 1.1-1.6)",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for tab persistence"
+      "status": "done",
+      "evidence": "Tab.kt entity exists with all fields, TabDao with CRUD, TabRepository with Hilt, MIGRATION_1_2 creates tabs table, MIGRATION_2_3 adds osType column. See IMPLEMENTATION_STATUS.md section 1."
     },
     {
       "id": "openspec-002",
       "name": "OpenSpec: TabManager ViewModel",
       "description": "Create TabManager with StateFlow<List<Tab>>, createTab, closeTab, reorderTabs, switchTab (tasks 2.1-2.10)",
       "dependencies": ["openspec-001"],
-      "status": "not-started",
-      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for multi-tab UI"
+      "status": "done",
+      "evidence": "TabManager.kt fully implemented with all required functions: createTab, createTabAndSwitch, createOrSwitchToTab, closeTab, switchTab, reorderTabs, getCurrentTab. Hilt @Singleton. See IMPLEMENTATION_STATUS.md section 2."
     },
     {
       "id": "openspec-003",
       "name": "OpenSpec: HorizontalPager Tab Navigation",
       "description": "Add HorizontalPager below TabBar, bind to TabManager, render ConsoleScreen/SftpScreen per tab (tasks 9.1-9.9)",
       "dependencies": ["openspec-002"],
-      "status": "not-started",
-      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for swipe navigation"
+      "status": "done",
+      "evidence": "TabbedMainScreen.kt implements HorizontalPager with pagerState bound to TabManager, renders ConsoleScreen/SftpScreen based on Tab.type, swipe navigation works. See IMPLEMENTATION_STATUS.md section 3."
     },
     {
       "id": "openspec-004",
