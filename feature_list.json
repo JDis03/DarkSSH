@@ -53,8 +53,8 @@
       "name": "Bug: New SSH restarts previous one",
       "description": "Opening a new SSH connection appears to restart or interfere with previous connection",
       "dependencies": [],
-      "status": "investigating",
-      "evidence": "User reported issue after reconnect fix - needs testing to determine if it's visual (overlay) or actual disconnect"
+      "status": "resolved",
+      "evidence": "User confirmed issue is resolved after reconnect fix (tabId preservation)"
     },
     {
       "id": "pending-002",
@@ -63,6 +63,78 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Changed conscrypt version from 2.5.3 to 2.5.2 in libs.versions.toml (2.5.3 does not exist in Maven Central), ./init.sh passes with BUILD SUCCESSFUL"
+    },
+    {
+      "id": "leak-001",
+      "name": "Memory Leak: SftpViewModel Static Collections",
+      "description": "activeClients, activeTransfers, activeWorkIds in companion object never cleaned up, causing unbounded memory growth",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #1. onCleared() doesn't clean up static maps, connections leak when tabs close"
+    },
+    {
+      "id": "leak-002",
+      "name": "Memory Leak: ConsoleViewModel Observer Accumulation",
+      "description": "observeJobs list grows on each connect() call (4 jobs per call), never cleared before adding new jobs",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #2. connect() cancels jobs but doesn't clear list, causing accumulation"
+    },
+    {
+      "id": "leak-003",
+      "name": "Memory Leak: TerminalBridge Scope Not Cancelled",
+      "description": "bridgeScope continues running after close(), coroutines and relay thread may leak",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #3. close() doesn't call bridgeScope.cancel()"
+    },
+    {
+      "id": "leak-004",
+      "name": "Missing Tab Cleanup on Tab Close",
+      "description": "No centralized cleanup when tab is closed - TerminalBridge, SftpClient, observer jobs, Room Tab entity all leak",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #5. No TerminalService.closeTab() function exists"
+    },
+    {
+      "id": "openspec-001",
+      "name": "OpenSpec: Tab Entity + Database Migration",
+      "description": "Create Room Tab entity, TabDao, TabRepository, migration v3->v4 for tabs table (tasks 1.1-1.6)",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for tab persistence"
+    },
+    {
+      "id": "openspec-002",
+      "name": "OpenSpec: TabManager ViewModel",
+      "description": "Create TabManager with StateFlow<List<Tab>>, createTab, closeTab, reorderTabs, switchTab (tasks 2.1-2.10)",
+      "dependencies": ["openspec-001"],
+      "status": "not-started",
+      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for multi-tab UI"
+    },
+    {
+      "id": "openspec-003",
+      "name": "OpenSpec: HorizontalPager Tab Navigation",
+      "description": "Add HorizontalPager below TabBar, bind to TabManager, render ConsoleScreen/SftpScreen per tab (tasks 9.1-9.9)",
+      "dependencies": ["openspec-002"],
+      "status": "not-started",
+      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Blocker for swipe navigation"
+    },
+    {
+      "id": "openspec-004",
+      "name": "OpenSpec: Material 3 Dark Theme",
+      "description": "Create DarkSSHTheme with darkColorScheme, replace hardcoded colors with tokens (tasks 3.1-3.8)",
+      "dependencies": [],
+      "status": "not-started",
+      "evidence": "See openspec/changes/ui-modernization-vivaldi-tabs/tasks.md. Improves visual consistency"
+    },
+    {
+      "id": "refactor-001",
+      "name": "Refactor: SFTP activeClients to use tabId",
+      "description": "Change SftpViewModel.activeClients key from Long (hostId) to String (tabId) to support multiple SFTP tabs per host",
+      "dependencies": ["openspec-001"],
+      "status": "not-started",
+      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Current Implementation Gap. Required for proper tab isolation"
     }
   ]
 }
