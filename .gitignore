@@ -53,3 +53,8 @@ mosh/
 # Reference APKs (decompiled sources)
 reference/
 pictures/
+
+# OpenCode and session tracking
+.opencode/
+progress.md
+session-handoff.md
