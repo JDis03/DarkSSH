@@ -1157,6 +1157,33 @@ class SftpViewModel @Inject constructor(
     override fun onCleared() {
         super.onCleared()
         currentTransferJob?.cancel()
-        Timber.d("SftpViewModel cleared - connection kept alive in activeClients")
+        
+        // Clean up this ViewModel's resources from static maps
+        val hostId = _uiState.value.host?.id
+        if (hostId != null) {
+            val hasActiveWork = getActiveWorkId(hostId) != null
+            val hasActiveTransfer = getActiveTransfer("upload_$hostId") != null || 
+                                   getActiveTransfer("download_$hostId") != null
+            
+            // Only disconnect if no active transfers for this host
+            if (!hasActiveWork && !hasActiveTransfer) {
+                activeClients[hostId]?.let { client ->
+                    viewModelScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) {
+                                client.disconnect()
+                            }
+                            Timber.d("SftpViewModel: disconnected SFTP client for host $hostId")
+                        } catch (e: Exception) {
+                            Timber.w(e, "SftpViewModel: failed to disconnect SFTP client on clear")
+                        }
+                    }
+                }
+                activeClients.remove(hostId)
+                Timber.d("SftpViewModel cleared - cleaned up resources for host $hostId")
+            } else {
+                Timber.d("SftpViewModel cleared - keeping connection alive (active transfers exist)")
+            }
+        }
     }
 }

@@ -139,6 +139,10 @@ class TerminalService : Service() {
     }
 
     fun onBridgeDisconnected(bridge: TerminalBridge, reason: DisconnectReason) {
+        // Close bridge FIRST to prevent race conditions
+        bridge.close(reason)
+
+        // Then remove from list
         val currentBridges = _bridges.value.toMutableList()
         currentBridges.remove(bridge)
         _bridges.value = currentBridges
@@ -147,8 +151,6 @@ class TerminalService : Service() {
         if (_activeBridge.value == bridge) {
             _activeBridge.value = currentBridges.firstOrNull()
         }
-
-        bridge.close()
 
         if (currentBridges.isEmpty()) {
             stopForeground(STOP_FOREGROUND_REMOVE)

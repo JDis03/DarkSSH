@@ -69,24 +69,32 @@
       "name": "Memory Leak: SftpViewModel Static Collections",
       "description": "activeClients, activeTransfers, activeWorkIds in companion object never cleaned up, causing unbounded memory growth",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #1. onCleared() doesn't clean up static maps, connections leak when tabs close"
+      "status": "done",
+      "evidence": "Added cleanup in onCleared(): disconnects SFTP client if no active transfers, removes from activeClients map. WorkManager IDs already cleaned up on work completion (setActiveWorkId(null) in SUCCEEDED/FAILED/CANCELLED states). activeTransfers already cleaned up in download/upload completion handlers."
     },
     {
       "id": "leak-002",
       "name": "Memory Leak: ConsoleViewModel Observer Accumulation",
       "description": "observeJobs list grows on each connect() call (4 jobs per call), never cleared before adding new jobs",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #2. connect() cancels jobs but doesn't clear list, causing accumulation"
+      "status": "done",
+      "evidence": "observeJobs.clear() already present in connect() line 60, reconnect() line 154, onCleared() line 173. Fix was already applied in previous commits."
     },
     {
       "id": "leak-003",
       "name": "Memory Leak: TerminalBridge Scope Not Cancelled",
       "description": "bridgeScope continues running after close(), coroutines and relay thread may leak",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Critical Issue #3. close() doesn't call bridgeScope.cancel()"
+      "status": "done",
+      "evidence": "bridgeScope.cancel() and bridgeJob.cancel() already present in close() at lines 271-272. Fix was already applied in previous commits."
+    },
+    {
+      "id": "leak-005",
+      "name": "Race Condition: TerminalService Bridge Removal",
+      "description": "Bridge closed AFTER removal from list, causing race condition where UI sees bridge about to be closed",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Reordered onBridgeDisconnected(): now calls bridge.close(reason) FIRST, then removes from list. Prevents race condition."
     },
     {
       "id": "leak-004",
