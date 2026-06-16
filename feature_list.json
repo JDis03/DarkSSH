@@ -101,8 +101,8 @@
       "name": "Missing SFTP Client Cleanup on Tab Close",
       "description": "When SFTP tab closes, SftpClient is not disconnected from activeClients map, causing connection leak",
       "dependencies": [],
-      "status": "not-started",
-      "evidence": "See IMPLEMENTATION_STATUS.md Gap #1. TabbedMainScreen.onCloseTab only closes TerminalBridge, not SftpClient. Need to add SFTP disconnect logic."
+      "status": "done",
+      "evidence": "TabbedMainScreen.onCloseTab now checks tab type: SSH tabs close TerminalBridge, SFTP tabs disconnect SftpClient and remove from activeClients map. Cleanup happens in coroutineScope with proper error handling."
     },
     {
       "id": "openspec-001",
