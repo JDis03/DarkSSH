@@ -44,6 +44,8 @@ org/
 connectbot/
 termux-app/sshlib/
 sshlib/
+mosh-desktop/
+termux-app-new/
 
 # Other
 mosh/
