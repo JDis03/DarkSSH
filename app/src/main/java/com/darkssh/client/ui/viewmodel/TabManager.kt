@@ -90,7 +90,7 @@ class TabManager
         /**
          * Creates a tab or switches to an existing one with the same host and type.
          * If a tab already exists for this host+type combination, switches to it.
-         * Otherwise, creates a new tab.
+         * Otherwise, creates a new tab and switches to it.
          */
         fun createOrSwitchToTab(
             type: TabType,
@@ -106,7 +106,8 @@ class TabManager
                 // Tab already exists, switch to it
                 switchTab(existingTabIndex)
             } else {
-                // Create new tab
+                // Create new tab and switch to it
+                shouldSwitchToNewTab = true
                 createTab(type, hostId, title)
             }
         }

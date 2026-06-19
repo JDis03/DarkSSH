@@ -154,6 +154,7 @@ class ConsoleViewModel
 
         fun reconnect() {
             val h = _host.value ?: return
+            Timber.d("ConsoleViewModel: Reconnecting to ${h.nickname} (hostId=${h.id}, tabId=$currentTabId)")
             observeJobs.forEach { it.cancel() }
             observeJobs.clear()
             _bridge.value = null
@@ -164,7 +165,9 @@ class ConsoleViewModel
             viewModelScope.launch {
                 val service = terminalService ?: return@launch
                 // Pass tabId to associate the new bridge with the existing tab
+                Timber.d("ConsoleViewModel: Calling openConnection with tabId=$currentTabId")
                 val b = service.openConnection(h, currentTabId)
+                Timber.d("ConsoleViewModel: openConnection returned bridge, observing...")
                 _bridge.value = b
                 observeBridge(b)
             }

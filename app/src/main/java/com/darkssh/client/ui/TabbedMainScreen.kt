@@ -176,7 +176,10 @@ fun TabbedMainScreen(
                         TabType.SSH_TERMINAL -> {
                             ConsoleScreen(
                                 hostId = tab.hostId,
-                                onBack = { /* Tabs don't have back */ },
+                                onBack = { 
+                                    // Close tab when user clicks "Close" in disconnect overlay
+                                    tabManager.closeTab(tab.id)
+                                },
                                 terminalService = terminalService,
                                 inTab = true,
                                 tabId = tab.id,
@@ -186,7 +189,10 @@ fun TabbedMainScreen(
                         TabType.SFTP_BROWSER -> {
                             SftpScreen(
                                 hostId = tab.hostId,
-                                onBack = { /* Tabs don't have back */ },
+                                onBack = { 
+                                    // Close tab when user clicks back
+                                    tabManager.closeTab(tab.id)
+                                },
                                 inTab = true,
                             )
                         }

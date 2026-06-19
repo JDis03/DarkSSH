@@ -138,12 +138,14 @@ class TerminalService : Service() {
         host: Host,
         tabId: String? = null,
     ): TerminalBridge {
+        Timber.d("TerminalService: openConnection called for ${host.nickname} (hostId=${host.id}, tabId=$tabId)")
         val bridge = TerminalBridge(host, this, knownHostRepository, tabRepository, clipboardManager, tabId)
         _bridges.value = _bridges.value + bridge
 
         val notification = createConnectionNotification(host)
         startForeground(NOTIFICATION_ID, notification)
 
+        Timber.d("TerminalService: Starting connection for bridge with tabId=${bridge.tabId}")
         bridge.startConnection()
         return bridge
     }
