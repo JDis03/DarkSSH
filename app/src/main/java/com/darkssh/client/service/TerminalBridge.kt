@@ -314,9 +314,14 @@ class TerminalBridge(
     }
 
     fun promptForPasswordBlocking(): String? {
-        // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
-        return runBlocking(Dispatchers.Main.immediate) {
-            promptForPassword()
+        return try {
+            // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
+            runBlocking(Dispatchers.Main.immediate) {
+                promptForPassword()
+            }
+        } catch (e: CancellationException) {
+            Timber.d("Password prompt cancelled")
+            null
         }
     }
 
@@ -331,9 +336,14 @@ class TerminalBridge(
     }
 
     fun promptForInputBlocking(prompt: String, echo: Boolean): String? {
-        // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
-        return runBlocking(Dispatchers.Main.immediate) {
-            promptForInput(prompt, echo)
+        return try {
+            // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
+            runBlocking(Dispatchers.Main.immediate) {
+                promptForInput(prompt, echo)
+            }
+        } catch (e: CancellationException) {
+            Timber.d("Input prompt cancelled")
+            null
         }
     }
 
@@ -348,9 +358,14 @@ class TerminalBridge(
     }
 
     fun promptForHostKeyVerificationBlocking(hostname: String, port: Int, fingerprints: String): Boolean {
-        // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
-        return runBlocking(Dispatchers.Main.immediate) {
-            promptForHostKeyVerification(hostname, port, fingerprints)
+        return try {
+            // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
+            runBlocking(Dispatchers.Main.immediate) {
+                promptForHostKeyVerification(hostname, port, fingerprints)
+            }
+        } catch (e: CancellationException) {
+            Timber.d("Host key verification prompt cancelled")
+            false
         }
     }
 

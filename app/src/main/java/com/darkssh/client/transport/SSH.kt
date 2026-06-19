@@ -14,11 +14,14 @@ import com.trilead.ssh2.ServerHostKeyVerifier
 import com.trilead.ssh2.Session
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
 import timber.log.Timber
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyPair
+import kotlinx.coroutines.CancellationException
 
 class SSH(
     host: Host,
@@ -31,6 +34,8 @@ class SSH(
         private const val AUTH_TRIES = 20
         private const val DEFAULT_PORT = 22
         private const val TAG = "SSH"
+        private const val CONNECT_TIMEOUT_MS = 15000 // 15 seconds
+        private const val KEX_TIMEOUT_MS = 30000 // 30 seconds for key exchange
     }
 
     @Volatile
@@ -81,16 +86,34 @@ class SSH(
         val port = if (host.port <= 0) DEFAULT_PORT else host.port
 
         try {
+            // Check if coroutine is still active before starting
+            runBlocking {
+                if (!currentCoroutineContext().isActive) {
+                    throw CancellationException("Connection cancelled before start")
+                }
+            }
+            
             val conn = Connection(hostname, port)
             connection = conn
 
             if (host.compression) {
                 conn.setCompression(true)
             }
-
+            
             val verifier = HostKeyVerifier()
-            conn.connect(verifier)
+            
+            // Connect with timeout (prevents indefinite hang)
+            Timber.d("$TAG: Connecting to $hostname:$port (timeout: ${CONNECT_TIMEOUT_MS}ms)...")
+            conn.connect(verifier, CONNECT_TIMEOUT_MS, KEX_TIMEOUT_MS)
             Timber.d("$TAG: Connected to $hostname:$port")
+
+            // Check cancellation after network operation
+            runBlocking {
+                if (!currentCoroutineContext().isActive) {
+                    conn.close()
+                    throw CancellationException("Connection cancelled after connect")
+                }
+            }
 
             Timber.d("$TAG: Starting authentication...")
             if (!authenticate(conn)) {
@@ -99,6 +122,11 @@ class SSH(
             Timber.d("$TAG: Authentication successful, finishing connection...")
             finishConnection(conn)
             Timber.d("$TAG: Connection fully established")
+        } catch (e: CancellationException) {
+            Timber.d("$TAG: Connection cancelled to $hostname:$port")
+            connection?.close()
+            connection = null
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "$TAG: Connection failed to $hostname:$port")
             bridge.dispatchDisconnect(e.message ?: "Connection failed")

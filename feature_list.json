@@ -143,6 +143,14 @@
       "dependencies": ["openspec-001"],
       "status": "not-started",
       "evidence": "See MEMORY_LEAK_ANALYSIS.md - Current Implementation Gap. Required for proper tab isolation"
+    },
+    {
+      "id": "bug-001",
+      "name": "SSH Connection Hangs on Cancel or No Internet",
+      "description": "App hangs when clicking X during SSH connection or when there's no internet connection",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Added connection timeouts (15s TCP, 30s KEX) to SSH.connect(), wrapped blocking calls with cancellation checks, added try-catch for CancellationException in promptForPasswordBlocking/promptForInputBlocking/promptForHostKeyVerificationBlocking. Connection now times out gracefully instead of hanging indefinitely."
     }
   ]
 }
