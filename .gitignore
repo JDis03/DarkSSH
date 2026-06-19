@@ -58,3 +58,11 @@ pictures/
 .opencode/
 progress.md
 session-handoff.md
+
+# Backup and temporary files
+*.backup
+*.backup-*
+*~
+*.tmp
+*.swp
+.*.swp
