@@ -175,6 +175,22 @@
       "dependencies": [],
       "status": "investigating",
       "evidence": "Added debug logging to SSH.HostKeyVerifier and TerminalBridge.promptForHostKeyVerification to track prompt flow. Need to test and check logs to identify root cause."
+    },
+    {
+      "id": "bug-005",
+      "name": "Host Editor: State Persists Between Edit and Add",
+      "description": "After editing a host, clicking 'Add Host' shows the previous host's data instead of empty form",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Fixed by adding hostId as key to rememberSaveable in HostEditorScreen. State now resets when switching between add (hostId=-1) and edit (hostId>0)."
+    },
+    {
+      "id": "bug-006",
+      "name": "Crash When Closing Tab (NPE in TabBar)",
+      "description": "NullPointerException in TabBar.kt:240 when closing tab",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Added try-catch around onCloseTab call with error logging. Prevents crash and logs error for debugging race conditions."
     }
   ]
 }
