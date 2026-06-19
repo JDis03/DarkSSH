@@ -167,6 +167,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Changed title to conditional: 'Add Host' when hostId <= 0, 'Edit Host' when hostId > 0. Now shows correct title based on context."
+    },
+    {
+      "id": "bug-004",
+      "name": "Host Key Verification: Prompt Not Re-appearing After Rejection",
+      "description": "If user rejects host key fingerprint, subsequent connection attempts don't show the prompt again. User has to delete host and create new one.",
+      "dependencies": [],
+      "status": "investigating",
+      "evidence": "Added debug logging to SSH.HostKeyVerifier and TerminalBridge.promptForHostKeyVerification to track prompt flow. Need to test and check logs to identify root cause."
     }
   ]
 }
