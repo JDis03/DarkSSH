@@ -237,7 +237,13 @@ fun TabBar(
                                 style = MaterialTheme.typography.bodyMedium,
                             )
                             IconButton(
-                                onClick = { onCloseTab(tab.id) },
+                                onClick = { 
+                                    try {
+                                        onCloseTab(tab.id)
+                                    } catch (e: Exception) {
+                                        timber.log.Timber.e(e, "Error closing tab ${tab.id}")
+                                    }
+                                },
                                 modifier = Modifier.size(20.dp),
                                 colors = IconButtonDefaults.iconButtonColors(
                                     contentColor = MaterialTheme.colorScheme.onSurfaceVariant

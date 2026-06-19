@@ -63,14 +63,15 @@ fun HostEditorScreen(
     val host by viewModel.host.collectAsState()
     val pubkeys by viewModel.pubkeys.collectAsState()
     
-    var nickname by rememberSaveable { mutableStateOf("") }
-    var hostname by rememberSaveable { mutableStateOf("") }
-    var username by rememberSaveable { mutableStateOf("") }
-    var port by rememberSaveable { mutableIntStateOf(22) }
-    var compression by rememberSaveable { mutableStateOf(false) }
-    var stayConnected by rememberSaveable { mutableStateOf(false) }
-    var selectedPubkeyId by rememberSaveable { mutableLongStateOf(-1L) }
-    var showPubkeyDropdown by rememberSaveable { mutableStateOf(false) }
+    // Use hostId as key to reset state when switching between add/edit
+    var nickname by rememberSaveable(hostId) { mutableStateOf("") }
+    var hostname by rememberSaveable(hostId) { mutableStateOf("") }
+    var username by rememberSaveable(hostId) { mutableStateOf("") }
+    var port by rememberSaveable(hostId) { mutableIntStateOf(22) }
+    var compression by rememberSaveable(hostId) { mutableStateOf(false) }
+    var stayConnected by rememberSaveable(hostId) { mutableStateOf(false) }
+    var selectedPubkeyId by rememberSaveable(hostId) { mutableLongStateOf(-1L) }
+    var showPubkeyDropdown by rememberSaveable(hostId) { mutableStateOf(false) }
 
     // Load host data when available
     LaunchedEffect(host) {
