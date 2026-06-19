@@ -173,8 +173,8 @@
       "name": "Host Key Verification: Prompt Not Re-appearing After Rejection",
       "description": "If user rejects host key fingerprint, subsequent connection attempts don't show the prompt again. User has to delete host and create new one.",
       "dependencies": [],
-      "status": "investigating",
-      "evidence": "Added debug logging to SSH.HostKeyVerifier and TerminalBridge.promptForHostKeyVerification to track prompt flow. Need to test and check logs to identify root cause."
+      "status": "resolved",
+      "evidence": "Tested with debug logging: prompt DOES re-appear after rejection. Logs show 'No known host key found' → 'Showing host key verification prompt' → 'User response: false' → connection fails → reconnect → prompt appears again. No bug found, behavior is correct."
     },
     {
       "id": "bug-005",
@@ -191,6 +191,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Added try-catch around onCloseTab call with error logging. Prevents crash and logs error for debugging race conditions."
+    },
+    {
+      "id": "bug-007",
+      "name": "Tab Management: Close Button and Duplicate Tabs",
+      "description": "Three issues: (1) Close button in disconnect overlay does nothing, (2) Clicking host from list creates duplicate tab instead of switching to existing one, (3) Reconnect button should reuse same tab",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Fixed TabbedMainScreen onBack callback to close tab (was empty). Changed MainScreen to use createOrSwitchToTab() instead of createTabAndSwitch() for both SSH and SFTP. Updated TabManager.createOrSwitchToTab() to switch to newly created tab. Added debug logging for reconnection flow. All three issues resolved."
     }
   ]
 }
