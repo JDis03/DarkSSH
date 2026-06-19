@@ -21,14 +21,15 @@ class Converters {
 
     @TypeConverter
     fun toTabType(value: String): TabType = TabType.valueOf(value)
-    
+
     @TypeConverter
     fun fromOsType(value: OsType): String = value.name
-    
+
     @TypeConverter
-    fun toOsType(value: String): OsType = try {
-        OsType.valueOf(value)
-    } catch (e: IllegalArgumentException) {
-        OsType.UNKNOWN
-    }
+    fun toOsType(value: String): OsType =
+        try {
+            OsType.valueOf(value)
+        } catch (e: IllegalArgumentException) {
+            OsType.UNKNOWN
+        }
 }

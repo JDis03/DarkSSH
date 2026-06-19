@@ -8,23 +8,32 @@ import com.darkssh.client.transport.SftpEntry
  */
 object SftpClipboard {
     enum class Operation {
-        COPY, CUT
+        COPY,
+        CUT,
     }
 
     data class ClipboardData(
         val files: List<SftpEntry>,
         val operation: Operation,
         val hostId: Long,
-        val sourcePath: String
+        val sourcePath: String,
     )
 
     private var data: ClipboardData? = null
 
-    fun copy(files: List<SftpEntry>, hostId: Long, sourcePath: String) {
+    fun copy(
+        files: List<SftpEntry>,
+        hostId: Long,
+        sourcePath: String,
+    ) {
         data = ClipboardData(files, Operation.COPY, hostId, sourcePath)
     }
 
-    fun cut(files: List<SftpEntry>, hostId: Long, sourcePath: String) {
+    fun cut(
+        files: List<SftpEntry>,
+        hostId: Long,
+        sourcePath: String,
+    ) {
         data = ClipboardData(files, Operation.CUT, hostId, sourcePath)
     }
 

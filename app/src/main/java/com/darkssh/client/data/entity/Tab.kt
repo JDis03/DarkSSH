@@ -8,7 +8,7 @@ import java.util.UUID
 
 enum class TabType {
     SSH_TERMINAL,
-    SFTP_BROWSER
+    SFTP_BROWSER,
 }
 
 @Entity(

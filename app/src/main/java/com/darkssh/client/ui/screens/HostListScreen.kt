@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Card
@@ -47,6 +48,7 @@ fun HostListScreen(
     onHostClick: (Host) -> Unit,
     onAddHostClick: () -> Unit,
     onEditHostClick: (Host) -> Unit,
+    onDeleteHostClick: (Host) -> Unit = {},
     onSftpClick: (Host) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: HostListViewModel = hiltViewModel(),
@@ -142,6 +144,13 @@ fun HostListScreen(
                                         Icon(
                                             Icons.Default.Edit,
                                             contentDescription = "Edit",
+                                        )
+                                    }
+                                    IconButton(onClick = { onDeleteHostClick(host) }) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.error,
                                         )
                                     }
                                     IconButton(onClick = { onSftpClick(host) }) {

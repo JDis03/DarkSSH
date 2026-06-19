@@ -55,8 +55,11 @@ class TerminalService : Service() {
     val loadedKeypairs: ConcurrentHashMap<String, KeyPair> = ConcurrentHashMap()
 
     @Inject lateinit var hostRepository: HostRepository
+
     @Inject lateinit var knownHostRepository: KnownHostRepository
+
     @Inject lateinit var tabRepository: com.darkssh.client.data.repository.TabRepository
+
     @Inject lateinit var clipboardManager: ClipboardManager
 
     private val binder = TerminalBinder()
@@ -71,7 +74,11 @@ class TerminalService : Service() {
         Timber.d("TerminalService created")
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         when (intent?.action) {
             ACTION_CONNECT -> {
                 val hostId = intent.getLongExtra(EXTRA_HOST_ID, -1L)
@@ -81,6 +88,7 @@ class TerminalService : Service() {
                     }
                 }
             }
+
             ACTION_DISCONNECT -> {
                 stopSelf()
             }
@@ -92,11 +100,11 @@ class TerminalService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        
+
         // Close all bridges first
         _bridges.value.forEach { it.close() }
         _bridges.value = emptyList()
-        
+
         // Disconnect SFTP clients with timeout
         // Use runBlocking with timeout to prevent ANR but still cleanup properly
         sftpClients.forEach { (hostId, client) ->
@@ -111,19 +119,25 @@ class TerminalService : Service() {
             }
         }
         sftpClients.clear()
-        
+
         // Cancel service scope
         serviceJob.cancel()
-        
+
         Timber.d("TerminalService destroyed")
     }
 
-    suspend fun openConnection(hostId: Long, tabId: String? = null): TerminalBridge? {
+    suspend fun openConnection(
+        hostId: Long,
+        tabId: String? = null,
+    ): TerminalBridge? {
         val host = hostRepository.getHostById(hostId) ?: return null
         return openConnection(host, tabId)
     }
 
-    fun openConnection(host: Host, tabId: String? = null): TerminalBridge {
+    fun openConnection(
+        host: Host,
+        tabId: String? = null,
+    ): TerminalBridge {
         val bridge = TerminalBridge(host, this, knownHostRepository, tabRepository, clipboardManager, tabId)
         _bridges.value = _bridges.value + bridge
 
@@ -138,7 +152,10 @@ class TerminalService : Service() {
         _activeBridge.value = bridge
     }
 
-    fun onBridgeDisconnected(bridge: TerminalBridge, reason: DisconnectReason) {
+    fun onBridgeDisconnected(
+        bridge: TerminalBridge,
+        reason: DisconnectReason,
+    ) {
         // Close bridge FIRST to prevent race conditions
         bridge.close(reason)
 
@@ -176,15 +193,17 @@ class TerminalService : Service() {
     }
 
     private fun createConnectionNotification(host: Host): Notification {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
+        val intent =
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+        val pendingIntent =
+            PendingIntent.getActivity(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
 
         return NotificationCompat
             .Builder(this, CHANNEL_ID)

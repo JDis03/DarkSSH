@@ -40,7 +40,7 @@ object DatabaseModule {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_tabs_position ON tabs (position)")
             }
         }
-    
+
     private val MIGRATION_2_3 =
         object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {

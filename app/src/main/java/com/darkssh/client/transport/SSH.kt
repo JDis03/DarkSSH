@@ -12,24 +12,25 @@ import com.trilead.ssh2.ConnectionMonitor
 import com.trilead.ssh2.InteractiveCallback
 import com.trilead.ssh2.ServerHostKeyVerifier
 import com.trilead.ssh2.Session
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.runBlocking
 import timber.log.Timber
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyPair
-import kotlinx.coroutines.CancellationException
 
 class SSH(
     host: Host,
     bridge: TerminalBridge,
     service: TerminalService,
     private val knownHostRepository: KnownHostRepository,
-) : AbsTransport(host, bridge, service), ConnectionMonitor, InteractiveCallback {
-
+) : AbsTransport(host, bridge, service),
+    ConnectionMonitor,
+    InteractiveCallback {
     companion object {
         private const val AUTH_TRIES = 20
         private const val DEFAULT_PORT = 22
@@ -40,19 +41,25 @@ class SSH(
 
     @Volatile
     private var connection: Connection? = null
-    
+
     /** Expose connection for OS detection (read-only) */
     fun getConnection(): Connection? = connection
+
     @Volatile
     private var session: Session? = null
+
     @Volatile
     private var stdin: OutputStream? = null
+
     @Volatile
     private var stdout: InputStream? = null
+
     @Volatile
     private var stderr: InputStream? = null
+
     @Volatile
     private var connected = false
+
     @Volatile
     private var sessionOpen = false
 
@@ -80,7 +87,6 @@ class SSH(
         }
     }
 
-
     override fun connect() {
         val hostname = host.hostname
         val port = if (host.port <= 0) DEFAULT_PORT else host.port
@@ -92,16 +98,16 @@ class SSH(
                     throw CancellationException("Connection cancelled before start")
                 }
             }
-            
+
             val conn = Connection(hostname, port)
             connection = conn
 
             if (host.compression) {
                 conn.setCompression(true)
             }
-            
+
             val verifier = HostKeyVerifier()
-            
+
             // Connect with timeout (prevents indefinite hang)
             Timber.d("$TAG: Connecting to $hostname:$port (timeout: ${CONNECT_TIMEOUT_MS}ms)...")
             conn.connect(verifier, CONNECT_TIMEOUT_MS, KEX_TIMEOUT_MS)
@@ -137,8 +143,9 @@ class SSH(
     private fun authenticate(conn: Connection): Boolean {
         val username = host.username
 
-        val initial = conn.getRemainingAuthMethods(username)
-            ?: return false
+        val initial =
+            conn.getRemainingAuthMethods(username)
+                ?: return false
 
         if (initial.isEmpty()) return true
 
@@ -178,7 +185,7 @@ class SSH(
                         CredentialStore.remove(host.id)
                     }
                 }
-                
+
                 // Prompt for password
                 Timber.d("$TAG: Prompting for password...")
                 val password = bridge.promptForPasswordBlocking()
@@ -209,7 +216,10 @@ class SSH(
         return false
     }
 
-    private fun tryPublicKeyAuth(conn: Connection, username: String): Boolean {
+    private fun tryPublicKeyAuth(
+        conn: Connection,
+        username: String,
+    ): Boolean {
         val loadedKeys = service.loadedKeypairs.values.toList()
         for (keyPair in loadedKeys) {
             try {
@@ -231,10 +241,10 @@ class SSH(
 
         val cols = bridge.columns
         val rows = bridge.rows
-        Timber.d("$TAG: Requesting PTY (${cols}x${rows})...")
+        Timber.d("$TAG: Requesting PTY (${cols}x$rows)...")
         sess.requestPTY("xterm-256color", cols, rows, 0, 0, null)
         Timber.d("$TAG: PTY requested successfully")
-        
+
         Timber.d("$TAG: Starting shell...")
         sess.startShell()
         Timber.d("$TAG: Shell started successfully")
@@ -267,13 +277,19 @@ class SSH(
 
     override fun read(): Int = stdout?.read() ?: -1
 
-    override fun read(buffer: ByteArray, offset: Int, length: Int): Int =
-        stdout?.read(buffer, offset, length) ?: -1
+    override fun read(
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int = stdout?.read(buffer, offset, length) ?: -1
 
     override fun write(buffer: ByteArray) {
         val stream = stdin
         if (stream == null) {
-            android.util.Log.e("SSH", "❌ SSH.write(): stdin is NULL! Dropping ${buffer.size} bytes. sessionOpen=$sessionOpen, connected=$connected")
+            android.util.Log.e(
+                "SSH",
+                "❌ SSH.write(): stdin is NULL! Dropping ${buffer.size} bytes. sessionOpen=$sessionOpen, connected=$connected",
+            )
             return
         }
         android.util.Log.d("SSH", "📤 SSH.write(): writing ${buffer.size} bytes, first byte=${"%02x".format(buffer[0])}")
@@ -293,8 +309,16 @@ class SSH(
         keepAliveRunning = false
         connected = false
         sessionOpen = false
-        try { session?.close() } catch (e: Exception) { Timber.d(e, "$TAG: Error closing session") }
-        try { connection?.close() } catch (e: Exception) { Timber.d(e, "$TAG: Error closing connection") }
+        try {
+            session?.close()
+        } catch (e: Exception) {
+            Timber.d(e, "$TAG: Error closing session")
+        }
+        try {
+            connection?.close()
+        } catch (e: Exception) {
+            Timber.d(e, "$TAG: Error closing connection")
+        }
         session = null
         connection = null
         stdin = null
@@ -306,7 +330,12 @@ class SSH(
 
     override fun isSessionOpen(): Boolean = sessionOpen
 
-    override fun setDimensions(cols: Int, rows: Int, width: Int, height: Int) {
+    override fun setDimensions(
+        cols: Int,
+        rows: Int,
+        width: Int,
+        height: Int,
+    ) {
         try {
             session?.resizePTY(cols, rows, width, height)
         } catch (e: IOException) {
@@ -334,8 +363,9 @@ class SSH(
 
         val responses = mutableListOf<String>()
         prompt?.forEachIndexed { i, p ->
-            val response = bridge.promptForInputBlocking(p, echo?.get(i) ?: false)
-                ?: return null
+            val response =
+                bridge.promptForInputBlocking(p, echo?.get(i) ?: false)
+                    ?: return null
             responses.add(response)
         }
         return responses.toTypedArray()
@@ -351,10 +381,11 @@ class SSH(
             val keyData = Base64.encodeToString(serverHostKey, Base64.NO_WRAP)
 
             // Use IO dispatcher for database operations in blocking context
-            val existing = runBlocking(Dispatchers.IO) {
-                knownHostRepository.getByHostIdAndAlgo(host.id, serverHostKeyAlgorithm)
-            }
-            
+            val existing =
+                runBlocking(Dispatchers.IO) {
+                    knownHostRepository.getByHostIdAndAlgo(host.id, serverHostKeyAlgorithm)
+                }
+
             return if (existing.isEmpty()) {
                 val fingerprints = buildFingerprints(serverHostKeyAlgorithm, serverHostKey)
                 val accepted = bridge.promptForHostKeyVerificationBlocking(hostname, port, fingerprints)
@@ -378,13 +409,22 @@ class SSH(
         }
     }
 
-    private fun buildFingerprints(algo: String, key: ByteArray): String {
-        val md5 = java.security.MessageDigest.getInstance("MD5").digest(key)
-            .joinToString(":") { "%02x".format(it) }
-        val sha256 = Base64.encodeToString(
-            java.security.MessageDigest.getInstance("SHA-256").digest(key),
-            Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE,
-        )
+    private fun buildFingerprints(
+        algo: String,
+        key: ByteArray,
+    ): String {
+        val md5 =
+            java.security.MessageDigest
+                .getInstance("MD5")
+                .digest(key)
+                .joinToString(":") { "%02x".format(it) }
+        val sha256 =
+            Base64.encodeToString(
+                java.security.MessageDigest
+                    .getInstance("SHA-256")
+                    .digest(key),
+                Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE,
+            )
         return "$algo\nSHA256:$sha256\nMD5:$md5"
     }
 }

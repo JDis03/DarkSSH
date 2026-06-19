@@ -18,7 +18,11 @@ sealed class PromptRequest {
 }
 
 sealed class PromptResponse {
-    data class StringResponse(val value: String?) : PromptResponse()
+    data class StringResponse(
+        val value: String?,
+    ) : PromptResponse()
 
-    data class BooleanResponse(val value: Boolean) : PromptResponse()
+    data class BooleanResponse(
+        val value: Boolean,
+    ) : PromptResponse()
 }

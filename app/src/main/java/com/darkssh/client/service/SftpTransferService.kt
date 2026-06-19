@@ -44,16 +44,20 @@ data class TransferTask(
 )
 
 enum class TransferType {
-    UPLOAD, DOWNLOAD
+    UPLOAD,
+    DOWNLOAD,
 }
 
 enum class TransferStatus {
-    QUEUED, TRANSFERRING, COMPLETED, FAILED, CANCELLED
+    QUEUED,
+    TRANSFERRING,
+    COMPLETED,
+    FAILED,
+    CANCELLED,
 }
 
 @AndroidEntryPoint
 class SftpTransferService : Service() {
-
     @Inject
     lateinit var notificationManager: NotificationManager
 
@@ -78,10 +82,10 @@ class SftpTransferService : Service() {
         const val EXTRA_LOCAL_PATH = "local_path"
         const val EXTRA_REMOTE_PATH = "remote_path"
         const val EXTRA_TOTAL_BYTES = "total_bytes"
-        
+
         // Global reference to current service instance (for observing transfers from UI)
         private var instance: SftpTransferService? = null
-        
+
         /**
          * Observable transfer state for UI (like File Manager+)
          * Returns active transfers with progress
@@ -94,23 +98,28 @@ class SftpTransferService : Service() {
             hostId: Long,
             localPath: String,
             remotePath: String,
-            totalBytes: Long
+            totalBytes: Long,
         ) {
-            val intent = Intent(context, SftpTransferService::class.java).apply {
-                action = ACTION_START_UPLOAD
-                putExtra(EXTRA_HOST_ID, hostId)
-                putExtra(EXTRA_LOCAL_PATH, localPath)
-                putExtra(EXTRA_REMOTE_PATH, remotePath)
-                putExtra(EXTRA_TOTAL_BYTES, totalBytes)
-            }
+            val intent =
+                Intent(context, SftpTransferService::class.java).apply {
+                    action = ACTION_START_UPLOAD
+                    putExtra(EXTRA_HOST_ID, hostId)
+                    putExtra(EXTRA_LOCAL_PATH, localPath)
+                    putExtra(EXTRA_REMOTE_PATH, remotePath)
+                    putExtra(EXTRA_TOTAL_BYTES, totalBytes)
+                }
             context.startForegroundService(intent)
         }
 
-        fun cancelTransfer(context: Context, transferId: Int) {
-            val intent = Intent(context, SftpTransferService::class.java).apply {
-                action = ACTION_CANCEL_TRANSFER
-                putExtra(EXTRA_TRANSFER_ID, transferId)
-            }
+        fun cancelTransfer(
+            context: Context,
+            transferId: Int,
+        ) {
+            val intent =
+                Intent(context, SftpTransferService::class.java).apply {
+                    action = ACTION_CANCEL_TRANSFER
+                    putExtra(EXTRA_TRANSFER_ID, transferId)
+                }
             context.startForegroundService(intent)
         }
     }
@@ -124,7 +133,11 @@ class SftpTransferService : Service() {
         Timber.d("SftpTransferService created")
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int,
+    ): Int {
         intent?.let { handleIntent(it) }
         return START_STICKY
     }
@@ -144,26 +157,33 @@ class SftpTransferService : Service() {
         when (intent.action) {
             ACTION_START_UPLOAD -> {
                 val hostId = intent.getLongExtra(EXTRA_HOST_ID, -1)
-                val localPath = intent.getStringExtra(EXTRA_LOCAL_PATH) ?: run {
-                    DebugLogger.e("SftpTransferService", "Missing EXTRA_LOCAL_PATH")
-                    Timber.e("Missing EXTRA_LOCAL_PATH")
-                    return
-                }
-                val remotePath = intent.getStringExtra(EXTRA_REMOTE_PATH) ?: run {
-                    DebugLogger.e("SftpTransferService", "Missing EXTRA_REMOTE_PATH")
-                    Timber.e("Missing EXTRA_REMOTE_PATH")
-                    return
-                }
+                val localPath =
+                    intent.getStringExtra(EXTRA_LOCAL_PATH) ?: run {
+                        DebugLogger.e("SftpTransferService", "Missing EXTRA_LOCAL_PATH")
+                        Timber.e("Missing EXTRA_LOCAL_PATH")
+                        return
+                    }
+                val remotePath =
+                    intent.getStringExtra(EXTRA_REMOTE_PATH) ?: run {
+                        DebugLogger.e("SftpTransferService", "Missing EXTRA_REMOTE_PATH")
+                        Timber.e("Missing EXTRA_REMOTE_PATH")
+                        return
+                    }
                 val totalBytes = intent.getLongExtra(EXTRA_TOTAL_BYTES, 0)
-                DebugLogger.i("SftpTransferService", "Starting upload: hostId=$hostId, file=${localPath.substringAfterLast('/')}, size=${totalBytes/1024}KB")
+                DebugLogger.i(
+                    "SftpTransferService",
+                    "Starting upload: hostId=$hostId, file=${localPath.substringAfterLast('/')}, size=${totalBytes / 1024}KB",
+                )
                 Timber.d("Starting upload: hostId=$hostId, local=$localPath, remote=$remotePath, bytes=$totalBytes")
                 startUploadInternal(hostId, localPath, remotePath, totalBytes)
             }
+
             ACTION_CANCEL_TRANSFER -> {
                 val transferId = intent.getIntExtra(EXTRA_TRANSFER_ID, -1)
                 DebugLogger.i("SftpTransferService", "Canceling transfer: $transferId")
                 cancelTransferInternal(transferId)
             }
+
             else -> {
                 DebugLogger.w("SftpTransferService", "Unknown action: ${intent.action}")
                 Timber.w("Unknown action: ${intent.action}")
@@ -175,96 +195,107 @@ class SftpTransferService : Service() {
         hostId: Long,
         localPath: String,
         remotePath: String,
-        totalBytes: Long
+        totalBytes: Long,
     ) {
         val transferId = transferIdCounter.incrementAndGet()
         DebugLogger.d("SftpTransferService", "Transfer #$transferId queued")
         Timber.d("startUploadInternal called")
-        val task = TransferTask(
-            id = transferId,
-            hostId = hostId,
-            type = TransferType.UPLOAD,
-            localPath = localPath,
-            remotePath = remotePath,
-            totalBytes = totalBytes,
-            status = TransferStatus.QUEUED
-        )
+        val task =
+            TransferTask(
+                id = transferId,
+                hostId = hostId,
+                type = TransferType.UPLOAD,
+                localPath = localPath,
+                remotePath = remotePath,
+                totalBytes = totalBytes,
+                status = TransferStatus.QUEUED,
+            )
 
         Timber.d("Transfer task created: id=$transferId")
         updateTransfer(task)
 
-        val job = serviceScope.launch {
-            try {
-                updateTransfer(task.copy(status = TransferStatus.TRANSFERRING))
-                updateNotification()  // Show notification immediately
+        val job =
+            serviceScope.launch {
+                try {
+                    updateTransfer(task.copy(status = TransferStatus.TRANSFERRING))
+                    updateNotification() // Show notification immediately
 
-                // Get SFTP client from existing connection
-                DebugLogger.d("SftpTransferService", "Getting SFTP client for hostId=$hostId")
-                Timber.d("Getting SFTP client for hostId=$hostId")
-                val sftpClient = getActiveSftpClient(hostId)
-                if (sftpClient == null) {
-                    DebugLogger.e("SftpTransferService", "No active SFTP connection for hostId=$hostId")
-                    Timber.e("No active SFTP connection for hostId=$hostId")
-                    updateTransfer(task.copy(
-                        status = TransferStatus.FAILED,
-                        error = "No active SFTP connection for this host"
-                    ))
-                    return@launch
-                }
-                DebugLogger.i("SftpTransferService", "SFTP client found, uploading...")
-                Timber.d("SFTP client found, starting upload")
-
-                val localFile = File(localPath)
-                
-                // Use optimized upload (window 32MB + packet 256KB)
-                Timber.d("Uploading ${localFile.name} (${totalBytes / 1024 / 1024}MB)")
-                val result = sftpClient.uploadFile(localFile, remotePath) { progress ->
-                    DebugLogger.d("SftpTransferService", "Upload progress callback: ${progress.percentage}%")
-                    updateTransfer(task.copy(
-                        status = TransferStatus.TRANSFERRING,
-                        progress = progress
-                    ))
-                    updateNotification()
-                }
-
-                result.fold(
-                    onSuccess = {
-                        updateTransfer(task.copy(status = TransferStatus.COMPLETED))
-                        DebugLogger.i("SftpTransferService", "Transfer #$transferId completed ✓")
-                        Timber.d("Transfer $transferId completed")
-                    },
-                    onFailure = { error ->
-                        updateTransfer(task.copy(
-                            status = TransferStatus.FAILED,
-                            error = error.message
-                        ))
-                        DebugLogger.e("SftpTransferService", "Transfer #$transferId failed: ${error.message}")
-                        Timber.e(error, "Transfer $transferId failed")
+                    // Get SFTP client from existing connection
+                    DebugLogger.d("SftpTransferService", "Getting SFTP client for hostId=$hostId")
+                    Timber.d("Getting SFTP client for hostId=$hostId")
+                    val sftpClient = getActiveSftpClient(hostId)
+                    if (sftpClient == null) {
+                        DebugLogger.e("SftpTransferService", "No active SFTP connection for hostId=$hostId")
+                        Timber.e("No active SFTP connection for hostId=$hostId")
+                        updateTransfer(
+                            task.copy(
+                                status = TransferStatus.FAILED,
+                                error = "No active SFTP connection for this host",
+                            ),
+                        )
+                        return@launch
                     }
-                )
-            } catch (e: Exception) {
-                updateTransfer(task.copy(
-                    status = TransferStatus.FAILED,
-                    error = e.message
-                ))
-                Timber.e(e, "Transfer $transferId exception")
-            } finally {
-                // Clean up temporary file if it was created from content URI
-                val localFile = File(localPath)
-                if (localFile.name.startsWith("upload_") && localFile.extension == "tmp") {
-                    try {
-                        if (localFile.delete()) {
-                            DebugLogger.d("SftpTransferService", "Cleaned up temp file: ${localFile.name}")
+                    DebugLogger.i("SftpTransferService", "SFTP client found, uploading...")
+                    Timber.d("SFTP client found, starting upload")
+
+                    val localFile = File(localPath)
+
+                    // Use optimized upload (window 32MB + packet 256KB)
+                    Timber.d("Uploading ${localFile.name} (${totalBytes / 1024 / 1024}MB)")
+                    val result =
+                        sftpClient.uploadFile(localFile, remotePath) { progress ->
+                            DebugLogger.d("SftpTransferService", "Upload progress callback: ${progress.percentage}%")
+                            updateTransfer(
+                                task.copy(
+                                    status = TransferStatus.TRANSFERRING,
+                                    progress = progress,
+                                ),
+                            )
+                            updateNotification()
                         }
-                    } catch (e: Exception) {
-                        DebugLogger.w("SftpTransferService", "Failed to delete temp file: ${e.message}")
+
+                    result.fold(
+                        onSuccess = {
+                            updateTransfer(task.copy(status = TransferStatus.COMPLETED))
+                            DebugLogger.i("SftpTransferService", "Transfer #$transferId completed ✓")
+                            Timber.d("Transfer $transferId completed")
+                        },
+                        onFailure = { error ->
+                            updateTransfer(
+                                task.copy(
+                                    status = TransferStatus.FAILED,
+                                    error = error.message,
+                                ),
+                            )
+                            DebugLogger.e("SftpTransferService", "Transfer #$transferId failed: ${error.message}")
+                            Timber.e(error, "Transfer $transferId failed")
+                        },
+                    )
+                } catch (e: Exception) {
+                    updateTransfer(
+                        task.copy(
+                            status = TransferStatus.FAILED,
+                            error = e.message,
+                        ),
+                    )
+                    Timber.e(e, "Transfer $transferId exception")
+                } finally {
+                    // Clean up temporary file if it was created from content URI
+                    val localFile = File(localPath)
+                    if (localFile.name.startsWith("upload_") && localFile.extension == "tmp") {
+                        try {
+                            if (localFile.delete()) {
+                                DebugLogger.d("SftpTransferService", "Cleaned up temp file: ${localFile.name}")
+                            }
+                        } catch (e: Exception) {
+                            DebugLogger.w("SftpTransferService", "Failed to delete temp file: ${e.message}")
+                        }
                     }
+
+                    transferJobs.remove(transferId)
+                    checkStopService()
                 }
-                
-                transferJobs.remove(transferId)
-                checkStopService()
             }
-        }
 
         transferJobs[transferId] = job
     }
@@ -279,12 +310,16 @@ class SftpTransferService : Service() {
     }
 
     private fun updateTransfer(task: TransferTask) {
-        _transfers.value = _transfers.value.toMutableMap().apply {
-            put(task.id, task)
-        }
-        DebugLogger.d("SftpTransferService", "Transfer updated: id=${task.id}, status=${task.status}, progress=${task.progress?.percentage}%")
+        _transfers.value =
+            _transfers.value.toMutableMap().apply {
+                put(task.id, task)
+            }
+        DebugLogger.d(
+            "SftpTransferService",
+            "Transfer updated: id=${task.id}, status=${task.status}, progress=${task.progress?.percentage}%",
+        )
         Timber.d("Transfer updated: id=${task.id}, status=${task.status}, progress=${task.progress?.percentage}%")
-        
+
         // Update notification when transfer status/progress changes
         if (task.status == TransferStatus.TRANSFERRING) {
             updateNotification()
@@ -292,9 +327,10 @@ class SftpTransferService : Service() {
     }
 
     private fun checkStopService() {
-        val activeTransfers = _transfers.value.values.any {
-            it.status == TransferStatus.QUEUED || it.status == TransferStatus.TRANSFERRING
-        }
+        val activeTransfers =
+            _transfers.value.values.any {
+                it.status == TransferStatus.QUEUED || it.status == TransferStatus.TRANSFERRING
+            }
         if (!activeTransfers) {
             Timber.d("No active transfers, stopping service")
             stopSelf()
@@ -307,22 +343,24 @@ class SftpTransferService : Service() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            "SFTP Transfers",
-            NotificationManager.IMPORTANCE_HIGH  // HIGH like File Manager+ to show progress updates
-        ).apply {
-            description = "Background file transfers via SFTP"
-            setShowBadge(true)  // Show badge with transfer count
-            setSound(null, null)  // No sound
-            enableVibration(false)  // No vibration
-            enableLights(true)  // Enable LED like File Manager+
-        }
+        val channel =
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                "SFTP Transfers",
+                NotificationManager.IMPORTANCE_HIGH, // HIGH like File Manager+ to show progress updates
+            ).apply {
+                description = "Background file transfers via SFTP"
+                setShowBadge(true) // Show badge with transfer count
+                setSound(null, null) // No sound
+                enableVibration(false) // No vibration
+                enableLights(true) // Enable LED like File Manager+
+            }
         notificationManager.createNotificationChannel(channel)
     }
 
-    private fun createNotification(): Notification {
-        return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
+    private fun createNotification(): Notification =
+        NotificationCompat
+            .Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("SFTP Transfers")
             .setContentText("Ready to transfer files")
             .setSmallIcon(android.R.drawable.stat_sys_upload)
@@ -330,49 +368,53 @@ class SftpTransferService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_PROGRESS)
             .build()
-    }
 
     private fun updateNotification() {
-        val activeTransfers = _transfers.value.values.filter {
-            it.status == TransferStatus.TRANSFERRING
-        }
+        val activeTransfers =
+            _transfers.value.values.filter {
+                it.status == TransferStatus.TRANSFERRING
+            }
 
         if (activeTransfers.isEmpty()) return
 
         val firstTransfer = activeTransfers.first()
-        val content = when (firstTransfer.type) {
-            TransferType.UPLOAD -> {
-                val fileName = File(firstTransfer.localPath).name
-                val progress = firstTransfer.progress
-                if (progress != null) {
-                    "$fileName • ${progress.percentage}% • ${progress.speedFormatted}"
-                } else {
-                    "Uploading $fileName..."
+        val content =
+            when (firstTransfer.type) {
+                TransferType.UPLOAD -> {
+                    val fileName = File(firstTransfer.localPath).name
+                    val progress = firstTransfer.progress
+                    if (progress != null) {
+                        "$fileName • ${progress.percentage}% • ${progress.speedFormatted}"
+                    } else {
+                        "Uploading $fileName..."
+                    }
                 }
-            }
-            TransferType.DOWNLOAD -> {
-                val fileName = File(firstTransfer.remotePath).name
-                val progress = firstTransfer.progress
-                if (progress != null) {
-                    "$fileName • ${progress.percentage}% • ${progress.speedFormatted}"
-                } else {
-                    "Downloading $fileName..."
-                }
-            }
-        }
 
-        val notification = NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("SFTP Transfers (${activeTransfers.size})")
-            .setContentText(content)
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
-            .setOngoing(true)
-            .setShowWhen(false)  // Don't show timestamp
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)  // DEFAULT shows progress updates
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-            .setProgress(100, firstTransfer.progress?.percentage ?: 0, false)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)  // No sound on updates
-            .build()
+                TransferType.DOWNLOAD -> {
+                    val fileName = File(firstTransfer.remotePath).name
+                    val progress = firstTransfer.progress
+                    if (progress != null) {
+                        "$fileName • ${progress.percentage}% • ${progress.speedFormatted}"
+                    } else {
+                        "Downloading $fileName..."
+                    }
+                }
+            }
+
+        val notification =
+            NotificationCompat
+                .Builder(this, NOTIFICATION_CHANNEL_ID)
+                .setContentTitle("SFTP Transfers (${activeTransfers.size})")
+                .setContentText(content)
+                .setSmallIcon(android.R.drawable.stat_sys_upload)
+                .setOngoing(true)
+                .setShowWhen(false) // Don't show timestamp
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT) // DEFAULT shows progress updates
+                .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+                .setProgress(100, firstTransfer.progress?.percentage ?: 0, false)
+                .setOnlyAlertOnce(true)
+                .setSilent(true) // No sound on updates
+                .build()
 
         try {
             notificationManager.notify(NOTIFICATION_ID, notification)

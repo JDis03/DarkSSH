@@ -25,17 +25,20 @@ object EncryptedCredentialStore {
         if (sharedPrefs != null) return
 
         try {
-            val masterKey = MasterKey.Builder(context.applicationContext)
-                .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-                .build()
+            val masterKey =
+                MasterKey
+                    .Builder(context.applicationContext)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+                    .build()
 
-            sharedPrefs = EncryptedSharedPreferences.create(
-                context.applicationContext,
-                PREFS_NAME,
-                masterKey,
-                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-            )
+            sharedPrefs =
+                EncryptedSharedPreferences.create(
+                    context.applicationContext,
+                    PREFS_NAME,
+                    masterKey,
+                    EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+                )
         } catch (e: Exception) {
             Timber.e(e, "Failed to initialize EncryptedCredentialStore")
         }
@@ -47,7 +50,11 @@ object EncryptedCredentialStore {
      * @param password The password to save
      * @param remember If true, password persists across app restarts
      */
-    fun putPassword(hostId: Long, password: String, remember: Boolean = false) {
+    fun putPassword(
+        hostId: Long,
+        password: String,
+        remember: Boolean = false,
+    ) {
         try {
             sharedPrefs?.edit()?.apply {
                 putString(KEY_PREFIX_PASSWORD + hostId, password)
@@ -64,28 +71,26 @@ object EncryptedCredentialStore {
      * @param hostId Host database ID
      * @return Saved password or null if not found
      */
-    fun getPassword(hostId: Long): String? {
-        return try {
+    fun getPassword(hostId: Long): String? =
+        try {
             sharedPrefs?.getString(KEY_PREFIX_PASSWORD + hostId, null)
         } catch (e: Exception) {
             Timber.e(e, "Failed to get password for host $hostId")
             null
         }
-    }
 
     /**
      * Check if password should be remembered (persisted).
      * @param hostId Host database ID
      * @return true if password should persist across app restarts
      */
-    fun shouldRemember(hostId: Long): Boolean {
-        return try {
+    fun shouldRemember(hostId: Long): Boolean =
+        try {
             sharedPrefs?.getBoolean(KEY_PREFIX_REMEMBER + hostId, false) ?: false
         } catch (e: Exception) {
             Timber.e(e, "Failed to check remember flag for host $hostId")
             false
         }
-    }
 
     /**
      * Remove saved credentials for a host.
@@ -118,9 +123,11 @@ object EncryptedCredentialStore {
      * Get all host IDs with saved passwords.
      * @return List of host IDs
      */
-    fun getAllHostIds(): List<Long> {
-        return try {
-            sharedPrefs?.all?.keys
+    fun getAllHostIds(): List<Long> =
+        try {
+            sharedPrefs
+                ?.all
+                ?.keys
                 ?.filter { it.startsWith(KEY_PREFIX_PASSWORD) }
                 ?.mapNotNull { it.removePrefix(KEY_PREFIX_PASSWORD).toLongOrNull() }
                 ?: emptyList()
@@ -128,5 +135,4 @@ object EncryptedCredentialStore {
             Timber.e(e, "Failed to get all host IDs")
             emptyList()
         }
-    }
 }

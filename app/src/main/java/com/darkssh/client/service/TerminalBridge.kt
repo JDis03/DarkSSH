@@ -45,7 +45,8 @@ class TerminalBridge(
         if (now - lastFontResizeTime < 80) return
         lastFontResizeTime = now
         _fontSize.value = (_fontSize.value + 2f).coerceAtMost(36f)
-        com.darkssh.client.util.DebugLogger.UI.volumeZoom("UP", _fontSize.value)
+        com.darkssh.client.util.DebugLogger.UI
+            .volumeZoom("UP", _fontSize.value)
     }
 
     fun decreaseFontSize() {
@@ -53,17 +54,28 @@ class TerminalBridge(
         if (now - lastFontResizeTime < 80) return
         lastFontResizeTime = now
         _fontSize.value = (_fontSize.value - 2f).coerceAtLeast(8f)
-        com.darkssh.client.util.DebugLogger.UI.volumeZoom("DOWN", _fontSize.value)
+        com.darkssh.client.util.DebugLogger.UI
+            .volumeZoom("DOWN", _fontSize.value)
     }
 
     private val bridgeJob = SupervisorJob()
     private val bridgeScope = CoroutineScope(bridgeJob + Dispatchers.Main)
 
     private sealed class TransportOperation {
-        data class WriteData(val data: ByteArray) : TransportOperation()
-        data class SetDimensions(val cols: Int, val rows: Int, val width: Int, val height: Int) : TransportOperation()
+        data class WriteData(
+            val data: ByteArray,
+        ) : TransportOperation()
+
+        data class SetDimensions(
+            val cols: Int,
+            val rows: Int,
+            val width: Int,
+            val height: Int,
+        ) : TransportOperation()
+
         data object Flush : TransportOperation()
     }
+
     private val transportOperations = Channel<TransportOperation>(Channel.UNLIMITED)
 
     @Volatile
@@ -80,6 +92,7 @@ class TerminalBridge(
     @Volatile
     var columns: Int = 80
         private set
+
     @Volatile
     var rows: Int = 24
         private set
@@ -89,10 +102,10 @@ class TerminalBridge(
 
     private val _isDisconnected = MutableStateFlow(false)
     val isDisconnected: StateFlow<Boolean> = _isDisconnected
-    
+
     private val _disconnectReason = MutableStateFlow<DisconnectReason?>(null)
     val disconnectReason: StateFlow<DisconnectReason?> = _disconnectReason
-    
+
     private val _osType = MutableStateFlow(OsType.UNKNOWN)
     val osType: StateFlow<OsType> = _osType
 
@@ -142,7 +155,7 @@ class TerminalBridge(
             }
         }
     }
-    
+
     fun startConnection() {
         bridgeScope.launch(Dispatchers.Main) {
             try {
@@ -179,7 +192,7 @@ class TerminalBridge(
                 relay?.start()
                 android.util.Log.d("TerminalBridge", "🟢 Relay started")
                 startTransportProcessor()
-                
+
                 // Detect OS in background (don't block connection)
                 if (t is SSH) {
                     bridgeScope.launch(Dispatchers.IO) {
@@ -188,7 +201,7 @@ class TerminalBridge(
                             val detectedOs = OsDetector.detectOs(connection)
                             _osType.value = detectedOs
                             Timber.d("Detected OS: ${detectedOs.displayName}")
-                            
+
                             // Persist detected OS to database for future connections
                             tabId?.let { id ->
                                 try {
@@ -225,9 +238,11 @@ class TerminalBridge(
                             t.write(bytes)
                             t.flush()
                         }
+
                         is TransportOperation.SetDimensions -> {
                             transport?.setDimensions(operation.cols, operation.rows, operation.width, operation.height)
                         }
+
                         is TransportOperation.Flush -> {
                             transport?.flush()
                         }
@@ -247,52 +262,60 @@ class TerminalBridge(
         }
     }
 
-    fun dispatchDisconnect(message: String? = null, reason: DisconnectReason = DisconnectReason.UNKNOWN) {
+    fun dispatchDisconnect(
+        message: String? = null,
+        reason: DisconnectReason = DisconnectReason.UNKNOWN,
+    ) {
         _disconnectMessage.value = message
         _disconnectReason.value = reason
         _isConnected.value = false
         _isDisconnected.value = true
-        
+
         // Stop relay
         relay?.stop()
         relay = null
-        
+
         // Cancel pending prompts
         cancelPendingPrompt()
-        
+
         Timber.w("Disconnected from ${host.nickname}: $message (reason: $reason)")
         terminalService.onBridgeDisconnected(this, reason)
     }
 
     fun close(reason: DisconnectReason = DisconnectReason.USER_REQUESTED) {
         _disconnectReason.value = reason
-        
+
         // Cancel all coroutines first
         bridgeScope.cancel()
         bridgeJob.cancel()
-        
+
         // Stop relay
         relay?.stop()
         relay = null
-        
+
         // Close channels and transport
         transportOperations.close()
         transport?.close()
         transport = null
-        
+
         // Clean terminal session
         darkTerminalSession?.finish()
         darkTerminalSession = null
-        
+
         // Cancel pending prompts
         cancelPendingPrompt()
-        
+
         // Update state
         _isConnected.value = false
         _isDisconnected.value = true
     }
 
-    fun setDimensions(cols: Int, newRows: Int, width: Int = 0, height: Int = 0) {
+    fun setDimensions(
+        cols: Int,
+        newRows: Int,
+        width: Int = 0,
+        height: Int = 0,
+    ) {
         columns = cols
         rows = newRows
         transportOperations.trySend(TransportOperation.SetDimensions(cols, newRows, width, height))
@@ -313,8 +336,8 @@ class TerminalBridge(
         return (result as? PromptResponse.StringResponse)?.value
     }
 
-    fun promptForPasswordBlocking(): String? {
-        return try {
+    fun promptForPasswordBlocking(): String? =
+        try {
             // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
             runBlocking(Dispatchers.Main.immediate) {
                 promptForPassword()
@@ -323,9 +346,11 @@ class TerminalBridge(
             Timber.d("Password prompt cancelled")
             null
         }
-    }
 
-    suspend fun promptForInput(prompt: String, echo: Boolean): String? {
+    suspend fun promptForInput(
+        prompt: String,
+        echo: Boolean,
+    ): String? {
         val deferred = CompletableDeferred<PromptResponse>()
         pendingPrompt = deferred
         _promptRequest.value = PromptRequest.StringPrompt(prompt, echo)
@@ -335,8 +360,11 @@ class TerminalBridge(
         return (result as? PromptResponse.StringResponse)?.value
     }
 
-    fun promptForInputBlocking(prompt: String, echo: Boolean): String? {
-        return try {
+    fun promptForInputBlocking(
+        prompt: String,
+        echo: Boolean,
+    ): String? =
+        try {
             // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
             runBlocking(Dispatchers.Main.immediate) {
                 promptForInput(prompt, echo)
@@ -345,9 +373,12 @@ class TerminalBridge(
             Timber.d("Input prompt cancelled")
             null
         }
-    }
 
-    suspend fun promptForHostKeyVerification(hostname: String, port: Int, fingerprints: String): Boolean {
+    suspend fun promptForHostKeyVerification(
+        hostname: String,
+        port: Int,
+        fingerprints: String,
+    ): Boolean {
         val deferred = CompletableDeferred<PromptResponse>()
         pendingPrompt = deferred
         _promptRequest.value = PromptRequest.HostKeyPrompt(hostname, port, fingerprints)
@@ -357,8 +388,12 @@ class TerminalBridge(
         return (result as? PromptResponse.BooleanResponse)?.value ?: false
     }
 
-    fun promptForHostKeyVerificationBlocking(hostname: String, port: Int, fingerprints: String): Boolean {
-        return try {
+    fun promptForHostKeyVerificationBlocking(
+        hostname: String,
+        port: Int,
+        fingerprints: String,
+    ): Boolean =
+        try {
             // Use Main.immediate to avoid blocking Main dispatcher unnecessarily
             runBlocking(Dispatchers.Main.immediate) {
                 promptForHostKeyVerification(hostname, port, fingerprints)
@@ -367,7 +402,6 @@ class TerminalBridge(
             Timber.d("Host key verification prompt cancelled")
             false
         }
-    }
 
     fun respondToPrompt(response: PromptResponse) {
         pendingPrompt?.complete(response)
@@ -399,7 +433,7 @@ class TerminalBridge(
     ) {
         val preview = if (text.length > 50) text.take(50) + "..." else text
         Timber.d("[OSC52] Copied to clipboard: $preview")
-        
+
         val clip = ClipData.newPlainText("terminal", text)
         clipboardManager.setPrimaryClip(clip)
     }
@@ -419,12 +453,17 @@ class TerminalBridge(
     override fun onTerminalCursorStateChange(state: Boolean) {
         // Cursor visibility changed
     }
-    
-    override fun onTerminalSizeChanged(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
+
+    override fun onTerminalSizeChanged(
+        columns: Int,
+        rows: Int,
+        cellWidthPixels: Int,
+        cellHeightPixels: Int,
+    ) {
         // Update PTY dimensions when terminal size changes (e.g., font zoom)
         // NOTE: Don't call setDimensions() here - it would cause infinite loop
         // The emulator already resized, just notify SSH transport
-        Timber.d("Terminal size changed: ${columns}x${rows} (${cellWidthPixels}x${cellHeightPixels}px)")
+        Timber.d("Terminal size changed: ${columns}x$rows (${cellWidthPixels}x${cellHeightPixels}px)")
         this.columns = columns
         this.rows = rows
         // Only send to SSH transport, don't update emulator (already done)
@@ -442,11 +481,39 @@ class TerminalBridge(
         return null // Use default cursor style
     }
 
-    override fun logError(tag: String, message: String) = Timber.e("$tag: $message")
-    override fun logWarn(tag: String, message: String) = Timber.w("$tag: $message")
-    override fun logInfo(tag: String, message: String) = Timber.i("$tag: $message")
-    override fun logDebug(tag: String, message: String) = Timber.d("$tag: $message")
-    override fun logVerbose(tag: String, message: String) = Timber.v("$tag: $message")
-    override fun logStackTraceWithMessage(tag: String, message: String, e: Exception) = Timber.e(e, "$tag: $message")
-    override fun logStackTrace(tag: String, e: Exception) = Timber.e(e, tag)
+    override fun logError(
+        tag: String,
+        message: String,
+    ) = Timber.e("$tag: $message")
+
+    override fun logWarn(
+        tag: String,
+        message: String,
+    ) = Timber.w("$tag: $message")
+
+    override fun logInfo(
+        tag: String,
+        message: String,
+    ) = Timber.i("$tag: $message")
+
+    override fun logDebug(
+        tag: String,
+        message: String,
+    ) = Timber.d("$tag: $message")
+
+    override fun logVerbose(
+        tag: String,
+        message: String,
+    ) = Timber.v("$tag: $message")
+
+    override fun logStackTraceWithMessage(
+        tag: String,
+        message: String,
+        e: Exception,
+    ) = Timber.e(e, "$tag: $message")
+
+    override fun logStackTrace(
+        tag: String,
+        e: Exception,
+    ) = Timber.e(e, tag)
 }

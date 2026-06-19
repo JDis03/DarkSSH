@@ -32,5 +32,8 @@ interface TabDao {
     suspend fun deleteAll()
 
     @Query("UPDATE tabs SET position = :position WHERE id = :id")
-    suspend fun updatePosition(id: String, position: Int)
+    suspend fun updatePosition(
+        id: String,
+        position: Int,
+    )
 }

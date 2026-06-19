@@ -90,7 +90,7 @@ fun HostEditorScreen(
         contentWindowInsets = WindowInsets.imeAnimationTarget,
         topBar = {
             TopAppBar(
-                title = { Text("Edit Host") },
+                title = { Text(if (hostId > 0) "Edit Host" else "Add Host") },
                 navigationIcon = {
                     IconButton(onClick = onCancel) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")

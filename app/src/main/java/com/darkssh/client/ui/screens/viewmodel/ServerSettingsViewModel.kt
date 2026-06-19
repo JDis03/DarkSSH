@@ -19,82 +19,84 @@ data class ServerState(
     val healthPort: Int = 8222,
     val deviceIp: String = "0.0.0.0",
     val username: String = "root",
-    val uptime: Long = 0
+    val uptime: Long = 0,
 )
 
 @HiltViewModel
-class ServerSettingsViewModel @Inject constructor(
-    private val application: Application
-) : AndroidViewModel(application) {
-    
-    private val _serverState = MutableStateFlow(ServerState())
-    val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
-    
-    init {
-        updateDeviceIp()
-        _serverState.value = _serverState.value.copy(
-            isRunning = SftpServerService.isServiceRunning,
-        )
-    }
-    
-    fun toggleServer() {
-        viewModelScope.launch {
-            if (_serverState.value.isRunning) {
-                stopServer()
-            } else {
-                startServer()
-            }
-        }
-    }
-    
-    private fun startServer() {
-        try {
-            Timber.i("Starting SFTP server from UI...")
-            val intent = Intent(application, SftpServerService::class.java)
-            application.startForegroundService(intent)
-            
-            _serverState.value = _serverState.value.copy(isRunning = true)
-            Timber.i("✓ SFTP server start requested")
-            
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to start SFTP server")
-            _serverState.value = _serverState.value.copy(isRunning = false)
-        }
-    }
-    
-    private fun stopServer() {
-        try {
-            Timber.i("Stopping SFTP server from UI...")
-            val intent = Intent(application, SftpServerService::class.java)
-            application.stopService(intent)
-            
-            _serverState.value = _serverState.value.copy(isRunning = false)
-            Timber.i("✓ SFTP server stop requested")
-            
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to stop SFTP server")
-        }
-    }
-    
-    private fun updateDeviceIp() {
-        try {
-            // Simple IP detection - get WiFi IP
-            val wifiManager = application.getSystemService(android.content.Context.WIFI_SERVICE) 
-                as? android.net.wifi.WifiManager
-            
-            wifiManager?.connectionInfo?.let { info ->
-                val ipInt = info.ipAddress
-                val ip = String.format(
-                    "%d.%d.%d.%d",
-                    ipInt and 0xff,
-                    ipInt shr 8 and 0xff,
-                    ipInt shr 16 and 0xff,
-                    ipInt shr 24 and 0xff
+class ServerSettingsViewModel
+    @Inject
+    constructor(
+        private val application: Application,
+    ) : AndroidViewModel(application) {
+        private val _serverState = MutableStateFlow(ServerState())
+        val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
+
+        init {
+            updateDeviceIp()
+            _serverState.value =
+                _serverState.value.copy(
+                    isRunning = SftpServerService.isServiceRunning,
                 )
-                _serverState.value = _serverState.value.copy(deviceIp = ip)
+        }
+
+        fun toggleServer() {
+            viewModelScope.launch {
+                if (_serverState.value.isRunning) {
+                    stopServer()
+                } else {
+                    startServer()
+                }
             }
-        } catch (e: Exception) {
-            Timber.w(e, "Failed to get device IP")
+        }
+
+        private fun startServer() {
+            try {
+                Timber.i("Starting SFTP server from UI...")
+                val intent = Intent(application, SftpServerService::class.java)
+                application.startForegroundService(intent)
+
+                _serverState.value = _serverState.value.copy(isRunning = true)
+                Timber.i("✓ SFTP server start requested")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to start SFTP server")
+                _serverState.value = _serverState.value.copy(isRunning = false)
+            }
+        }
+
+        private fun stopServer() {
+            try {
+                Timber.i("Stopping SFTP server from UI...")
+                val intent = Intent(application, SftpServerService::class.java)
+                application.stopService(intent)
+
+                _serverState.value = _serverState.value.copy(isRunning = false)
+                Timber.i("✓ SFTP server stop requested")
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to stop SFTP server")
+            }
+        }
+
+        private fun updateDeviceIp() {
+            try {
+                // Simple IP detection - get WiFi IP
+                val wifiManager =
+                    application.getSystemService(android.content.Context.WIFI_SERVICE)
+                        as? android.net.wifi.WifiManager
+
+                wifiManager?.connectionInfo?.let { info ->
+                    val ipInt = info.ipAddress
+                    val ip =
+                        String.format(
+                            "%d.%d.%d.%d",
+                            ipInt and 0xff,
+                            ipInt shr 8 and 0xff,
+                            ipInt shr 16 and 0xff,
+                            ipInt shr 24 and 0xff,
+                        )
+                    _serverState.value = _serverState.value.copy(deviceIp = ip)
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "Failed to get device IP")
+            }
         }
     }
-}

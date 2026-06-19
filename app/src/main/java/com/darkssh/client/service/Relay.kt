@@ -27,7 +27,7 @@ class Relay(
                 while (isActive) {
                     val bytesRead = transport.read(buffer, 0, buffer.size)
                     android.util.Log.d("Relay", "📥 Read $bytesRead bytes from transport")
-                    
+
                     if (bytesRead == -1) {
                         android.util.Log.d("Relay", "🏁 EOF reached")
                         bridge.dispatchDisconnect("EOF")

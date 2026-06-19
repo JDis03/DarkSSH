@@ -16,7 +16,11 @@ abstract class AbsTransport(
     abstract fun read(): Int
 
     @Throws(IOException::class)
-    abstract fun read(buffer: ByteArray, offset: Int, length: Int): Int
+    abstract fun read(
+        buffer: ByteArray,
+        offset: Int,
+        length: Int,
+    ): Int
 
     @Throws(IOException::class)
     abstract fun write(buffer: ByteArray)
@@ -30,7 +34,12 @@ abstract class AbsTransport(
 
     abstract fun isSessionOpen(): Boolean
 
-    abstract fun setDimensions(cols: Int, rows: Int, width: Int, height: Int)
+    abstract fun setDimensions(
+        cols: Int,
+        rows: Int,
+        width: Int,
+        height: Int,
+    )
 
     abstract fun getNamespace(): String
 }

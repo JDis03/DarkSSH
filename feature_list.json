@@ -151,6 +151,22 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Added connection timeouts (15s TCP, 30s KEX) to SSH.connect(), wrapped blocking calls with cancellation checks, added try-catch for CancellationException in promptForPasswordBlocking/promptForInputBlocking/promptForHostKeyVerificationBlocking. Connection now times out gracefully instead of hanging indefinitely."
+    },
+    {
+      "id": "bug-002",
+      "name": "Host List: Missing Delete Button",
+      "description": "No way to delete hosts from the host list",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Added Delete icon button (red trash icon) to HostListScreen, added deleteHost() method to HostListViewModel, added confirmation dialog in MainScreen. User can now delete hosts with confirmation."
+    },
+    {
+      "id": "bug-003",
+      "name": "Host Editor: Wrong Title for New Host",
+      "description": "HostEditorScreen always shows 'Edit Host' even when adding new host",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Changed title to conditional: 'Add Host' when hostId <= 0, 'Edit Host' when hostId > 0. Now shows correct title based on context."
     }
   ]
 }

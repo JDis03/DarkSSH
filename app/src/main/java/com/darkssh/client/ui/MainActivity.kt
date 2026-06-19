@@ -31,35 +31,41 @@ class MainActivity : ComponentActivity() {
     private var terminalService by mutableStateOf<TerminalService?>(null)
     private var isBound = false
 
-    private val notificationPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            DebugLogger.i("MainActivity", "Notification permission granted")
-        } else {
-            DebugLogger.w("MainActivity", "Notification permission denied")
-        }
-    }
-
-    private val serviceConnection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
-            val binder = service as TerminalService.TerminalBinder
-            terminalService = binder.getService()
-            isBound = true
+    private val notificationPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestPermission(),
+        ) { isGranted ->
+            if (isGranted) {
+                DebugLogger.i("MainActivity", "Notification permission granted")
+            } else {
+                DebugLogger.w("MainActivity", "Notification permission denied")
+            }
         }
 
-        override fun onServiceDisconnected(name: ComponentName?) {
-            terminalService = null
-            isBound = false
+    private val serviceConnection =
+        object : ServiceConnection {
+            override fun onServiceConnected(
+                name: ComponentName?,
+                service: IBinder?,
+            ) {
+                val binder = service as TerminalService.TerminalBinder
+                terminalService = binder.getService()
+                isBound = true
+            }
+
+            override fun onServiceDisconnected(name: ComponentName?) {
+                terminalService = null
+                isBound = false
+            }
         }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.auto(
-                lightScrim = Color.TRANSPARENT,
-                darkScrim = Color.TRANSPARENT,
-            ),
+            statusBarStyle =
+                SystemBarStyle.auto(
+                    lightScrim = Color.TRANSPARENT,
+                    darkScrim = Color.TRANSPARENT,
+                ),
         )
         super.onCreate(savedInstanceState)
 
@@ -84,15 +90,17 @@ class MainActivity : ComponentActivity() {
             when {
                 ContextCompat.checkSelfPermission(
                     this,
-                    Manifest.permission.POST_NOTIFICATIONS
+                    Manifest.permission.POST_NOTIFICATIONS,
                 ) == PackageManager.PERMISSION_GRANTED -> {
                     DebugLogger.i("MainActivity", "Notification permission already granted")
                 }
+
                 shouldShowRequestPermissionRationale(Manifest.permission.POST_NOTIFICATIONS) -> {
                     // Show rationale if needed (for now just request)
                     DebugLogger.i("MainActivity", "Showing notification permission rationale")
                     notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 }
+
                 else -> {
                     // Request permission
                     DebugLogger.i("MainActivity", "Requesting notification permission")

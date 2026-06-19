@@ -11,7 +11,10 @@ object Encryptor {
     private const val SALT_SIZE = 8
     private const val ITERATIONS = 1000
 
-    fun encrypt(data: ByteArray, secret: String): ByteArray {
+    fun encrypt(
+        data: ByteArray,
+        secret: String,
+    ): ByteArray {
         val salt = ByteArray(SALT_SIZE)
         SecureRandom.getInstance("SHA1PRNG").nextBytes(salt)
 
@@ -26,7 +29,10 @@ object Encryptor {
         return salt + encrypted
     }
 
-    fun decrypt(data: ByteArray, secret: String): ByteArray {
+    fun decrypt(
+        data: ByteArray,
+        secret: String,
+    ): ByteArray {
         val salt = data.copyOfRange(0, SALT_SIZE)
         val encrypted = data.copyOfRange(SALT_SIZE, data.size)
 
@@ -39,7 +45,10 @@ object Encryptor {
         return cipher.doFinal(encrypted)
     }
 
-    private fun deriveKeyAndIv(secret: String, salt: ByteArray): ByteArray {
+    private fun deriveKeyAndIv(
+        secret: String,
+        salt: ByteArray,
+    ): ByteArray {
         var hash = sha256(salt + secret.toByteArray())
         repeat(ITERATIONS - 1) {
             hash = sha256(salt + hash)
@@ -47,7 +56,8 @@ object Encryptor {
         return hash
     }
 
-    private fun sha256(data: ByteArray): ByteArray {
-        return java.security.MessageDigest.getInstance("SHA-256").digest(data)
-    }
+    private fun sha256(data: ByteArray): ByteArray =
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(data)
 }

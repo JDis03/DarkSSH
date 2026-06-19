@@ -9,7 +9,6 @@ import java.security.spec.PKCS8EncodedKeySpec
 import java.security.spec.X509EncodedKeySpec
 
 object PubkeyUtils {
-
     object KeyType {
         const val RSA = "RSA"
         const val DSA = "DSA"
@@ -18,7 +17,10 @@ object PubkeyUtils {
         const val IMPORTED = "IMPORTED"
     }
 
-    fun getEncodedPrivate(pk: PrivateKey, secret: String?): ByteArray {
+    fun getEncodedPrivate(
+        pk: PrivateKey,
+        secret: String?,
+    ): ByteArray {
         val raw = pk.encoded
         return if (secret.isNullOrBlank()) {
             raw
@@ -27,24 +29,35 @@ object PubkeyUtils {
         }
     }
 
-    fun decodePrivate(encoded: ByteArray, keyType: String, secret: String?): PrivateKey {
-        val data = if (!secret.isNullOrBlank()) {
-            Encryptor.decrypt(encoded, secret)
-        } else {
-            encoded
-        }
+    fun decodePrivate(
+        encoded: ByteArray,
+        keyType: String,
+        secret: String?,
+    ): PrivateKey {
+        val data =
+            if (!secret.isNullOrBlank()) {
+                Encryptor.decrypt(encoded, secret)
+            } else {
+                encoded
+            }
         val spec = PKCS8EncodedKeySpec(data)
         val factory = KeyFactory.getInstance(keyType)
         return factory.generatePrivate(spec)
     }
 
-    fun decodePublic(encoded: ByteArray, keyType: String): PublicKey {
+    fun decodePublic(
+        encoded: ByteArray,
+        keyType: String,
+    ): PublicKey {
         val spec = X509EncodedKeySpec(encoded)
         val factory = KeyFactory.getInstance(keyType)
         return factory.generatePublic(spec)
     }
 
-    fun convertToKeyPair(pubkey: Pubkey, password: String?): KeyPair? {
+    fun convertToKeyPair(
+        pubkey: Pubkey,
+        password: String?,
+    ): KeyPair? {
         return try {
             val privateKeyBytes = pubkey.privateKey ?: return null
             when (pubkey.type) {
@@ -52,6 +65,7 @@ object PubkeyUtils {
                     val pemData = String(privateKeyBytes, Charsets.UTF_8)
                     parsePEMKeyPair(pemData, password)
                 }
+
                 else -> {
                     val priv = decodePrivate(privateKeyBytes, pubkey.type, password)
                     val pub = decodePublic(pubkey.publicKey, pubkey.type)
@@ -63,8 +77,11 @@ object PubkeyUtils {
         }
     }
 
-    private fun parsePEMKeyPair(pemData: String, password: String?): KeyPair? {
-        return try {
+    private fun parsePEMKeyPair(
+        pemData: String,
+        password: String?,
+    ): KeyPair? =
+        try {
             com.trilead.ssh2.crypto.PEMDecoder.decode(
                 pemData.toCharArray(),
                 password ?: "",
@@ -72,7 +89,6 @@ object PubkeyUtils {
         } catch (e: Exception) {
             null
         }
-    }
 
     data class KeyTypeInfo(
         val name: String,
@@ -81,22 +97,19 @@ object PubkeyUtils {
         val defaultBits: Int,
     )
 
-    val KEY_TYPES = listOf(
-        KeyTypeInfo(KeyType.RSA, 1024, 16384, 2048),
-        KeyTypeInfo(KeyType.DSA, 1024, 1024, 1024),
-        KeyTypeInfo(KeyType.EC, 256, 521, 256),
-        KeyTypeInfo(KeyType.ED25519, 255, 255, 255),
-    )
+    val KEY_TYPES =
+        listOf(
+            KeyTypeInfo(KeyType.RSA, 1024, 16384, 2048),
+            KeyTypeInfo(KeyType.DSA, 1024, 1024, 1024),
+            KeyTypeInfo(KeyType.EC, 256, 521, 256),
+            KeyTypeInfo(KeyType.ED25519, 255, 255, 255),
+        )
 
-    fun getDefaultBits(keyType: String): Int =
-        KEY_TYPES.find { it.name == keyType }?.defaultBits ?: 2048
+    fun getDefaultBits(keyType: String): Int = KEY_TYPES.find { it.name == keyType }?.defaultBits ?: 2048
 
-    fun getMinBits(keyType: String): Int =
-        KEY_TYPES.find { it.name == keyType }?.minBits ?: 1024
+    fun getMinBits(keyType: String): Int = KEY_TYPES.find { it.name == keyType }?.minBits ?: 1024
 
-    fun getMaxBits(keyType: String): Int =
-        KEY_TYPES.find { it.name == keyType }?.maxBits ?: 16384
+    fun getMaxBits(keyType: String): Int = KEY_TYPES.find { it.name == keyType }?.maxBits ?: 16384
 
-    fun isFixedBits(keyType: String): Boolean =
-        keyType == KeyType.DSA || keyType == KeyType.ED25519
+    fun isFixedBits(keyType: String): Boolean = keyType == KeyType.DSA || keyType == KeyType.ED25519
 }

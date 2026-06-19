@@ -4,7 +4,10 @@ package com.darkssh.client.data.model
  * Operating system types detected from remote SSH servers.
  * Based on Termius implementation.
  */
-enum class OsType(val displayName: String, vararg val keywords: String) {
+enum class OsType(
+    val displayName: String,
+    vararg val keywords: String,
+) {
     ARCH("Arch Linux", "arch", "arch linux"),
     UBUNTU("Ubuntu", "ubuntu"),
     DEBIAN("Debian GNU/Linux", "debian", "debian gnu/linux"),
@@ -26,7 +29,8 @@ enum class OsType(val displayName: String, vararg val keywords: String) {
     LINUX("Linux", "linux"),
     WINDOWS("Windows", "msys_nt", "win", "windows"),
     MIKROTIK("RouterOS", "mikrotik"),
-    UNKNOWN("Unknown");
+    UNKNOWN("Unknown"),
+    ;
 
     companion object {
         // Parse OS type from command output (e.g., uname or /etc/*release).

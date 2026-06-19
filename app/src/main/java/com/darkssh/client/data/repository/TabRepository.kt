@@ -26,5 +26,8 @@ class TabRepository
 
         suspend fun deleteAllTabs() = tabDao.deleteAll()
 
-        suspend fun updateTabPosition(id: String, position: Int) = tabDao.updatePosition(id, position)
+        suspend fun updateTabPosition(
+            id: String,
+            position: Int,
+        ) = tabDao.updatePosition(id, position)
     }

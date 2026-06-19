@@ -33,7 +33,7 @@ class ConsoleViewModel
 
         private val _disconnectMessage = MutableStateFlow<String?>(null)
         val disconnectMessage: StateFlow<String?> = _disconnectMessage
-        
+
         private val _disconnectReason = MutableStateFlow<com.darkssh.client.service.DisconnectReason?>(null)
         val disconnectReason: StateFlow<com.darkssh.client.service.DisconnectReason?> = _disconnectReason
 
@@ -54,7 +54,10 @@ class ConsoleViewModel
             terminalService = service
         }
 
-        fun connect(hostId: Long, tabId: String? = null) {
+        fun connect(
+            hostId: Long,
+            tabId: String? = null,
+        ) {
             connectionJob?.cancel()
             observeJobs.forEach { it.cancel() }
             observeJobs.clear()
@@ -69,11 +72,12 @@ class ConsoleViewModel
 
                 // If we have a tabId, look for bridge with matching tabId
                 // Otherwise, look for any bridge with matching hostId (legacy behavior)
-                val existingBridge = if (tabId != null) {
-                    service.bridges.value.find { it.tabId == tabId }
-                } else {
-                    service.bridges.value.find { it.host.id == hostId && !it.isDisconnected.value }
-                }
+                val existingBridge =
+                    if (tabId != null) {
+                        service.bridges.value.find { it.tabId == tabId }
+                    } else {
+                        service.bridges.value.find { it.host.id == hostId && !it.isDisconnected.value }
+                    }
 
                 if (existingBridge != null && !existingBridge.isDisconnected.value) {
                     _bridge.value = existingBridge

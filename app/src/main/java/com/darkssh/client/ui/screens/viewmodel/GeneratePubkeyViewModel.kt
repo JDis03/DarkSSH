@@ -69,23 +69,25 @@ class GeneratePubkeyViewModel
                     val keyPair = keyPairGen.generateKeyPair()
 
                     val encrypted = !password.isNullOrBlank()
-                    val privateKeyData = PubkeyUtils.getEncodedPrivate(
-                        keyPair.private,
-                        if (encrypted) password else null,
-                    )
+                    val privateKeyData =
+                        PubkeyUtils.getEncodedPrivate(
+                            keyPair.private,
+                            if (encrypted) password else null,
+                        )
                     val publicKeyData = keyPair.public.encoded
 
-                    val pubkey = Pubkey(
-                        nickname = nickname,
-                        type = keyType,
-                        privateKey = privateKeyData,
-                        publicKey = publicKeyData,
-                        encrypted = encrypted,
-                        startup = unlockAtStartup,
-                        confirmation = confirmUse,
-                        setupDate = System.currentTimeMillis(),
-                        storageType = "EXPORTABLE",
-                    )
+                    val pubkey =
+                        Pubkey(
+                            nickname = nickname,
+                            type = keyType,
+                            privateKey = privateKeyData,
+                            publicKey = publicKeyData,
+                            encrypted = encrypted,
+                            startup = unlockAtStartup,
+                            confirmation = confirmUse,
+                            setupDate = System.currentTimeMillis(),
+                            storageType = "EXPORTABLE",
+                        )
 
                     pubkeyRepository.insertPubkey(pubkey)
                     _generated.value = true

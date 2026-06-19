@@ -27,6 +27,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.activity.compose.BackHandler
+import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.screens.HostListScreen
@@ -35,11 +36,13 @@ import com.darkssh.client.ui.screens.SettingsScreen
 import com.darkssh.client.ui.screens.ServerSettingsScreen
 import com.darkssh.client.ui.screens.DebugLogsScreen
 import com.darkssh.client.ui.viewmodel.TabManager
+import com.darkssh.client.ui.screens.viewmodel.HostListViewModel
 
 @Composable
 fun MainScreen(
     terminalService: TerminalService? = null,
     tabManager: TabManager = hiltViewModel(),
+    hostListViewModel: HostListViewModel = hiltViewModel(),
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var showServerSettings by remember { mutableStateOf(false) }
@@ -47,6 +50,8 @@ fun MainScreen(
     var showExitDialog by remember { mutableStateOf(false) }
     var showHostEditor by remember { mutableStateOf(false) }
     var editingHostId by remember { mutableStateOf<Long?>(null) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var hostToDelete by remember { mutableStateOf<Host?>(null) }
     
     // Get context for finishing activity
     val context = LocalContext.current
@@ -129,6 +134,10 @@ fun MainScreen(
                             editingHostId = host.id
                             showHostEditor = true
                         },
+                        onDeleteHostClick = { host ->
+                            hostToDelete = host
+                            showDeleteDialog = true
+                        },
                         onSftpClick = { host ->
                             tabManager.createTabAndSwitch(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
                             selectedTab = 1 // Switch to Tabs view
@@ -167,6 +176,36 @@ fun MainScreen(
                 }
             }
         }
+    }
+    
+    // Delete host confirmation dialog
+    if (showDeleteDialog && hostToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Host?") },
+            text = { Text("Are you sure you want to delete '${hostToDelete?.nickname?.ifBlank { hostToDelete?.hostname }}'?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        hostToDelete?.let { host ->
+                            hostListViewModel.deleteHost(host)
+                        }
+                        showDeleteDialog = false
+                        hostToDelete = null
+                    }
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { 
+                    showDeleteDialog = false
+                    hostToDelete = null
+                }) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
     
     // Exit confirmation dialog

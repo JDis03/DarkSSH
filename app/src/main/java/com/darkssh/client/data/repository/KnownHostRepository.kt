@@ -14,11 +14,16 @@ class KnownHostRepository
     ) {
         fun getByHostId(hostId: Long): Flow<List<KnownHost>> = knownHostDao.getByHostId(hostId)
 
-        suspend fun getByHostIdAndAlgo(hostId: Long, algo: String): List<KnownHost> =
-            knownHostDao.getByHostIdAndAlgo(hostId, algo)
+        suspend fun getByHostIdAndAlgo(
+            hostId: Long,
+            algo: String,
+        ): List<KnownHost> = knownHostDao.getByHostIdAndAlgo(hostId, algo)
 
-        suspend fun getByHostIdAlgoAndKey(hostId: Long, algo: String, key: String): KnownHost? =
-            knownHostDao.getByHostIdAlgoAndKey(hostId, algo, key)
+        suspend fun getByHostIdAlgoAndKey(
+            hostId: Long,
+            algo: String,
+            key: String,
+        ): KnownHost? = knownHostDao.getByHostIdAlgoAndKey(hostId, algo, key)
 
         fun getAll(): Flow<List<KnownHost>> = knownHostDao.getAll()
 
@@ -28,8 +33,10 @@ class KnownHostRepository
 
         suspend fun delete(knownHost: KnownHost) = knownHostDao.delete(knownHost)
 
-        suspend fun deleteByHostnameAndPort(hostname: String, port: Int) =
-            knownHostDao.deleteByHostnameAndPort(hostname, port)
+        suspend fun deleteByHostnameAndPort(
+            hostname: String,
+            port: Int,
+        ) = knownHostDao.deleteByHostnameAndPort(hostname, port)
 
         suspend fun deleteByHostId(hostId: Long) = knownHostDao.deleteByHostId(hostId)
     }

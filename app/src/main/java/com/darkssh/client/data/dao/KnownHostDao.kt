@@ -14,10 +14,17 @@ interface KnownHostDao {
     fun getByHostId(hostId: Long): Flow<List<KnownHost>>
 
     @Query("SELECT * FROM known_hosts WHERE hostId = :hostId AND hostKeyAlgo = :algo")
-    suspend fun getByHostIdAndAlgo(hostId: Long, algo: String): List<KnownHost>
+    suspend fun getByHostIdAndAlgo(
+        hostId: Long,
+        algo: String,
+    ): List<KnownHost>
 
     @Query("SELECT * FROM known_hosts WHERE hostId = :hostId AND hostKeyAlgo = :algo AND hostKey = :key")
-    suspend fun getByHostIdAlgoAndKey(hostId: Long, algo: String, key: String): KnownHost?
+    suspend fun getByHostIdAlgoAndKey(
+        hostId: Long,
+        algo: String,
+        key: String,
+    ): KnownHost?
 
     @Query("SELECT * FROM known_hosts")
     fun getAll(): Flow<List<KnownHost>>
@@ -32,7 +39,10 @@ interface KnownHostDao {
     suspend fun delete(knownHost: KnownHost)
 
     @Query("DELETE FROM known_hosts WHERE hostname = :hostname AND port = :port")
-    suspend fun deleteByHostnameAndPort(hostname: String, port: Int)
+    suspend fun deleteByHostnameAndPort(
+        hostname: String,
+        port: Int,
+    )
 
     @Query("DELETE FROM known_hosts WHERE hostId = :hostId")
     suspend fun deleteByHostId(hostId: Long)

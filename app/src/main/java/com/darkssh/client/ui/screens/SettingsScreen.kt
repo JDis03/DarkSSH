@@ -62,9 +62,10 @@ fun SettingsScreen(
         },
     ) { padding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
         ) {
             // Server Settings Section
             ListItem(
@@ -76,11 +77,11 @@ fun SettingsScreen(
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                 },
-                modifier = Modifier.clickable { onServerSettings() }
+                modifier = Modifier.clickable { onServerSettings() },
             )
-            
+
             HorizontalDivider()
-            
+
             // Debug Logs Section
             ListItem(
                 headlineContent = { Text("Debug Logs") },
@@ -91,11 +92,11 @@ fun SettingsScreen(
                 trailingContent = {
                     Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
                 },
-                modifier = Modifier.clickable { onDebugLogs() }
+                modifier = Modifier.clickable { onDebugLogs() },
             )
-            
+
             HorizontalDivider()
-            
+
             // Terminal Font Section
             Text(
                 "Terminal Font",
@@ -106,17 +107,17 @@ fun SettingsScreen(
             Column(modifier = Modifier.padding(horizontal = 16.dp)) {
                 FontManager.FontPreset.values().forEach { preset ->
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .selectable(
-                                selected = selectedFont == preset,
-                                onClick = {
-                                    selectedFont = preset
-                                    AppPreferences.setTerminalFont(context, preset)
-                                    FontManager.clearCache()
-                                },
-                            )
-                            .padding(vertical = 8.dp),
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .selectable(
+                                    selected = selectedFont == preset,
+                                    onClick = {
+                                        selectedFont = preset
+                                        AppPreferences.setTerminalFont(context, preset)
+                                        FontManager.clearCache()
+                                    },
+                                ).padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(

@@ -12,7 +12,6 @@ import timber.log.Timber
  * Android renders programming ligatures by default.
  */
 object FontManager {
-
     enum class FontPreset(
         val displayName: String,
         val assetPath: String?,
@@ -23,7 +22,10 @@ object FontManager {
 
     private val cache = mutableMapOf<String, Typeface>()
 
-    fun getTypeface(context: Context, preset: FontPreset): Typeface {
+    fun getTypeface(
+        context: Context,
+        preset: FontPreset,
+    ): Typeface {
         if (preset.assetPath == null) return Typeface.MONOSPACE
 
         cache[preset.assetPath]?.let { return it }
@@ -39,8 +41,7 @@ object FontManager {
         }
     }
 
-    fun fromName(name: String): FontPreset =
-        FontPreset.values().firstOrNull { it.name == name } ?: FontPreset.SYSTEM
+    fun fromName(name: String): FontPreset = FontPreset.values().firstOrNull { it.name == name } ?: FontPreset.SYSTEM
 
     fun clearCache() = cache.clear()
 }

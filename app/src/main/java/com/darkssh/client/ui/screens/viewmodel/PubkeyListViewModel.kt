@@ -81,11 +81,15 @@ class PubkeyListViewModel
             _passwordPrompt.value = null
         }
 
-        private fun tryUnlockKey(pubkey: Pubkey, password: String?) {
-            val keyPair = PubkeyUtils.convertToKeyPair(pubkey, password) ?: run {
-                Timber.w("Failed to unlock key: ${pubkey.nickname}")
-                return
-            }
+        private fun tryUnlockKey(
+            pubkey: Pubkey,
+            password: String?,
+        ) {
+            val keyPair =
+                PubkeyUtils.convertToKeyPair(pubkey, password) ?: run {
+                    Timber.w("Failed to unlock key: ${pubkey.nickname}")
+                    return
+                }
 
             terminalService?.loadedKeypairs?.put(pubkey.nickname, keyPair)
             _loadedKeys.value = _loadedKeys.value + pubkey.nickname
