@@ -379,13 +379,16 @@ class TerminalBridge(
         port: Int,
         fingerprints: String,
     ): Boolean {
+        Timber.d("TerminalBridge: Showing host key verification prompt for $hostname:$port")
         val deferred = CompletableDeferred<PromptResponse>()
         pendingPrompt = deferred
         _promptRequest.value = PromptRequest.HostKeyPrompt(hostname, port, fingerprints)
         val result = withTimeoutOrNull(120_000L) { deferred.await() }
         pendingPrompt = null
         _promptRequest.value = null
-        return (result as? PromptResponse.BooleanResponse)?.value ?: false
+        val accepted = (result as? PromptResponse.BooleanResponse)?.value ?: false
+        Timber.d("TerminalBridge: Host key prompt result: $accepted (timeout: ${result == null})")
+        return accepted
     }
 
     fun promptForHostKeyVerificationBlocking(

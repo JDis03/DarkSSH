@@ -387,8 +387,10 @@ class SSH(
                 }
 
             return if (existing.isEmpty()) {
+                Timber.d("$TAG: No known host key found for ${host.id}, prompting user...")
                 val fingerprints = buildFingerprints(serverHostKeyAlgorithm, serverHostKey)
                 val accepted = bridge.promptForHostKeyVerificationBlocking(hostname, port, fingerprints)
+                Timber.d("$TAG: User response to host key prompt: $accepted")
                 if (accepted) {
                     runBlocking(Dispatchers.IO) {
                         knownHostRepository.insert(
@@ -401,10 +403,15 @@ class SSH(
                             ),
                         )
                     }
+                    Timber.d("$TAG: Host key saved to database")
+                } else {
+                    Timber.w("$TAG: User rejected host key, connection will fail")
                 }
                 accepted
             } else {
-                existing.any { it.hostKey == keyData }
+                val matches = existing.any { it.hostKey == keyData }
+                Timber.d("$TAG: Found ${existing.size} known host keys, match: $matches")
+                matches
             }
         }
     }
