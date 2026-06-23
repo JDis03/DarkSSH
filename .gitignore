@@ -66,3 +66,4 @@ session-handoff.md
 *.tmp
 *.swp
 .*.swp
+.memory-project

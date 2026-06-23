@@ -21,7 +21,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -63,18 +65,25 @@ fun TabbedMainScreen(
         derivedStateOf { pagerState.currentPage.coerceIn(0, tabs.size - 1).takeIf { tabs.isNotEmpty() } ?: 0 } 
     }
 
+    // Track if we're currently syncing to avoid loops
+    var isSyncing by remember { mutableStateOf(false) }
+    
     // Sync pager with ViewModel (source of truth: TabManager)
     LaunchedEffect(safeTabIndex, tabs.size) {
-        if (tabs.isNotEmpty() && pagerState.currentPage != safeTabIndex) {
+        if (tabs.isNotEmpty() && pagerState.currentPage != safeTabIndex && !isSyncing) {
+            Timber.d("TabbedMainScreen: Syncing pager to TabManager: currentPage=${pagerState.currentPage} -> safeTabIndex=$safeTabIndex")
+            isSyncing = true
             // Use scrollToPage (instant) to avoid race condition during recomposition
             pagerState.scrollToPage(safeTabIndex)
+            isSyncing = false
         }
     }
 
-    // Sync ViewModel when user manually swipes
+    // Sync ViewModel when user manually swipes (but not when we're syncing programmatically)
     LaunchedEffect(pagerState.settledPage) {
-        // Only sync when user gesture completes (settledPage changes)
-        if (tabs.isNotEmpty() && pagerState.settledPage != currentTabIndex) {
+        // Only sync when user gesture completes (settledPage changes) and we're not syncing
+        if (tabs.isNotEmpty() && pagerState.settledPage != currentTabIndex && !isSyncing) {
+            Timber.d("TabbedMainScreen: User swiped to page ${pagerState.settledPage}, syncing TabManager")
             tabManager.switchTab(pagerState.settledPage)
         }
     }

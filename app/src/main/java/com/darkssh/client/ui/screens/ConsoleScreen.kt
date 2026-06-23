@@ -65,6 +65,7 @@ import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.components.Terminal
 import com.darkssh.client.ui.screens.viewmodel.ConsoleViewModel
+import timber.log.Timber
 
 @Suppress("ktlint:standard:function-naming")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -116,8 +117,12 @@ fun ConsoleScreen(
 
     // Update active bridge when this tab becomes active
     LaunchedEffect(isActive, bridge) {
-        if (isActive && bridge != null) {
-            terminalService?.setActiveBridge(bridge)
+        val currentBridge = bridge
+        if (isActive && currentBridge != null) {
+            Timber.d("ConsoleScreen: Setting active bridge for host ${currentBridge.host.nickname} (tabId=$tabId, isActive=$isActive)")
+            terminalService?.setActiveBridge(currentBridge)
+        } else if (!isActive) {
+            Timber.d("ConsoleScreen: Tab became inactive (tabId=$tabId)")
         }
     }
 
