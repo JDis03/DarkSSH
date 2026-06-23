@@ -199,6 +199,22 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Fixed TabbedMainScreen onBack callback to close tab (was empty). Changed MainScreen to use createOrSwitchToTab() instead of createTabAndSwitch() for both SSH and SFTP. Updated TabManager.createOrSwitchToTab() to switch to newly created tab. Added debug logging for reconnection flow. All three issues resolved."
+    },
+    {
+      "id": "bug-008",
+      "name": "Tab Input Focus Lost When App Returns from Background",
+      "description": "When app goes to background and returns, keyboard input goes to tab 0 instead of the active tab. User thinks it's lag but input is actually going to wrong tab.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Added isSyncing flag to prevent pager/TabManager sync loops. When pager resets to page 0 after background, LaunchedEffect forces it back to correct page based on TabManager state. Added debug logging for tab switching and active bridge changes. Input now correctly goes to active tab after app resume."
+    },
+    {
+      "id": "bug-009",
+      "name": "Deleting Host Leaves Tabs Open",
+      "description": "When deleting a host from the host list, associated SSH/SFTP tabs remain open as orphans",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "HostListViewModel now injects TabRepository and closes all tabs for deleted host before deleting the host. Finds tabs by hostId and calls tabRepository.deleteTab() for each. TabManager automatically updates via Flow observation. Orphaned tabs are now properly cleaned up."
     }
   ]
 }
