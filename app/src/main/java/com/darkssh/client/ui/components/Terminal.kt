@@ -30,6 +30,7 @@ fun Terminal(
     typeface: Typeface = Typeface.MONOSPACE,
     terminalBridge: TerminalBridge? = null,
     showSoftKeyboard: Boolean = true,
+    isActive: Boolean = true, // Whether this terminal is the active/visible tab
 ) {
     val context = LocalContext.current
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -38,19 +39,7 @@ fun Terminal(
 
     val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
 
-    // Handle keyboard visibility changes without triggering recomposition loop
-    DisposableEffect(showSoftKeyboard) {
-        val view = terminalViewRef.value
-        if (view != null) {
-            if (showSoftKeyboard) {
-                view.requestFocus()
-                imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
-            } else {
-                imm.hideSoftInputFromWindow(view.windowToken, 0)
-            }
-        }
-        onDispose {}
-    }
+    // Note: Focus control is now handled in the update block for immediate effect
 
     AndroidView(
         factory = { ctx ->
@@ -108,6 +97,29 @@ fun Terminal(
         },
         modifier = modifier,
         update = { view ->
+            // CRITICAL: Control focusability and focus IMMEDIATELY to prevent inactive tabs from receiving input
+            // This must happen in update block, not DisposableEffect, for immediate effect
+            view.isFocusable = isActive
+            view.isFocusableInTouchMode = isActive
+            
+            if (isActive && showSoftKeyboard) {
+                // Only request focus and show keyboard if this tab is active
+                if (!view.hasFocus()) {
+                    view.requestFocus()
+                    imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                    Timber.d("Terminal: Activated - requesting focus and showing keyboard")
+                }
+            } else {
+                // Clear focus and hide keyboard when tab is not active
+                if (view.hasFocus()) {
+                    view.clearFocus()
+                    imm.hideSoftInputFromWindow(view.windowToken, 0)
+                    if (!isActive) {
+                        Timber.d("Terminal: Deactivated - clearing focus and hiding keyboard")
+                    }
+                }
+            }
+            
             // Only update when font actually changes
             if (fontSize != prevFontSize) {
                 view.setTextSize(fontSize.toInt())

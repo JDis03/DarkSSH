@@ -115,16 +115,9 @@ fun ConsoleScreen(
         }
     }
 
-    // Update active bridge when this tab becomes active
-    LaunchedEffect(isActive, bridge) {
-        val currentBridge = bridge
-        if (isActive && currentBridge != null) {
-            Timber.d("ConsoleScreen: Setting active bridge for host ${currentBridge.host.nickname} (tabId=$tabId, isActive=$isActive)")
-            terminalService?.setActiveBridge(currentBridge)
-        } else if (!isActive) {
-            Timber.d("ConsoleScreen: Tab became inactive (tabId=$tabId)")
-        }
-    }
+    // NOTE: Active bridge management is now handled by TabbedMainScreen (Termius pattern)
+    // This ensures single source of truth and prevents race conditions during tab switches
+    // ConsoleScreen just renders the terminal, it doesn't control which bridge is active
 
 
     Scaffold(
@@ -210,6 +203,7 @@ fun ConsoleScreen(
                     showSoftKeyboard = showSoftwareKeyboard,
                     fontSize = fontSize,
                     typeface = terminalTypeface,
+                    isActive = isActive, // Control focus based on tab visibility
                 )
             } else if (isDisconnected && disconnectReason != com.darkssh.client.service.DisconnectReason.USER_REQUESTED) {
                 // Only show reconnect overlay if disconnect was NOT user-requested

@@ -17,6 +17,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -76,6 +78,73 @@ fun TabbedMainScreen(
             // Use scrollToPage (instant) to avoid race condition during recomposition
             pagerState.scrollToPage(safeTabIndex)
             isSyncing = false
+        }
+    }
+    
+    // Watch for pager page changes (including when app returns from background)
+    LaunchedEffect(Unit) {
+        snapshotFlow { pagerState.currentPage }
+            .collect { currentPage ->
+                // If pager page doesn't match TabManager and we're not syncing, force pager back
+                if (tabs.isNotEmpty() && currentPage != currentTabIndex && !isSyncing && !pagerState.isScrollInProgress) {
+                    Timber.d("TabbedMainScreen: Pager page mismatch detected: currentPage=$currentPage, TabManager=$currentTabIndex, forcing sync")
+                    isSyncing = true
+                    pagerState.scrollToPage(currentTabIndex)
+                    isSyncing = false
+                }
+            }
+    }
+    
+    // Force pager to correct page when app resumes from background
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                Timber.d("TabbedMainScreen: App resumed, checking pager state")
+                if (tabs.isNotEmpty() && pagerState.currentPage != currentTabIndex) {
+                    Timber.d("TabbedMainScreen: Pager mismatch on resume: currentPage=${pagerState.currentPage}, TabManager=$currentTabIndex, forcing sync")
+                    coroutineScope.launch {
+                        isSyncing = true
+                        pagerState.scrollToPage(currentTabIndex)
+                        isSyncing = false
+                    }
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    
+    // Update active bridge when tab changes (Termius pattern: centralized control)
+    // This is the SINGLE source of truth for which bridge is active
+    LaunchedEffect(currentTabIndex, tabs.size) {
+        val currentTab = tabs.getOrNull(currentTabIndex)
+        Timber.d("TabbedMainScreen: Tab changed to index $currentTabIndex (${currentTab?.type})")
+        
+        if (currentTab != null) {
+            when (currentTab.type) {
+                TabType.SSH_TERMINAL -> {
+                    // Find the bridge for this SSH tab
+                    val bridges = terminalService?.bridges?.value ?: emptyList()
+                    val bridge = bridges.firstOrNull { it.tabId == currentTab.id }
+                    if (bridge != null) {
+                        Timber.d("TabbedMainScreen: Setting active bridge for SSH tab ${currentTab.id}")
+                        terminalService?.setActiveBridge(bridge)
+                    } else {
+                        Timber.d("TabbedMainScreen: No bridge found for SSH tab ${currentTab.id}")
+                    }
+                }
+                TabType.SFTP_BROWSER -> {
+                    // SFTP doesn't need active bridge for notifications
+                    Timber.d("TabbedMainScreen: Clearing active bridge for SFTP tab")
+                    terminalService?.setActiveBridge(null)
+                }
+            }
+        } else {
+            Timber.d("TabbedMainScreen: No current tab, clearing active bridge")
+            terminalService?.setActiveBridge(null)
         }
     }
 
@@ -203,6 +272,8 @@ fun TabbedMainScreen(
                                     tabManager.closeTab(tab.id)
                                 },
                                 inTab = true,
+                                isActive = isVisible,
+                                terminalService = terminalService,
                             )
                         }
                     }
