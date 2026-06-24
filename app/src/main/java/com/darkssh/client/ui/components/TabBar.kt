@@ -37,6 +37,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.svg.SvgDecoder
 import com.darkssh.client.data.entity.Tab as TabEntity
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.data.model.OsType
@@ -71,100 +75,119 @@ private fun OsDetectingIcon(modifier: Modifier = Modifier) {
 
 /**
  * Get icon for OS type.
- * Uses vector-based icons inspired by Vivaldi's clean design.
+ * Uses SVG icons from candy-icons for major distros, fallback to text badges for others.
  */
 @Composable
 private fun OsIcon(osType: OsType, modifier: Modifier = Modifier) {
-    when (osType) {
-        OsType.ARCH -> ArchLinuxIcon(modifier = modifier)
-        OsType.UBUNTU -> UbuntuIcon(modifier = modifier)
-        OsType.DEBIAN -> DebianIcon(modifier = modifier)
-        OsType.FEDORA -> FedoraIcon(modifier = modifier)
-        OsType.ALPINE -> AlpineIcon(modifier = modifier)
-        OsType.CENTOS -> CentOSIcon(modifier = modifier)
-        OsType.REDHAT -> CentOSIcon(modifier = modifier, tint = androidx.compose.ui.graphics.Color(0xFFEE0000))
-        OsType.LINUX -> GenericLinuxIcon(modifier = modifier)
-        
-        // Fallback to text badges for less common distros
-        OsType.GENTOO -> Text(
+    val context = LocalPlatformContext.current
+    
+    // Map OS types to SVG icon paths
+    val iconPath = when (osType) {
+        OsType.ARCH -> "file:///android_asset/icons/ic_os_arch.svg"
+        OsType.UBUNTU -> "file:///android_asset/icons/ic_os_ubuntu.svg"
+        OsType.DEBIAN -> "file:///android_asset/icons/ic_os_debian.svg"
+        OsType.FEDORA -> "file:///android_asset/icons/ic_os_fedora.svg"
+        OsType.ALPINE -> "file:///android_asset/icons/ic_os_alpine.svg"
+        OsType.CENTOS, OsType.REDHAT -> "file:///android_asset/icons/ic_os_fedora.svg" // Use Fedora as fallback
+        OsType.LINUX -> "file:///android_asset/icons/ic_os_linux.svg"
+        else -> null
+    }
+    
+    when {
+        iconPath != null -> {
+            // Use SVG icon for major distros
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(iconPath)
+                    .decoderFactory(SvgDecoder.Factory())
+                    .build(),
+                contentDescription = osType.name,
+                modifier = modifier
+            )
+        }
+        // Fallback to old vector icons for distros without SVG
+        osType == OsType.CENTOS -> CentOSIcon(modifier = modifier)
+        osType == OsType.REDHAT -> CentOSIcon(modifier = modifier, tint = androidx.compose.ui.graphics.Color(0xFFEE0000))
+        // Text badges for less common distros
+        osType == OsType.GENTOO -> Text(
             text = "G",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = androidx.compose.ui.graphics.Color(0xFF54487A)
         )
-        OsType.FREEBSD -> Text(
+        osType == OsType.FREEBSD -> Text(
             text = "FB",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = androidx.compose.ui.graphics.Color(0xFFAB2B28)
         )
-        OsType.OPENBSD -> Text(
+        osType == OsType.OPENBSD -> Text(
             text = "OB",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = androidx.compose.ui.graphics.Color(0xFFF2CA30)
         )
-        OsType.SUSE -> Text(
+        osType == OsType.SUSE -> Text(
             text = "S",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = androidx.compose.ui.graphics.Color(0xFF73BA25)
         )
-        OsType.ALMA -> Text(
+        osType == OsType.ALMA -> Text(
             text = "AL",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = androidx.compose.ui.graphics.Color(0xFF0F4266)
         )
-        OsType.ROCKY -> Text(
+        osType == OsType.ROCKY -> Text(
             text = "R",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = androidx.compose.ui.graphics.Color(0xFF10B981)
         )
-        OsType.AMAZON -> Text(
+        osType == OsType.AMAZON -> Text(
             text = "AWS",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = androidx.compose.ui.graphics.Color(0xFFFF9900)
         )
-        OsType.RASPBIAN -> Text(
+        osType == OsType.RASPBIAN -> Text(
             text = "π",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = androidx.compose.ui.graphics.Color(0xFFC51A4A)
         )
-        OsType.OSX -> Text(
+        osType == OsType.OSX -> Text(
             text = "⌘",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OsType.ANDROID -> Text(
+        osType == OsType.ANDROID -> Text(
             text = "🤖",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium
         )
-        OsType.WINDOWS -> Text(
+        osType == OsType.WINDOWS -> Text(
             text = "⊞",
             modifier = modifier,
             style = MaterialTheme.typography.labelMedium,
             color = androidx.compose.ui.graphics.Color(0xFF0078D4)
         )
-        OsType.MIKROTIK -> Text(
+        osType == OsType.MIKROTIK -> Text(
             text = "MT",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OsType.NETBSD -> Text(
+        osType == OsType.NETBSD -> Text(
             text = "NB",
             modifier = modifier,
             style = MaterialTheme.typography.labelSmall,
             color = androidx.compose.ui.graphics.Color(0xFFFF6600)
         )
         // Show pulsing loading indicator for UNKNOWN (detecting in progress)
-        OsType.UNKNOWN -> OsDetectingIcon(modifier = modifier)
+        osType == OsType.UNKNOWN -> OsDetectingIcon(modifier = modifier)
     }
 }
 
@@ -212,17 +235,23 @@ fun TabBar(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier.padding(horizontal = 8.dp)
                         ) {
-                            // Show OS icon for SSH terminals, generic icon for SFTP
+                            // Show OS icon for SSH terminals, remote folder icon for SFTP
                             when (tab.type) {
                                 TabType.SSH_TERMINAL -> OsIcon(
                                     osType = osType,
                                     modifier = Modifier.size(18.dp)
                                 )
-                                TabType.SFTP_BROWSER -> Icon(
-                                    imageVector = Icons.Default.Folder,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
+                                TabType.SFTP_BROWSER -> {
+                                    val context = LocalPlatformContext.current
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(context)
+                                            .data("file:///android_asset/icons/ic_folder_remote.svg")
+                                            .decoderFactory(SvgDecoder.Factory())
+                                            .build(),
+                                        contentDescription = "SFTP",
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                             
                             Text(
