@@ -65,6 +65,7 @@ enum class SortBy { NAME, SIZE, DATE, TYPE }
 
 data class SftpUiState(
     val currentPath: String = "/",
+    val homeDirectory: String = "/", // User's home directory (~)
     val entries: List<SftpEntry> = emptyList(),
     val allEntries: List<SftpEntry> = emptyList(),
     val showHiddenFiles: Boolean = false,
@@ -216,7 +217,18 @@ class SftpViewModel
                         _uiState.value = _uiState.value.copy(error = "Host not found")
                         return@launch
                     }
-                _uiState.value = _uiState.value.copy(host = h)
+                
+                // Load saved preferences
+                val savedSortBy = com.darkssh.client.util.AppPreferences.getSftpSortBy(getApplication())
+                val savedSortAscending = com.darkssh.client.util.AppPreferences.getSftpSortAscending(getApplication())
+                val savedShowHidden = com.darkssh.client.util.AppPreferences.getSftpShowHidden(getApplication())
+                
+                _uiState.value = _uiState.value.copy(
+                    host = h,
+                    sortBy = SortBy.valueOf(savedSortBy),
+                    sortAscending = savedSortAscending,
+                    showHiddenFiles = savedShowHidden,
+                )
 
                 // Restore active transfer if exists and not hidden
                 val transferKey = "upload_$hostId"
@@ -231,7 +243,7 @@ class SftpViewModel
                     sftpClient = existing
                     _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
                     val pwd = existing.pwd()
-                    _uiState.value = _uiState.value.copy(currentPath = pwd)
+                    _uiState.value = _uiState.value.copy(currentPath = pwd, homeDirectory = pwd)
                     listDirectory(pwd)
                     return@launch
                 }
@@ -260,7 +272,7 @@ class SftpViewModel
                     activeClients[hostId] = client
                     _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
                     val pwd = client.pwd()
-                    _uiState.value = _uiState.value.copy(currentPath = pwd)
+                    _uiState.value = _uiState.value.copy(currentPath = pwd, homeDirectory = pwd)
                     listDirectory(pwd)
                 } else {
                     _uiState.value =
@@ -301,11 +313,19 @@ class SftpViewModel
                 _uiState.value.copy(
                     entries = filterEntries(current.allEntries, current.showHiddenFiles),
                 )
+            
+            // Save preferences
+            com.darkssh.client.util.AppPreferences.setSftpSortBy(getApplication(), sortBy.name)
+            com.darkssh.client.util.AppPreferences.setSftpSortAscending(getApplication(), ascending)
         }
 
         fun toggleShowHiddenFiles() {
             val current = _uiState.value
             val showHidden = !current.showHiddenFiles
+            
+            // Save preference
+            com.darkssh.client.util.AppPreferences.setSftpShowHidden(getApplication(), showHidden)
+            
             _uiState.value =
                 current.copy(
                     showHiddenFiles = showHidden,
@@ -396,6 +416,13 @@ class SftpViewModel
                     pathStack = _uiState.value.pathStack + current,
                 )
             listDirectory(parent)
+        }
+
+        fun navigateHome() {
+            val home = _uiState.value.homeDirectory
+            if (home != _uiState.value.currentPath) {
+                listDirectory(home)
+            }
         }
 
         fun toggleSelection(path: String) {

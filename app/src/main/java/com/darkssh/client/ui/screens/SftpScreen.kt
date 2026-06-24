@@ -2,6 +2,10 @@ package com.darkssh.client.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.svg.SvgDecoder
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -35,7 +39,12 @@ import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.VideoFile
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
@@ -100,12 +109,18 @@ fun SftpScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     inTab: Boolean = false,
+    isActive: Boolean = true,
+    terminalService: com.darkssh.client.service.TerminalService? = null,
     viewModel: SftpViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    
+    // NOTE: Active bridge management is now handled by TabbedMainScreen (Termius pattern)
+    // This ensures single source of truth and prevents race conditions during tab switches
+    // SftpScreen just renders the file browser, it doesn't control which bridge is active
     
     // Debug: Log when transferProgress changes
     androidx.compose.runtime.LaunchedEffect(uiState.transferProgress) {
@@ -207,9 +222,9 @@ fun SftpScreen(
                 TextButton(onClick = { viewModel.dismissRenameConflict() }) {
                     Text("Cancel")
                 }
-            },
-        )
-    }
+        },
+    )
+}
 
     uiState.downloadConflict?.let { conflict ->
         AlertDialog(
@@ -296,7 +311,7 @@ fun SftpScreen(
                     IconButton(onClick = { viewModel.navigateUp() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Up")
                     }
-                    IconButton(onClick = { viewModel.listDirectory("/") }) {
+                    IconButton(onClick = { viewModel.navigateHome() }) {
                         Icon(Icons.Default.Home, contentDescription = "Home")
                     }
                     IconButton(onClick = { showMkdirDialog = true }) {
@@ -707,10 +722,19 @@ private fun SftpEntryRow(
             .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = if (entry.isDirectory) Icons.Default.Folder else Icons.Default.Description,
+        val context = LocalPlatformContext.current
+        val iconPath = if (entry.isDirectory) {
+            getFolderIconPath(entry.name)
+        } else {
+            getFileIconPath(entry.name)
+        }
+        
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data(iconPath)
+                .decoderFactory(SvgDecoder.Factory())
+                .build(),
             contentDescription = if (entry.isDirectory) "Directory" else "File",
-            tint = if (entry.isDirectory) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.size(24.dp),
         )
 
@@ -741,16 +765,6 @@ private fun SftpEntryRow(
             }
         }
 
-        if (!entry.isDirectory) {
-            IconButton(onClick = onDownload, modifier = Modifier.size(36.dp)) {
-                Icon(
-                    Icons.Default.Download,
-                    contentDescription = "Download",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-
         Box {
             IconButton(onClick = { showContext = true }, modifier = Modifier.size(36.dp)) {
                 Icon(Icons.Default.MoreVert, contentDescription = "More")
@@ -759,6 +773,18 @@ private fun SftpEntryRow(
                 expanded = showContext,
                 onDismissRequest = { showContext = false },
             ) {
+                if (!entry.isDirectory) {
+                    DropdownMenuItem(
+                        text = { Text("Download") },
+                        onClick = {
+                            showContext = false
+                            onDownload()
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Default.Download, contentDescription = null)
+                        },
+                    )
+                }
                 DropdownMenuItem(
                     text = { Text("Copy") },
                     onClick = {

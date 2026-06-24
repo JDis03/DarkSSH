@@ -19,6 +19,7 @@ spongycastle = "1.58.0.0"
 termlib = "0.0.37"
 conscrypt = "2.5.2"
 timber = "5.0.1"
+coil = "3.0.4"
 core = "1.18.0"
 biometric = "1.4.0-alpha02"
 securityCrypto = "1.1.0-alpha06"
@@ -52,6 +53,8 @@ spongycastle-prov = { module = "com.madgag.spongycastle:prov", version.ref = "sp
 termlib = { module = "org.connectbot:termlib", version.ref = "termlib" }
 conscrypt-android = { module = "org.conscrypt:conscrypt-android", version.ref = "conscrypt" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
+coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
+coil-svg = { module = "io.coil-kt.coil3:coil-svg", version.ref = "coil" }
 
 androidx-core = { module = "androidx.core:core-ktx", version.ref = "core" }
 androidx-appcompat = { module = "androidx.appcompat:appcompat", version.ref = "appcompat" }

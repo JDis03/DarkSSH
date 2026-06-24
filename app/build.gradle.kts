@@ -87,6 +87,8 @@ dependencies {
     implementation(libs.termlib)
     implementation(libs.conscrypt.android)
     implementation(libs.timber)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.svg)
 
     implementation(libs.androidx.core)
     implementation(libs.androidx.appcompat)
