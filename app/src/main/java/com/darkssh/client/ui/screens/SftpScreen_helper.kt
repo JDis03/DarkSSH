@@ -1,7 +1,8 @@
 package com.darkssh.client.ui.screens
 
 enum class FileType {
-    ARCHIVE,    // zip, tar, gz, etc
+    ARCHIVE,    // zip, tar, gz, 7z, rar, etc
+    ISO,        // iso, img disk images
     IMAGE,      // png, jpg, etc
     VIDEO,      // mp4, mkv, etc
     AUDIO,      // mp3, wav, etc
@@ -73,6 +74,9 @@ internal fun getFileType(fileName: String): FileType {
         "zip", "tar", "gz", "bz2", "xz", "7z", "rar", "tgz", "tbz2", 
         "txz", "tar.gz", "tar.bz2", "tar.xz" -> FileType.ARCHIVE
         
+        // ISO/Disk Images
+        "iso", "img", "dmg", "vdi", "vmdk", "qcow2" -> FileType.ISO
+        
         // Images
         "png", "jpg", "jpeg", "jpe", "jpf", "jps", "jfif", "gif", "apng", 
         "bmp", "wbmp", "webp", "tif", "tiff", "pjp", "pjpeg", "jxl", 
@@ -134,6 +138,7 @@ internal fun getFileIconPath(fileName: String): String {
         FileType.CSHARP -> "file:///android_asset/icons/ic_file_text.svg" // Fallback to text
         FileType.EXECUTABLE -> "file:///android_asset/icons/ic_file_archive.svg" // Use archive icon
         FileType.ARCHIVE -> "file:///android_asset/icons/ic_file_archive.svg"
+        FileType.ISO -> "file:///android_asset/icons/ic_file_iso.svg"
         FileType.IMAGE -> "file:///android_asset/icons/ic_file_image.svg"
         FileType.VIDEO -> "file:///android_asset/icons/ic_file_video.svg"
         FileType.AUDIO -> "file:///android_asset/icons/ic_file_audio.svg"
