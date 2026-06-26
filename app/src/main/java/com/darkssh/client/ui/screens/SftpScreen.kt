@@ -1,5 +1,6 @@
 package com.darkssh.client.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import coil3.compose.AsyncImage
@@ -117,6 +118,11 @@ fun SftpScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    
+    // Handle back gesture: navigate up in folder hierarchy instead of closing app
+    BackHandler(enabled = uiState.currentPath != "/" && uiState.currentPath != uiState.homeDirectory) {
+        viewModel.navigateUp()
+    }
     
     // NOTE: Active bridge management is now handled by TabbedMainScreen (Termius pattern)
     // This ensures single source of truth and prevents race conditions during tab switches
