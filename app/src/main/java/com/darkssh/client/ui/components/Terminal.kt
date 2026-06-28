@@ -8,6 +8,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -86,6 +87,7 @@ fun Terminal(
             }
         }
     }
+
 
     // Explicit focus transfer when this terminal becomes active OR focus trigger changes
     LaunchedEffect(isActive, showSoftKeyboard, focusTrigger) {
@@ -203,6 +205,7 @@ fun Terminal(
             
             // Only update when font actually changes
             if (fontSize != prevFontSize) {
+                Timber.d("Terminal: setTextSize ${fontSize.toInt()}")
                 view.setTextSize(fontSize.toInt())
                 prevFontSize = fontSize
             }

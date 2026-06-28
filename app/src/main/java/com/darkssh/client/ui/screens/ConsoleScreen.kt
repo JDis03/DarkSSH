@@ -186,14 +186,26 @@ fun ConsoleScreen(
                             text = { Text("A+") },
                             onClick = {
                                 showMenu = false
-                                bridge?.increaseFontSize()
+                                val b = bridge
+                                if (b != null) {
+                                    Timber.d("ConsoleScreen: A+ clicked, bridge is valid")
+                                    b.increaseFontSize()
+                                } else {
+                                    Timber.w("ConsoleScreen: A+ clicked but bridge is null!")
+                                }
                             },
                         )
                         DropdownMenuItem(
                             text = { Text("A-") },
                             onClick = {
                                 showMenu = false
-                                bridge?.decreaseFontSize()
+                                val b = bridge
+                                if (b != null) {
+                                    Timber.d("ConsoleScreen: A- clicked, bridge is valid")
+                                    b.decreaseFontSize()
+                                } else {
+                                    Timber.w("ConsoleScreen: A- clicked but bridge is null!")
+                                }
                             },
                         )
                         DropdownMenuItem(
@@ -241,6 +253,7 @@ fun ConsoleScreen(
                     fontSize = fontSize,
                     typeface = terminalTypeface,
                     isActive = isActive, // Control focus based on tab visibility
+                    focusTrigger = focusTrigger,
                 )
             } else if (isDisconnected && disconnectReason != com.darkssh.client.service.DisconnectReason.USER_REQUESTED) {
                 // Only show reconnect overlay if disconnect was NOT user-requested

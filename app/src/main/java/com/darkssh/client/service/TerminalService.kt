@@ -190,7 +190,9 @@ class TerminalService : Service() {
     fun setActiveBridge(bridge: TerminalBridge?) {
         val previousBridge = _activeBridge.value
         if (previousBridge != bridge) {
-            Timber.d("TerminalService: Active bridge changed: ${previousBridge?.host?.nickname} (${previousBridge?.tabId}) -> ${bridge?.host?.nickname} (${bridge?.tabId})")
+            Timber.d(
+                "TerminalService: Active bridge changed: ${previousBridge?.host?.nickname} (${previousBridge?.tabId}) -> ${bridge?.host?.nickname} (${bridge?.tabId})",
+            )
         }
         _activeBridge.value = bridge
     }

@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -25,6 +26,7 @@ import com.darkssh.client.ui.nav.DarkSSHNavHost
 import com.darkssh.client.ui.theme.DarkSSHTheme
 import com.darkssh.client.util.DebugLogger
 import dagger.hilt.android.AndroidEntryPoint
+import timber.log.Timber
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -122,6 +124,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        // Log volume keys for debugging
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            Timber.d(
+                "MainActivity: dispatchKeyEvent volume key=${event.keyCode} action=${event.action} hasBridge=${terminalService?.activeBridge?.value != null}",
+            )
+        }
+
         if (event.action == KeyEvent.ACTION_DOWN) {
             // Ctrl+Shift+V = Paste from clipboard
             if (event.isCtrlPressed && event.isShiftPressed && event.keyCode == KeyEvent.KEYCODE_V) {
@@ -142,13 +151,23 @@ class MainActivity : ComponentActivity() {
 
             // Volume Up = Increase font size (only when terminal is active)
             if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
-                terminalService?.activeBridge?.value?.increaseFontSize()
+                val bridge = terminalService?.activeBridge?.value
+                if (bridge != null && bridge.isConnected.value) {
+                    bridge.increaseFontSize()
+                } else {
+                    Toast.makeText(this, "Conectando...", Toast.LENGTH_SHORT).show()
+                }
                 return true
             }
 
             // Volume Down = Decrease font size (only when terminal is active)
             if (event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
-                terminalService?.activeBridge?.value?.decreaseFontSize()
+                val bridge = terminalService?.activeBridge?.value
+                if (bridge != null && bridge.isConnected.value) {
+                    bridge.decreaseFontSize()
+                } else {
+                    Toast.makeText(this, "Conectando...", Toast.LENGTH_SHORT).show()
+                }
                 return true
             }
         }
