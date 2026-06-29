@@ -86,7 +86,7 @@ class CbsshTransfer(
             is SftpResult.Success -> result.value
             is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
             is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-            is SftpResult.IoError -> return SftpResult.IoError(result.cause ?: java.io.IOException("I/O error"))
+            is SftpResult.IoError -> return SftpResult.IoError(result.cause)
         }
         val totalBytes = attrs.size ?: 0L
         val startTime = System.currentTimeMillis()
@@ -96,7 +96,7 @@ class CbsshTransfer(
             is SftpResult.Success -> result.value
             is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
             is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-            is SftpResult.IoError -> return SftpResult.IoError(result.cause ?: java.io.IOException("I/O error"))
+            is SftpResult.IoError -> return SftpResult.IoError(result.cause)
         }
 
         try {
@@ -112,7 +112,7 @@ class CbsshTransfer(
                     is SftpResult.Success -> chunkResult.value ?: break  // EOF
                     is SftpResult.ServerError -> return SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
                     is SftpResult.ProtocolError -> return SftpResult.ProtocolError(chunkResult.message)
-                    is SftpResult.IoError -> return SftpResult.IoError(chunkResult.cause ?: java.io.IOException("I/O error"))
+                    is SftpResult.IoError -> return SftpResult.IoError(chunkResult.cause)
                 }
 
                 outputStream.write(chunk)
@@ -374,7 +374,7 @@ class CbsshTransfer(
                     is SftpResult.IoError -> {
                         sftp.close(sourceHandle)
                         sftp.close(destHandle)
-                        return@withContext SftpResult.IoError(chunkResult.cause ?: IOException("I/O error"))
+                        return@withContext SftpResult.IoError(chunkResult.cause)
                     }
                 }
 
@@ -447,7 +447,7 @@ private fun <T> SftpResult<T>.toUnit(): SftpResult<Unit> = when (this) {
     is SftpResult.Success<*> -> SftpResult.Success(Unit) as SftpResult<Unit>
     is SftpResult.ServerError -> SftpResult.ServerError(statusCode, message)
     is SftpResult.ProtocolError -> SftpResult.ProtocolError(message)
-    is SftpResult.IoError -> SftpResult.IoError(cause ?: IOException("I/O error"))
+    is SftpResult.IoError -> SftpResult.IoError(cause)
 }
 
 /**
@@ -457,5 +457,5 @@ private fun SftpResult<*>.toException(): Exception = when (this) {
     is SftpResult.Success<*> -> IOException("SFTP success cannot be converted to exception")
     is SftpResult.ServerError -> IOException("SFTP server error: ${message}")
     is SftpResult.ProtocolError -> IOException("SFTP protocol error: ${message}")
-    is SftpResult.IoError -> (cause as? Exception) ?: IOException(cause?.message ?: "SFTP I/O error")
+    is SftpResult.IoError -> (cause as? Exception) ?: IOException(cause.message ?: "SFTP I/O error")
 }
