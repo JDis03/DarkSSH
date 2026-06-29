@@ -67,3 +67,6 @@ session-handoff.md
 *.swp
 .*.swp
 .memory-project
+
+# Pending files (waiting for dependency to be added)
+*.pending
