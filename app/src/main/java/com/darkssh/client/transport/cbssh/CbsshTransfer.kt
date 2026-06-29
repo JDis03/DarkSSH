@@ -15,11 +15,15 @@
 package com.darkssh.client.transport.cbssh
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import org.connectbot.sshlib.SftpClient
 import org.connectbot.sshlib.SftpResult
 import timber.log.Timber
 import java.io.File
+import java.io.IOException
 import java.io.OutputStream
 
 /**
@@ -78,17 +82,21 @@ class CbsshTransfer(
         onProgress: ((TransferProgress) -> Unit)?,
     ): SftpResult<Unit> {
         // Get file size
-        val attrs = when (val result = sftp.stat(remotePath)) {
+        val attrs: org.connectbot.sshlib.SftpAttributes = when (val result = sftp.stat(remotePath)) {
             is SftpResult.Success -> result.value
-            else -> return result
+            is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
+            is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
+            is SftpResult.IoError -> return SftpResult.IoError(result.cause ?: java.io.IOException("I/O error"))
         }
         val totalBytes = attrs.size ?: 0L
         val startTime = System.currentTimeMillis()
 
         // Open file for reading
-        val handle = when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
+        val handle: org.connectbot.sshlib.SftpFileHandle = when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
             is SftpResult.Success -> result.value
-            else -> return result
+            is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
+            is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
+            is SftpResult.IoError -> return SftpResult.IoError(result.cause ?: java.io.IOException("I/O error"))
         }
 
         try {
@@ -100,9 +108,11 @@ class CbsshTransfer(
             // Read in chunks
             while (true) {
                 val chunkResult = sftp.read(handle, bytesRead, bufferSize)
-                val chunk = when (chunkResult) {
+                val chunk: ByteArray = when (chunkResult) {
                     is SftpResult.Success -> chunkResult.value ?: break  // EOF
-                    else -> return chunkResult
+                    is SftpResult.ServerError -> return SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
+                    is SftpResult.ProtocolError -> return SftpResult.ProtocolError(chunkResult.message)
+                    is SftpResult.IoError -> return SftpResult.IoError(chunkResult.cause ?: java.io.IOException("I/O error"))
                 }
 
                 outputStream.write(chunk)
@@ -166,7 +176,7 @@ class CbsshTransfer(
             ),
         )) {
             is SftpResult.Success -> result.value
-            else -> return@withContext result
+            else -> return@withContext result.toUnit()
         }
 
         try {
@@ -248,7 +258,7 @@ class CbsshTransfer(
             ),
         )) {
             is SftpResult.Success -> result.value
-            else -> return@withContext result
+            else -> return@withContext result.toUnit()
         }
 
         try {
@@ -260,9 +270,9 @@ class CbsshTransfer(
             }
 
             // Upload chunks concurrently
-            kotlinx.coroutines.coroutineScope {
+            coroutineScope {
                 chunks.map { chunk ->
-                    kotlinx.coroutines.async(Dispatchers.IO) {
+                    async(Dispatchers.IO) {
                         val buffer = ByteArray(BUFFER_SIZE)
                         localFile.inputStream().use { input ->
                             input.skip(chunk.first)
@@ -318,13 +328,13 @@ class CbsshTransfer(
     ): SftpResult<Unit> = withContext(Dispatchers.IO) {
         val totalBytes = when (val result = sftp.stat(sourcePath)) {
             is SftpResult.Success -> result.value.size ?: 0L
-            else -> return@withContext result
+            else -> return@withContext result.toUnit()
         }
         val startTime = System.currentTimeMillis()
 
         val sourceHandle = when (val result = sftp.open(sourcePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
             is SftpResult.Success -> result.value
-            else -> return@withContext result
+            else -> return@withContext result.toUnit()
         }
 
         val destHandle = when (val result = sftp.open(
@@ -338,7 +348,7 @@ class CbsshTransfer(
             is SftpResult.Success -> result.value
             else -> {
                 sftp.close(sourceHandle)
-                return@withContext result
+                return@withContext result.toUnit()
             }
         }
 
@@ -349,12 +359,22 @@ class CbsshTransfer(
 
             while (true) {
                 val chunkResult = sftp.read(sourceHandle, offset, COPY_BUFFER_SIZE)
-                val chunk = when (chunkResult) {
+                val chunk: ByteArray = when (chunkResult) {
                     is SftpResult.Success -> chunkResult.value ?: break
-                    else -> {
+                    is SftpResult.ServerError -> {
                         sftp.close(sourceHandle)
                         sftp.close(destHandle)
-                        return@withContext chunkResult
+                        return@withContext SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
+                    }
+                    is SftpResult.ProtocolError -> {
+                        sftp.close(sourceHandle)
+                        sftp.close(destHandle)
+                        return@withContext SftpResult.ProtocolError(chunkResult.message)
+                    }
+                    is SftpResult.IoError -> {
+                        sftp.close(sourceHandle)
+                        sftp.close(destHandle)
+                        return@withContext SftpResult.IoError(chunkResult.cause ?: IOException("I/O error"))
                     }
                 }
 
@@ -420,10 +440,22 @@ class CbsshTransfer(
 }
 
 /**
+ * Convenience extension to convert any SftpResult to a Unit version preserving error info.
+ */
+@Suppress("UNCHECKED_CAST")
+private fun <T> SftpResult<T>.toUnit(): SftpResult<Unit> = when (this) {
+    is SftpResult.Success<*> -> SftpResult.Success(Unit) as SftpResult<Unit>
+    is SftpResult.ServerError -> SftpResult.ServerError(statusCode, message)
+    is SftpResult.ProtocolError -> SftpResult.ProtocolError(message)
+    is SftpResult.IoError -> SftpResult.IoError(cause ?: IOException("I/O error"))
+}
+
+/**
  * Convenience extension to convert SftpResult to Exception.
  */
 private fun SftpResult<*>.toException(): Exception = when (this) {
+    is SftpResult.Success<*> -> IOException("SFTP success cannot be converted to exception")
     is SftpResult.ServerError -> IOException("SFTP server error: ${message}")
     is SftpResult.ProtocolError -> IOException("SFTP protocol error: ${message}")
-    is SftpResult.IoError -> cause ?: IOException("SFTP I/O error")
+    is SftpResult.IoError -> (cause as? Exception) ?: IOException(cause?.message ?: "SFTP I/O error")
 }

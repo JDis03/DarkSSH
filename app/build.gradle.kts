@@ -96,6 +96,10 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.sshlib) {
         exclude(group = "com.google.crypto.tink", module = "tink")
+        exclude(group = "com.google.crypto.tink", module = "tink-android")
+    }
+    implementation(libs.cbssh.sshlib) {
+        exclude(group = "com.google.crypto.tink", module = "tink-android")
     }
 
     val composeBom = platform(libs.androidx.compose.bom)
@@ -139,4 +143,14 @@ dependencies {
     androidTestImplementation(libs.assertj.core)
     androidTestImplementation(libs.hilt.android.testing)
     kspAndroidTest(libs.hilt.android.compiler)
+}
+
+// Force single version of tink across all dependencies
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink-android")
+}
+
+// Force single version of tink across all dependencies
+configurations.all {
+    exclude(group = "com.google.crypto.tink", module = "tink-android")
 }

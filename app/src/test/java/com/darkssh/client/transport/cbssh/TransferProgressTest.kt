@@ -3,7 +3,6 @@
  * Copyright 2026 DarkSSH
  *
  * Unit tests for TransferProgress data class.
- * Uses a local stub because TransferProgress.kt is pending cbssh dependency.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,9 +16,6 @@ import org.junit.Test
 
 /**
  * Tests for [TransferProgress] data class.
- * These tests don't require mocking and can run without cbssh dependency.
- *
- * We use a local copy of TransferProgress to avoid dependency on the pending file.
  */
 class TransferProgressTest {
     @Test
@@ -138,38 +134,4 @@ class TransferProgressTest {
         startTime = startTime,
         currentTime = currentTime,
     )
-}
-
-/**
- * Local copy of TransferProgress for testing without cbssh dependency.
- * This should be removed when CbsshTransfer.kt.pending is activated.
- */
-data class TransferProgress(
-    val bytesTransferred: Long,
-    val totalBytes: Long,
-    val filename: String,
-    val startTime: Long,
-    val currentTime: Long,
-) {
-    val percentage: Float
-        get() = if (totalBytes > 0) bytesTransferred.toFloat() / totalBytes else 0f
-
-    val speedBytesPerSecond: Long
-        get() {
-            val elapsedMs = currentTime - startTime
-            if (elapsedMs <= 0) return 0L
-            return (bytesTransferred * 1000L) / elapsedMs
-        }
-
-    val speedFormatted: String
-        get() = formatSpeed(speedBytesPerSecond)
-
-    private fun formatSpeed(bytesPerSecond: Long): String {
-        if (bytesPerSecond <= 0) return "0 B/s"
-        return when {
-            bytesPerSecond >= 1024L * 1024L -> "${bytesPerSecond / (1024L * 1024L)} MB/s"
-            bytesPerSecond >= 1024L -> "${bytesPerSecond / 1024L} KB/s"
-            else -> "$bytesPerSecond B/s"
-        }
-    }
 }
