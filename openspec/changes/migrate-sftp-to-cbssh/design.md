@@ -508,7 +508,7 @@ These questions will be answered during Phase 1 implementation.
 
 ## References
 
-- **cbssh SFTP source:** `/home/dark/Project/cbssh-upstream/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
+- **cbssh SFTP source:** `/home/dark/Project/cbssh-fork/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
 - **Feature gap analysis:** `contrib/cbssh-sftp/research/feature-gap-analysis.md`
 - **Transfer design:** `contrib/cbssh-sftp/design/cbssh-transfer-design.md`
 - **Implementation notes:** `contrib/cbssh-sftp/implementation/README.md`

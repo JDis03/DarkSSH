@@ -132,7 +132,7 @@ Implement SCP-style upload using SSH exec for large files (replaces sshj's SCP f
 ## References
 
 - **cbssh repository:** https://github.com/connectbot/cbssh
-- **cbssh SFTP source:** `contrib/cbssh-upstream/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
+- **cbssh SFTP source:** `/home/dark/Project/cbssh-fork/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
 - **Feature gap analysis:** `contrib/cbssh-sftp/research/feature-gap-analysis.md`
 - **Transfer wrapper design:** `contrib/cbssh-sftp/design/cbssh-transfer-design.md`
 - **Migration plan:** `docs/MIGRATION_TO_CBSSH.md`

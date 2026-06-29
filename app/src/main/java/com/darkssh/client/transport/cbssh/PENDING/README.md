@@ -31,7 +31,7 @@ When ready to add cbssh as dependency:
 ### Option 1: Add to Maven Local (recommended)
 
 ```bash
-# In cbssh-upstream directory
+# In cbssh-fork directory
 ./gradlew publishToMavenLocal
 ```
 
@@ -49,7 +49,7 @@ In `settings.gradle.kts`:
 ```kotlin
 include(":app", ":cbssh-sshlib")
 
-project(":cbssh-sshlib").projectDir = file("/home/dark/Project/cbssh-upstream/sshlib")
+project(":cbssh-sshlib").projectDir = file("/home/dark/Project/cbssh-fork/sshlib")
 ```
 
 In `app/build.gradle.kts`:
@@ -85,4 +85,5 @@ mv PENDING/TransferProgress.kt.pending ./TransferProgress.kt
 - **Spec:** `openspec/changes/migrate-sftp-to-cbssh/`
 - **Design:** `openspec/changes/migrate-sftp-to-cbssh/design.md`
 - **Tasks:** `openspec/changes/migrate-sftp-to-cbssh/tasks.md`
-- **cbssh source:** `/home/dark/Project/cbssh-upstream/sshlib/`
+- **cbssh source:** `/home/dark/Project/cbssh-fork/sshlib/`
+- **cbssh fork repo:** https://github.com/JDis03/cbssh

@@ -242,7 +242,9 @@ Based on cbssh's coroutine-based architecture, we expect:
 
 ## References
 
-- cbssh SFTP source: `/home/dark/Project/cbssh-upstream/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
-- cbssh tests: `/home/dark/Project/cbssh-upstream/sshlib/src/test/kotlin/org/connectbot/sshlib/client/sftp/`
+- cbssh SFTP source: `/home/dark/Project/cbssh-fork/sshlib/src/main/kotlin/org/connectbot/sshlib/client/sftp/`
+- cbssh tests: `/home/dark/Project/cbssh-fork/sshlib/src/test/kotlin/org/connectbot/sshlib/client/sftp/`
+- cbssh fork repo: https://github.com/JDis03/cbssh
+- cbssh upstream: https://github.com/connectbot/cbssh
 - DarkSSH current SFTP: `/home/dark/Project/clientssh/app/src/main/java/com/darkssh/client/transport/SftpClient.kt`
 - Migration plan: `/home/dark/Project/clientssh/docs/MIGRATION_TO_CBSSH.md`

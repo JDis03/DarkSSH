@@ -36,7 +36,8 @@ contrib/cbssh-sftp/
 
 ## Upstream Repositories
 
-- **cbssh upstream**: `/home/dark/Project/cbssh-upstream/`
+- **cbssh fork**: `/home/dark/Project/cbssh-fork/` (JDis03/cbssh)
+- **cbssh upstream**: https://github.com/connectbot/cbssh (for syncing)
 - **cbssh fork**: (To be created on GitHub)
 - **sshj reference**: https://github.com/hierynomus/sshj
 
