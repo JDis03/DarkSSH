@@ -549,14 +549,18 @@ class CbsshTransfer(
         private const val BUFFER_SIZE = 32 * 1024
 
         /**
-         * Chunk size for pipelined downloads (128KB).
-         * Larger chunks = fewer round-trips = faster on high-latency links.
+         * Chunk size for pipelined downloads (32KB).
+         * Must be ≤ SSH channel maxPacketSize so the server can return each
+         * SFTP SSH_FXP_DATA response in a single SSH_MSG_CHANNEL_DATA packet.
+         * Larger values cause the server to split the response into multiple
+         * SSH packets which can trigger ChannelClosedException in the reader.
          */
-        private const val DOWNLOAD_CHUNK_SIZE = 128 * 1024
+        private const val DOWNLOAD_CHUNK_SIZE = 32 * 1024
 
         /**
-         * Number of concurrent in-flight read requests for pipelined downloads.
-         * Simulates sshj's window-based strategy. 8 × 128KB = 1MB in-flight.
+         * Number of concurrent in-flight SFTP read requests (pipeline depth).
+         * 8 × 32KB = 256KB of data requested at a time. With a 16MB SSH window
+         * the server can respond to all of them without waiting for WINDOW_ADJUST.
          */
         private const val DOWNLOAD_PIPELINE_DEPTH = 8
 
