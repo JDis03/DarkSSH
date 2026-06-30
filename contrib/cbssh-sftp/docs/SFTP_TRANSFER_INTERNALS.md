@@ -217,8 +217,103 @@ class SftpTransfer(private val sftp: SftpClient) {
 - Elimina que cada app tenga que implementar su propio loop de transfers
 - Tests unitarios incluidos
 
+**PR 3: `feat(ssh): configurable SSH-level keepalive`**
+```kotlin
+// SshClientConfig: añadir keepAliveIntervalMs: Long (default = 0 = disabled)
+// SshClient: lanzar coroutine que envía SSH_MSG_IGNORE cada interval
+conn.writePacket(SshEnums.MessageType.SSH_MSG_IGNORE.id().toInt(), ByteArray(0))
+delay(keepAliveIntervalMs)
+```
+- Previene muerte de conexión por VPN/NAT/routers idle timeout
+- SSH_MSG_IGNORE es la estrategia más simple (no espera respuesta)
+- sshj lo implementa como `Heartbeater` que envía SSH_MSG_IGNORE cada N segs
+
 **Cuándo:** Después de que el testing en DarkSSH confirme que los downloads
 funcionan correctamente con el fix actual.
+
+---
+
+## Keepalive: sshj vs cbssh (por qué cbssh se muere con VPN)
+
+### Cómo sshj mantiene conexiones vivas
+
+sshj tiene **dos clases de keepalive** en `net.schmizz.keepalive.*`:
+
+| Clase | Mecanismo | Uso |
+|-------|-----------|-----|
+| `Heartbeater` | Envía `SSH_MSG_IGNORE` periódico | Anti-NAT/VPN idle timeout |
+| `KeepAliveRunner` | Envía `keepalive@openssh.com` GLOBAL_REQUEST con maxAliveCount | Detección real de conexión muerta |
+
+En DarkSSH se activa con:
+```kotlin
+// SftpClient.kt
+ssh.connection.keepAlive.keepAliveInterval = 15  // 15 segundos
+```
+Por defecto arranca `KeepAliveRunner` (envía `keepalive@openssh.com` y espera respuesta).
+
+### Por qué cbssh se muere con VPN
+
+`grep -rn "keepalive\|KeepAlive" cbssh-fork/sshlib/src/main/kotlin/`:
+```
+(no matches)
+```
+
+**cbssh NO TIENE NINGÚN mecanismo de keepalive.**
+
+Cuando activas VPN:
+1. El router/VPN cambia la ruta de red del teléfono
+2. El socket TCP al servidor SSH se queda sin tráfico durante el switch
+3. El NAT/VPN/firewall cierra la conexión TCP por idle timeout (típico: 60-300s)
+4. cbssh no se da cuenta porque no envía `SSH_MSG_IGNORE` ni `keepalive@openssh.com`
+5. La próxima operación SFTP falla con `ChannelClosedException` o timeout
+6. Usuario tiene que cerrar y abrir manualmente
+
+### Fix: SSH_MSG_IGNORE periódico
+
+SSH_MSG_IGNORE (RFC 4253 §11.2):
+```
+byte      SSH_MSG_IGNORE
+string    data            (arbitrary, ignorado por el receptor)
+```
+
+- Cero overhead — solo un byte de payload
+- El servidor lo ignora silenciosamente
+- No requiere respuesta
+- Mantiene el socket TCP vivo (NAT no lo cierra)
+
+### Implementación
+
+En cbssh-fork añadir a `SshClientConfig`:
+```kotlin
+val keepAliveIntervalMs: Long = 0L  // 0 = disabled
+```
+
+En `SshClient.connect()`, lanzar:
+```kotlin
+if (config.keepAliveIntervalMs > 0) {
+    keepAliveJob = connectionScope.launch {
+        while (isActive) {
+            delay(config.keepAliveIntervalMs)
+            try {
+                conn.writePacket(
+                    SshEnums.MessageType.SSH_MSG_IGNORE.id().toInt(),
+                    ByteArray(0),
+                )
+            } catch (e: Exception) {
+                logger.warn("Keepalive failed", e)
+                break
+            }
+        }
+    }
+}
+```
+
+Y en `disconnect()`:
+```kotlin
+keepAliveJob?.cancel()
+```
+
+**Esto se incluye en PR 3** del plan de contribución a cbssh upstream.
 
 ---
 
@@ -227,10 +322,12 @@ funcionan correctamente con el fix actual.
 | Archivo | Propósito |
 |---------|-----------|
 | `cbssh-fork/sshlib/.../SshClient.kt` | `openSftp()` con window 16MB |
+| `cbssh-fork/sshlib/.../SshClientConfig.kt` | Config del cliente (futuro: keepAliveIntervalMs) |
 | `cbssh-fork/sshlib/.../SshConnection.kt` | `openSessionChannel()` defaults |
 | `cbssh-fork/sshlib/.../SftpDispatcher.kt` | Request/response matching por ID |
 | `cbssh-fork/sshlib/.../SftpPacketIO.kt` | Lee paquetes del canal SSH |
 | `cbssh-fork/sshlib/.../SessionChannel.kt` | Canal SSH (window tracking) |
+| `cbssh-fork/sshlib/.../PacketIO.kt` | Encoding de paquetes SSH |
 | `app/.../cbssh/CbsshTransfer.kt` | Pipeline download/upload (nuestro) |
 | `app/.../cbssh/SftpClient2.kt` | ISftpClient impl con cbssh |
 | `app/.../transport/SftpClient.kt` | ISftpClient impl con sshj (baseline) |

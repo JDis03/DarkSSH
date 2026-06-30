@@ -55,6 +55,7 @@ class SftpClient2(
     private var sshClient: SshClient? = null
     private var sftpClient: SftpClient? = null
     private var transfer: CbsshTransfer? = null
+    private var keepAliveJob: kotlinx.coroutines.Job? = null
 
     override val isConnected: Boolean
         get() = sftpClient != null && sshClient?.isAuthenticated == true
@@ -72,9 +73,14 @@ class SftpClient2(
 
                 val client =
                     SshClient(
-                        host = host.hostname,
-                        hostKeyVerifier = verifier,
-                        port = if (host.port <= 0) 22 else host.port,
+                        config = org.connectbot.sshlib.SshClientConfig {
+                            host = this@SftpClient2.host.hostname
+                            port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
+                            this.hostKeyVerifier = verifier
+                            // Keep alive cada 15s — evita que VPN/NAT/firewalls
+                            // maten la conexión durante idle (envía SSH_MSG_IGNORE).
+                            keepAliveIntervalMs = 15_000L
+                        },
                     )
 
                 when (val connectResult = client.connect()) {
@@ -161,9 +167,14 @@ class SftpClient2(
 
                 val client =
                     SshClient(
-                        host = host.hostname,
-                        hostKeyVerifier = verifier,
-                        port = if (host.port <= 0) 22 else host.port,
+                        config = org.connectbot.sshlib.SshClientConfig {
+                            host = this@SftpClient2.host.hostname
+                            port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
+                            this.hostKeyVerifier = verifier
+                            // Keep alive cada 15s — evita que VPN/NAT/firewalls
+                            // maten la conexión durante idle (envía SSH_MSG_IGNORE).
+                            keepAliveIntervalMs = 15_000L
+                        },
                     )
 
                 when (val connectResult = client.connect()) {
