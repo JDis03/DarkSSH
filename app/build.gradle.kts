@@ -95,11 +95,12 @@ dependencies {
     implementation(libs.androidx.biometric)
     implementation(libs.androidx.security.crypto)
     implementation(libs.sshlib) {
+        // Excluir tink base — en Android usamos tink-android (incluye las mismas clases)
         exclude(group = "com.google.crypto.tink", module = "tink")
-        exclude(group = "com.google.crypto.tink", module = "tink-android")
     }
     implementation(libs.cbssh.sshlib) {
-        exclude(group = "com.google.crypto.tink", module = "tink-android")
+        // cbssh trae tink base además de tink-android — excluir el base para evitar duplicados
+        exclude(group = "com.google.crypto.tink", module = "tink")
     }
 
     val composeBom = platform(libs.androidx.compose.bom)
@@ -145,12 +146,11 @@ dependencies {
     kspAndroidTest(libs.hilt.android.compiler)
 }
 
-// Force single version of tink across all dependencies
+// Force a single tink-android version across all dependencies.
+// sshlib pulls tink 1.8.0, cbssh pulls tink 1.22.0 — we keep 1.22.0 (cbssh needs it).
+// We do NOT exclude tink-android globally because androidx.security.crypto depends on it.
 configurations.all {
-    exclude(group = "com.google.crypto.tink", module = "tink-android")
-}
-
-// Force single version of tink across all dependencies
-configurations.all {
-    exclude(group = "com.google.crypto.tink", module = "tink-android")
+    resolutionStrategy {
+        force("com.google.crypto.tink:tink-android:1.22.0")
+    }
 }
