@@ -18,6 +18,8 @@ import android.content.Context
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.transport.cbssh.SftpClient2
 import com.darkssh.client.util.AppPreferences
+import com.darkssh.client.util.DebugLogger
+import timber.log.Timber
 
 /**
  * Factory for creating SFTP client implementations.
@@ -40,10 +42,11 @@ object SftpClientFactory {
     fun create(
         host: Host,
         context: Context,
-    ): ISftpClient =
-        if (AppPreferences.getUseCbsshSftp(context)) {
-            SftpClient2(host)
-        } else {
-            SftpClient(host)
-        }
+    ): ISftpClient {
+        val useCbssh = AppPreferences.getUseCbsshSftp(context)
+        val implName = if (useCbssh) "cbssh (SftpClient2)" else "sshj (SftpClient legacy)"
+        Timber.i("SftpClientFactory: using $implName for ${host.hostname}")
+        DebugLogger.i("SftpClientFactory", "Backend: $implName → ${host.hostname}:${host.port}")
+        return if (useCbssh) SftpClient2(host) else SftpClient(host)
+    }
 }

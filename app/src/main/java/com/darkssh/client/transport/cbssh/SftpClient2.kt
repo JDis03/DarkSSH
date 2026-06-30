@@ -18,6 +18,7 @@ import com.darkssh.client.data.entity.Host
 import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
+import com.darkssh.client.util.DebugLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.connectbot.sshlib.AuthResult
@@ -135,9 +136,11 @@ class SftpClient2(
                 }
 
                 Timber.d("cbssh SFTP session opened for ${host.hostname}")
+                DebugLogger.i("SftpClient2", "✅ Conectado (password) a ${host.hostname}:${host.port} como ${host.username}")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP connect+auth failed")
+                DebugLogger.e("SftpClient2", "❌ Error conectando a ${host.hostname}: ${e.message}")
                 Result.failure(e)
             }
         }
@@ -233,9 +236,11 @@ class SftpClient2(
                 }
 
                 Timber.d("cbssh SFTP session opened (pubkey auth) for ${host.hostname}")
+                DebugLogger.i("SftpClient2", "✅ Conectado (pubkey) a ${host.hostname}:${host.port} como ${host.username}")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP pubkey auth failed")
+                DebugLogger.e("SftpClient2", "❌ Error conectando (pubkey) a ${host.hostname}: ${e.message}")
                 Result.failure(e)
             }
         }
@@ -290,6 +295,7 @@ class SftpClient2(
     override suspend fun ls(path: String): Result<List<SftpEntry>> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "ls: $path")
             when (val result = client.listdir(path)) {
                 is SftpResult.Success -> {
                     val entries =
@@ -301,6 +307,7 @@ class SftpClient2(
                                     convertEntry(entry, path)
                                 }
                             }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                    DebugLogger.d("SftpClient2", "ls: ${entries.size} entradas en $path")
                     Result.success(entries)
                 }
 
@@ -362,6 +369,7 @@ class SftpClient2(
                 transfer ?: return@withContext Result.failure(
                     Exception("SFTP not connected"),
                 )
+            DebugLogger.d("SftpClient2", "downloadToStream: $remotePath")
             mapResult(transfer.downloadToStream(remotePath, outputStream, onProgress))
         }
 
@@ -378,6 +386,7 @@ class SftpClient2(
                 transfer ?: return@withContext Result.failure(
                     Exception("SFTP not connected"),
                 )
+            DebugLogger.d("SftpClient2", "downloadFile: $remotePath → ${localFile.name}")
             mapResult(transfer.download(remotePath, localFile, onProgress))
         }
 
@@ -392,19 +401,23 @@ class SftpClient2(
     ): Result<Unit> {
         val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
 
+        DebugLogger.d("SftpClient2", "uploadFile: ${localFile.name} (${localFile.length()} bytes) → $remotePath")
         val sftpResult = transfer.upload(localFile, remotePath, onProgress)
         if (sftpResult is SftpResult.Success) {
+            DebugLogger.i("SftpClient2", "✅ Upload OK (SFTP): ${localFile.name}")
             return Result.success(Unit)
         }
 
         // Check if file exists (might have succeeded despite error)
         if (exists(remotePath)) {
             Timber.w("Upload reported error but file exists, considering success")
+            DebugLogger.w("SftpClient2", "⚠️ Upload SFTP reportó error pero el archivo existe en $remotePath")
             return Result.success(Unit)
         }
 
         // Fall back to SCP via SSH session
         Timber.w("SFTP upload failed, falling back to SCP")
+        DebugLogger.w("SftpClient2", "⚠️ SFTP upload falló, intentando SCP fallback")
         return uploadViaScp(localFile, remotePath, onProgress)
     }
 
@@ -510,6 +523,7 @@ class SftpClient2(
     override suspend fun mkdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "mkdir: $path")
             mapResult(client.mkdir(path))
         }
 
@@ -519,6 +533,7 @@ class SftpClient2(
     override suspend fun rm(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "rm: $path")
             mapResult(client.remove(path))
         }
 
@@ -528,6 +543,7 @@ class SftpClient2(
     override suspend fun rmdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "rmdir: $path")
             mapResult(client.rmdir(path))
         }
 
@@ -540,6 +556,7 @@ class SftpClient2(
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "rename: $oldPath → $newPath")
             mapResult(client.rename(oldPath, newPath))
         }
 
@@ -652,6 +669,7 @@ class SftpClient2(
                 session.use { s ->
                     val flags = if (isDirectory) "-r" else ""
                     val command = "cp $flags '$sourcePath' '$destPath'"
+                    DebugLogger.d("SftpClient2", "copyFileViaSsh: $command")
                     if (!s.requestExec(command)) {
                         return@withContext Result.failure(Exception("Failed to exec cp command"))
                     }
@@ -660,10 +678,12 @@ class SftpClient2(
                         val data = s.read() ?: break
                     }
                     s.sendEof()
+                    DebugLogger.i("SftpClient2", "✅ copy OK: $sourcePath → $destPath")
                     Result.success(Unit)
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to copy via SSH: $sourcePath -> $destPath")
+                DebugLogger.e("SftpClient2", "❌ copy falló: $sourcePath → $destPath: ${e.message}")
                 Result.failure(e)
             }
         }
@@ -675,6 +695,7 @@ class SftpClient2(
         sourcePath: String,
         destPath: String,
     ): Result<Unit> {
+        DebugLogger.d("SftpClient2", "moveFile: $sourcePath → $destPath")
         // Try simple rename first
         val renameResult = rename(sourcePath, destPath)
         if (renameResult.isSuccess) {
