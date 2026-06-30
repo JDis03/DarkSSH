@@ -140,23 +140,40 @@ class CbsshTransfer(
             var readOffset = 0L
             var done = false
             var chunksReceived = 0
+            var firstChunkTime: Long = 0
+            var lastChunkTime: Long = 0
 
             // Sliding window of in-flight read requests
             val window = ArrayDeque<kotlinx.coroutines.Deferred<SftpResult<ByteArray?>>>(pipelineDepth)
 
             coroutineScope {
-                // Pre-fill the pipeline
+                // Pre-fill the pipeline — measure how long it takes to dispatch N requests
+                val prefillStart = System.nanoTime()
                 while (window.size < pipelineDepth && !done) {
                     if (totalBytes > 0 && readOffset >= totalBytes) { done = true; break }
                     val offset = readOffset
                     readOffset += chunkSize
                     window.addLast(async { sftp.read(handle, offset, chunkSize) })
                 }
-                Timber.d("[DL] pipeline pre-filled: ${window.size} requests in-flight")
+                val prefillMs = (System.nanoTime() - prefillStart) / 1_000_000
+                Timber.d("[DL] pipeline pre-filled: ${window.size} requests in-flight (dispatch took ${prefillMs}ms)")
+
+                var chunkGaps = StringBuilder()
 
                 while (window.isNotEmpty()) {
-                    // Drain the oldest request
+                    // Drain the oldest request — measure round-trip latency
+                    val chunkStart = System.nanoTime()
                     val chunkResult = window.removeFirst().await()
+                    val rttMs = (System.nanoTime() - chunkStart) / 1_000_000
+                    val now = System.currentTimeMillis()
+                    if (firstChunkTime == 0L) firstChunkTime = now
+                    if (lastChunkTime != 0L) {
+                        val gap = now - lastChunkTime
+                        if (chunksReceived < 10) {
+                            chunkGaps.append("$gap,")
+                        }
+                    }
+                    lastChunkTime = now
                     val chunk: ByteArray =
                         when (chunkResult) {
                             is SftpResult.Success -> {
@@ -185,9 +202,13 @@ class CbsshTransfer(
                     bytesWritten += chunk.size
                     chunksReceived++
 
-                    // Log first few chunks to confirm flow
-                    if (chunksReceived <= 3) {
-                        Timber.d("[DL] chunk #$chunksReceived: ${chunk.size}B received, total=${bytesWritten}B")
+                    // Log first few chunks with RTT to diagnose latency
+                    if (chunksReceived <= 5) {
+                        Timber.d("[DL] chunk #$chunksReceived: ${chunk.size}B, total=${bytesWritten}B, rtt=${rttMs}ms")
+                    }
+                    // Every 64 chunks, dump timing stats
+                    if (chunksReceived % 64 == 0) {
+                        Timber.d("[DL] latency gaps first 10 chunks: ${chunkGaps}ms")
                     }
 
                     // Progress callback (throttled)
@@ -223,7 +244,10 @@ class CbsshTransfer(
             outputStream.flush()
             val elapsed = System.currentTimeMillis() - startTime
             val speedKBs = if (elapsed > 0) bytesWritten * 1000 / elapsed / 1024 else 0
+            val avgChunkMs = if (chunksReceived > 0) elapsed.toDouble() / chunksReceived else 0.0
+            val avgGapMs = if (chunksReceived > 1) (lastChunkTime - firstChunkTime).toDouble() / (chunksReceived - 1) else 0.0
             Timber.d("[DL] DONE: $bytesWritten bytes in ${elapsed}ms = ${speedKBs}KB/s")
+            Timber.d("[DL] STATS: $chunksReceived chunks, avg ${"%.1f".format(avgChunkMs)}ms/chunk, avg gap ${"%.1f".format(avgGapMs)}ms between chunks")
             return SftpResult.Success(Unit)
         } catch (e: kotlinx.coroutines.CancellationException) {
             Timber.d("[DL] cancelled: $remotePath")
