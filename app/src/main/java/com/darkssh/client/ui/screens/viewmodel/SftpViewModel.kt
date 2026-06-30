@@ -545,21 +545,28 @@ class SftpViewModel
                             } ?: Result.failure(Exception("SFTP not connected"))
                     }
                 } catch (e: kotlinx.coroutines.CancellationException) {
+                    Timber.d("Download cancelled: ${target.fileName}")
+                    // Clear notification on cancel
+                    val notificationManager = app.getSystemService(
+                        android.content.Context.NOTIFICATION_SERVICE
+                    ) as android.app.NotificationManager
+                    notificationManager.cancel(notifId)
                     Result.failure(e)
                 }
 
                 val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
                 withContext(Dispatchers.Main) {
-                    if (!cancelled) {
-                        if (result.isSuccess) {
-                            updateTransfer(id, TransferStatus.COMPLETED)
-                            _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
-                            showDownloadCompleteNotification(app, notifId, target.fileName)
-                        } else {
-                            updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
-                            _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
-                            showDownloadFailedNotification(app, notifId, target.fileName)
-                        }
+                    transferJobs.remove(id)
+                    if (cancelled) {
+                        updateTransfer(id, TransferStatus.CANCELLED)
+                    } else if (result.isSuccess) {
+                        updateTransfer(id, TransferStatus.COMPLETED)
+                        _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                        showDownloadCompleteNotification(app, notifId, target.fileName)
+                    } else {
+                        updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
+                        _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
+                        showDownloadFailedNotification(app, notifId, target.fileName)
                     }
                 }
             }
