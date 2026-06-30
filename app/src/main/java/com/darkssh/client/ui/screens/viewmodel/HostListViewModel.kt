@@ -55,14 +55,14 @@ class HostListViewModel
                 // Close all tabs associated with this host
                 val tabs = tabRepository.getAllTabs().first()
                 val tabsToClose = tabs.filter { it.hostId == host.id }
-                
+
                 Timber.d("HostListViewModel: Deleting host ${host.nickname} (id=${host.id}), closing ${tabsToClose.size} tabs")
-                
+
                 tabsToClose.forEach { tab ->
                     Timber.d("HostListViewModel: Closing tab ${tab.id} (type=${tab.type})")
                     tabRepository.deleteTab(tab)
                 }
-                
+
                 // Delete the host from database
                 hostRepository.deleteHost(host)
             }

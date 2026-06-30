@@ -11,7 +11,6 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.darkssh.client.R
-import com.darkssh.client.transport.SftpClient
 import com.darkssh.client.ui.MainActivity
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
 import timber.log.Timber

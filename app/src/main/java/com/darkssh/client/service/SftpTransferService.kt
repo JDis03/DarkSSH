@@ -12,7 +12,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
-import com.darkssh.client.transport.SftpClient
+import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.util.DebugLogger
 import dagger.hilt.android.AndroidEntryPoint
@@ -337,7 +337,7 @@ class SftpTransferService : Service() {
         }
     }
 
-    private fun getActiveSftpClient(hostId: Long): SftpClient? {
+    private fun getActiveSftpClient(hostId: Long): ISftpClient? {
         // Access the static map from SftpViewModel
         return com.darkssh.client.ui.screens.viewmodel.SftpViewModel.activeClients[hostId]
     }

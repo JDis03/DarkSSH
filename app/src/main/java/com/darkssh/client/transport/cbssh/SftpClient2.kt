@@ -15,7 +15,9 @@
 package com.darkssh.client.transport.cbssh
 
 import com.darkssh.client.data.entity.Host
+import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpEntry
+import com.darkssh.client.transport.TransferProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.connectbot.sshlib.AuthResult
@@ -48,42 +50,51 @@ import java.security.KeyPair
  */
 class SftpClient2(
     private val host: Host,
-) {
+) : ISftpClient {
     private var sshClient: SshClient? = null
     private var sftpClient: SftpClient? = null
     private var transfer: CbsshTransfer? = null
 
+    override val isConnected: Boolean
+        get() = sftpClient != null && sshClient?.isAuthenticated == true
+
     /**
      * Connect to SFTP server using password authentication.
      */
-    suspend fun connectWithPassword(password: String): Result<Unit> =
+    override suspend fun connectWithPassword(password: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val verifier = object : HostKeyVerifier {
-                    override suspend fun verify(key: PublicKey): Boolean = true
-                }
+                val verifier =
+                    object : HostKeyVerifier {
+                        override suspend fun verify(key: PublicKey): Boolean = true
+                    }
 
-                val client = SshClient(
-                    host = host.hostname,
-                    hostKeyVerifier = verifier,
-                    port = if (host.port <= 0) 22 else host.port,
-                )
+                val client =
+                    SshClient(
+                        host = host.hostname,
+                        hostKeyVerifier = verifier,
+                        port = if (host.port <= 0) 22 else host.port,
+                    )
 
                 when (val connectResult = client.connect()) {
                     is ConnectResult.Success -> { /* continue */ }
+
                     is ConnectResult.TransportError -> {
                         return@withContext Result.failure(connectResult.cause)
                     }
+
                     is ConnectResult.HostKeyRejected -> {
                         return@withContext Result.failure(
                             IOException("Host key rejected"),
                         )
                     }
+
                     is ConnectResult.AlgorithmMismatch -> {
                         return@withContext Result.failure(
                             IOException("Algorithm mismatch: ${connectResult.message}"),
                         )
                     }
+
                     is ConnectResult.ProtocolError -> {
                         return@withContext Result.failure(
                             IOException("Protocol error: ${connectResult.message}"),
@@ -93,12 +104,14 @@ class SftpClient2(
 
                 when (val authResult = client.authenticatePassword(host.username, password)) {
                     is AuthResult.Success -> { /* continue */ }
+
                     is AuthResult.Error -> {
                         client.disconnect()
                         return@withContext Result.failure(
                             IOException("Auth failed: ${authResult.message}"),
                         )
                     }
+
                     else -> {
                         client.disconnect()
                         return@withContext Result.failure(
@@ -114,6 +127,7 @@ class SftpClient2(
                         sftpClient = sftpResult.value
                         transfer = CbsshTransfer(sftpResult.value)
                     }
+
                     else -> {
                         client.disconnect()
                         return@withContext Result.failure(sftpResult.toException())
@@ -134,34 +148,40 @@ class SftpClient2(
      * Supports RSA, ECDSA (P-256/P-384/P-521), and Ed25519 keys.
      * Encrypted keys (passphrase) are not supported yet.
      */
-    suspend fun connectWithKey(keyPair: KeyPair): Result<Unit> =
+    override suspend fun connectWithKey(keyPair: KeyPair): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val verifier = object : HostKeyVerifier {
-                    override suspend fun verify(key: PublicKey): Boolean = true
-                }
+                val verifier =
+                    object : HostKeyVerifier {
+                        override suspend fun verify(key: PublicKey): Boolean = true
+                    }
 
-                val client = SshClient(
-                    host = host.hostname,
-                    hostKeyVerifier = verifier,
-                    port = if (host.port <= 0) 22 else host.port,
-                )
+                val client =
+                    SshClient(
+                        host = host.hostname,
+                        hostKeyVerifier = verifier,
+                        port = if (host.port <= 0) 22 else host.port,
+                    )
 
                 when (val connectResult = client.connect()) {
                     is ConnectResult.Success -> { /* continue */ }
+
                     is ConnectResult.TransportError -> {
                         return@withContext Result.failure(connectResult.cause)
                     }
+
                     is ConnectResult.HostKeyRejected -> {
                         return@withContext Result.failure(
                             IOException("Host key rejected"),
                         )
                     }
+
                     is ConnectResult.AlgorithmMismatch -> {
                         return@withContext Result.failure(
                             IOException("Algorithm mismatch: ${connectResult.message}"),
                         )
                     }
+
                     is ConnectResult.ProtocolError -> {
                         return@withContext Result.failure(
                             IOException("Protocol error: ${connectResult.message}"),
@@ -173,18 +193,23 @@ class SftpClient2(
                 val pemData = KeyPairToPem.toPem(keyPair)
 
                 // Authenticate using PEM-encoded key (no passphrase support yet)
-                when (val authResult = client.authenticatePublicKey(
-                    username = host.username,
-                    privateKeyData = pemData,
-                    passphrase = null,
-                )) {
+                when (
+                    val authResult =
+                        client.authenticatePublicKey(
+                            username = host.username,
+                            privateKeyData = pemData,
+                            passphrase = null,
+                        )
+                ) {
                     is AuthResult.Success -> { /* continue */ }
+
                     is AuthResult.Error -> {
                         client.disconnect()
                         return@withContext Result.failure(
                             IOException("Auth failed: ${authResult.message}"),
                         )
                     }
+
                     else -> {
                         client.disconnect()
                         return@withContext Result.failure(
@@ -200,6 +225,7 @@ class SftpClient2(
                         sftpClient = sftpResult.value
                         transfer = CbsshTransfer(sftpResult.value)
                     }
+
                     else -> {
                         client.disconnect()
                         return@withContext Result.failure(sftpResult.toException())
@@ -217,7 +243,7 @@ class SftpClient2(
     /**
      * Disconnect from SFTP server.
      */
-    suspend fun disconnect() =
+    override suspend fun disconnect() =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.close()
@@ -234,7 +260,7 @@ class SftpClient2(
     /**
      * Mark session as disconnected without graceful close.
      */
-    fun setDisconnected() {
+    override fun setDisconnected() {
         sftpClient = null
         sshClient = null
         transfer = null
@@ -244,7 +270,7 @@ class SftpClient2(
     /**
      * Get current working directory.
      */
-    suspend fun pwd(): String =
+    override suspend fun pwd(): String =
         withContext(Dispatchers.IO) {
             try {
                 val client = sftpClient ?: return@withContext "/"
@@ -261,44 +287,62 @@ class SftpClient2(
     /**
      * List directory contents.
      */
-    suspend fun ls(path: String): Result<List<SftpEntry>> =
+    override suspend fun ls(path: String): Result<List<SftpEntry>> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
             when (val result = client.listdir(path)) {
                 is SftpResult.Success -> {
-                    val entries = result.value.mapNotNull { entry ->
-                        if (entry.filename == "." || entry.filename == "..") null
-                        else convertEntry(entry, path)
-                    }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
+                    val entries =
+                        result.value
+                            .mapNotNull { entry ->
+                                if (entry.filename == "." || entry.filename == "..") {
+                                    null
+                                } else {
+                                    convertEntry(entry, path)
+                                }
+                            }.sortedWith(compareBy({ !it.isDirectory }, { it.name.lowercase() }))
                     Result.success(entries)
                 }
-                is SftpResult.ServerError -> Result.failure(
-                    IOException("SFTP server error: ${result.message}"),
-                )
-                is SftpResult.ProtocolError -> Result.failure(
-                    IOException("SFTP protocol error: ${result.message}"),
-                )
-                is SftpResult.IoError -> Result.failure(
-                    result.cause,
-                )
+
+                is SftpResult.ServerError -> {
+                    Result.failure(
+                        IOException("SFTP server error: ${result.message}"),
+                    )
+                }
+
+                is SftpResult.ProtocolError -> {
+                    Result.failure(
+                        IOException("SFTP protocol error: ${result.message}"),
+                    )
+                }
+
+                is SftpResult.IoError -> {
+                    Result.failure(
+                        result.cause,
+                    )
+                }
             }
         }
 
     /**
      * Convert SftpDirectoryEntry to SftpEntry.
      */
-    private fun convertEntry(entry: SftpDirectoryEntry, parentPath: String): SftpEntry {
-        val fullPath = if (parentPath.endsWith("/")) {
-            "$parentPath${entry.filename}"
-        } else {
-            "$parentPath/${entry.filename}"
-        }
+    private fun convertEntry(
+        entry: SftpDirectoryEntry,
+        parentPath: String,
+    ): SftpEntry {
+        val fullPath =
+            if (parentPath.endsWith("/")) {
+                "$parentPath${entry.filename}"
+            } else {
+                "$parentPath/${entry.filename}"
+            }
         val attrs = entry.attrs
         return SftpEntry(
             name = entry.filename,
             path = fullPath,
             isDirectory = isDirectoryFromPermissions(attrs.permissions),
-            isSymlink = false,  // cbssh doesn't expose this in listdir
+            isSymlink = false, // cbssh doesn't expose this in listdir
             size = attrs.size ?: 0L,
             permissions = attrs.permissions?.toString(),
             modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
@@ -308,30 +352,32 @@ class SftpClient2(
     /**
      * Download a file to a stream with progress tracking.
      */
-    suspend fun downloadToStream(
+    override suspend fun downloadToStream(
         remotePath: String,
         outputStream: OutputStream,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val transfer = transfer ?: return@withContext Result.failure(
-                Exception("SFTP not connected"),
-            )
+            val transfer =
+                transfer ?: return@withContext Result.failure(
+                    Exception("SFTP not connected"),
+                )
             mapResult(transfer.downloadToStream(remotePath, outputStream, onProgress))
         }
 
     /**
      * Download a file to a local file with progress tracking.
      */
-    suspend fun downloadFile(
+    override suspend fun downloadFile(
         remotePath: String,
         localFile: File,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val transfer = transfer ?: return@withContext Result.failure(
-                Exception("SFTP not connected"),
-            )
+            val transfer =
+                transfer ?: return@withContext Result.failure(
+                    Exception("SFTP not connected"),
+                )
             mapResult(transfer.download(remotePath, localFile, onProgress))
         }
 
@@ -339,10 +385,10 @@ class SftpClient2(
      * Upload a file with progress tracking.
      * Tries regular SFTP upload first, falls back to SCP if available.
      */
-    suspend fun uploadFile(
+    override suspend fun uploadFile(
         localFile: File,
         remotePath: String,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> {
         val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
 
@@ -369,77 +415,79 @@ class SftpClient2(
         localFile: File,
         remotePath: String,
         onProgress: ((TransferProgress) -> Unit)?,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
-            val session = ssh.openSession()
-                ?: return@withContext Result.failure(Exception("Failed to open session"))
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
+                val session =
+                    ssh.openSession()
+                        ?: return@withContext Result.failure(Exception("Failed to open session"))
 
-            session.use { s ->
-                if (!s.requestExec("scp -t $remotePath")) {
-                    return@withContext Result.failure(Exception("Failed to exec scp"))
-                }
+                session.use { s ->
+                    if (!s.requestExec("scp -t $remotePath")) {
+                        return@withContext Result.failure(Exception("Failed to exec scp"))
+                    }
 
-                val totalBytes = localFile.length()
-                val startTime = System.currentTimeMillis()
+                    val totalBytes = localFile.length()
+                    val startTime = System.currentTimeMillis()
 
-                // Send SCP header: C0644 <size> <filename>\n
-                val header = "C0644 $totalBytes ${localFile.name}\n"
-                s.write(header.toByteArray())
+                    // Send SCP header: C0644 <size> <filename>\n
+                    val header = "C0644 $totalBytes ${localFile.name}\n"
+                    s.write(header.toByteArray())
 
-                // Wait for initial ACK (0x00)
-                val ack = s.read()
-                if (ack == null || ack.isEmpty() || ack[0] != 0x00.toByte()) {
-                    return@withContext Result.failure(Exception("No ACK after SCP header"))
-                }
+                    // Wait for initial ACK (0x00)
+                    val ack = s.read()
+                    if (ack == null || ack.isEmpty() || ack[0] != 0x00.toByte()) {
+                        return@withContext Result.failure(Exception("No ACK after SCP header"))
+                    }
 
-                // Send file data
-                var bytesWritten = 0L
-                val buffer = ByteArray(32 * 1024)
-                var lastReportedBytes = 0L
+                    // Send file data
+                    var bytesWritten = 0L
+                    val buffer = ByteArray(32 * 1024)
+                    var lastReportedBytes = 0L
 
-                localFile.inputStream().use { input ->
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read == -1) break
+                    localFile.inputStream().use { input ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
 
-                        s.write(buffer.copyOf(read))
-                        bytesWritten += read
+                            s.write(buffer.copyOf(read))
+                            bytesWritten += read
 
-                        // Throttled progress (every 256KB)
-                        if (bytesWritten - lastReportedBytes >= 256L * 1024 || bytesWritten >= totalBytes) {
-                            onProgress?.invoke(
-                                TransferProgress(
-                                    bytesTransferred = bytesWritten,
-                                    totalBytes = totalBytes,
-                                    filename = localFile.name,
-                                    startTime = startTime,
-                                    currentTime = System.currentTimeMillis(),
+                            // Throttled progress (every 256KB)
+                            if (bytesWritten - lastReportedBytes >= 256L * 1024 || bytesWritten >= totalBytes) {
+                                onProgress?.invoke(
+                                    TransferProgress(
+                                        transferred = bytesWritten,
+                                        total = totalBytes,
+                                        filePath = localFile.name,
+                                        startTime = startTime,
+                                        currentTime = System.currentTimeMillis(),
+                                    ),
                                 )
-                            )
-                            lastReportedBytes = bytesWritten
+                                lastReportedBytes = bytesWritten
+                            }
                         }
                     }
+
+                    // Send terminator byte (0x00)
+                    s.write(byteArrayOf(0x00))
+
+                    // Wait for final ACK
+                    val finalAck = s.read()
+                    if (finalAck == null || finalAck.isEmpty() || finalAck[0] != 0x00.toByte()) {
+                        return@withContext Result.failure(Exception("No final ACK from SCP"))
+                    }
+
+                    s.sendEof()
+                    Timber.d("SCP upload completed: ${localFile.name}")
+                    Result.success(Unit)
                 }
-
-                // Send terminator byte (0x00)
-                s.write(byteArrayOf(0x00))
-
-                // Wait for final ACK
-                val finalAck = s.read()
-                if (finalAck == null || finalAck.isEmpty() || finalAck[0] != 0x00.toByte()) {
-                    return@withContext Result.failure(Exception("No final ACK from SCP"))
-                }
-
-                s.sendEof()
-                Timber.d("SCP upload completed: ${localFile.name}")
-                Result.success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "SCP upload failed: ${localFile.name}")
+                Result.failure(e)
             }
-        } catch (e: Exception) {
-            Timber.e(e, "SCP upload failed: ${localFile.name}")
-            Result.failure(e)
         }
-    }
 
     /**
      * Upload a file in parallel chunks.
@@ -459,7 +507,7 @@ class SftpClient2(
     /**
      * Create a directory.
      */
-    suspend fun mkdir(path: String): Result<Unit> =
+    override suspend fun mkdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
             mapResult(client.mkdir(path))
@@ -468,7 +516,7 @@ class SftpClient2(
     /**
      * Delete a file.
      */
-    suspend fun rm(path: String): Result<Unit> =
+    override suspend fun rm(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
             mapResult(client.remove(path))
@@ -477,7 +525,7 @@ class SftpClient2(
     /**
      * Remove an empty directory.
      */
-    suspend fun rmdir(path: String): Result<Unit> =
+    override suspend fun rmdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
             mapResult(client.rmdir(path))
@@ -486,7 +534,7 @@ class SftpClient2(
     /**
      * Rename or move a file/directory.
      */
-    suspend fun rename(
+    override suspend fun rename(
         oldPath: String,
         newPath: String,
     ): Result<Unit> =
@@ -498,7 +546,7 @@ class SftpClient2(
     /**
      * Check if a path exists.
      */
-    suspend fun exists(path: String): Boolean =
+    override suspend fun exists(path: String): Boolean =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext false
             when (client.stat(path)) {
@@ -510,7 +558,7 @@ class SftpClient2(
     /**
      * Get file/directory metadata.
      */
-    suspend fun stat(path: String): Result<SftpEntry?> =
+    override suspend fun stat(path: String): Result<SftpEntry?> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
             when (val result = client.stat(path)) {
@@ -525,10 +573,11 @@ class SftpClient2(
                             isSymlink = false,
                             size = attrs.size ?: 0L,
                             permissions = attrs.permissions?.toString(),
-modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
+                            modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
                         ),
                     )
                 }
+
                 is SftpResult.ServerError -> {
                     // File not found is not an error here
                     if (result.statusCode.name == "NO_SUCH_FILE") {
@@ -537,12 +586,18 @@ modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
                         Result.failure(IOException("SFTP server error: ${result.message}"))
                     }
                 }
-                is SftpResult.ProtocolError -> Result.failure(
-                    IOException("SFTP protocol error: ${result.message}"),
-                )
-                is SftpResult.IoError -> Result.failure(
-                    result.cause,
-                )
+
+                is SftpResult.ProtocolError -> {
+                    Result.failure(
+                        IOException("SFTP protocol error: ${result.message}"),
+                    )
+                }
+
+                is SftpResult.IoError -> {
+                    Result.failure(
+                        result.cause,
+                    )
+                }
             }
         }
 
@@ -553,8 +608,9 @@ modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
         withContext(Dispatchers.IO) {
             try {
                 val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
-                val session = ssh.openSession()
-                    ?: return@withContext Result.failure(Exception("Failed to open session"))
+                val session =
+                    ssh.openSession()
+                        ?: return@withContext Result.failure(Exception("Failed to open session"))
 
                 session.use { s ->
                     if (!s.requestExec(command)) {
@@ -581,28 +637,41 @@ modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
     /**
      * Server-side file copy.
      */
-    suspend fun copyFileViaSsh(
+    override suspend fun copyFileViaSsh(
         sourcePath: String,
         destPath: String,
-        onProgress: ((TransferProgress) -> Unit)? = null,
-    ): Result<Unit> = withContext(Dispatchers.IO) {
-        val transfer = transfer ?: return@withContext Result.failure(Exception("SFTP not connected"))
-        mapResult(transfer.copy(sourcePath, destPath, onProgress))
-    }
+        isDirectory: Boolean,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
+                val session =
+                    ssh.openSession()
+                        ?: return@withContext Result.failure(Exception("Failed to open session"))
 
-    /**
-     * Copy a file on the remote server.
-     */
-    suspend fun copyFile(
-        sourcePath: String,
-        destPath: String,
-        onProgress: ((TransferProgress) -> Unit)? = null,
-    ): Result<Unit> = copyFileViaSsh(sourcePath, destPath, onProgress)
+                session.use { s ->
+                    val flags = if (isDirectory) "-r" else ""
+                    val command = "cp $flags '$sourcePath' '$destPath'"
+                    if (!s.requestExec(command)) {
+                        return@withContext Result.failure(Exception("Failed to exec cp command"))
+                    }
+                    // Drain stdout to EOF to ensure command completes
+                    while (true) {
+                        val data = s.read() ?: break
+                    }
+                    s.sendEof()
+                    Result.success(Unit)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to copy via SSH: $sourcePath -> $destPath")
+                Result.failure(e)
+            }
+        }
 
     /**
      * Move a file (rename + delete source if on same device).
      */
-    suspend fun moveFile(
+    override suspend fun moveFile(
         sourcePath: String,
         destPath: String,
     ): Result<Unit> {
@@ -611,8 +680,9 @@ modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
         if (renameResult.isSuccess) {
             return renameResult
         }
-        // Fallback: copy + delete
-        val copyResult = copyFile(sourcePath, destPath)
+        // Fallback: copy via SFTP + delete
+        val t = transfer ?: return Result.failure(Exception("SFTP not connected"))
+        val copyResult = mapResult(t.copy(sourcePath, destPath))
         if (copyResult.isFailure) {
             return copyResult
         }
@@ -623,33 +693,44 @@ modifiedTime = (attrs.mtime?.toLong() ?: 0L) * 1000L,
 /**
  * Map SftpResult<T> to Result<Unit> preserving error info.
  */
-private fun <T> mapResult(result: SftpResult<T>): Result<Unit> = when (result) {
-    is SftpResult.Success -> Result.success(Unit)
-    is SftpResult.ServerError -> Result.failure(
-        IOException("SFTP server error: ${result.message}"),
-    )
-    is SftpResult.ProtocolError -> Result.failure(
-        IOException("SFTP protocol error: ${result.message}"),
-    )
-    is SftpResult.IoError -> Result.failure(
-        result.cause as? Exception ?: IOException(result.cause.message ?: "SFTP I/O error"),
-    )
-}
+private fun <T> mapResult(result: SftpResult<T>): Result<Unit> =
+    when (result) {
+        is SftpResult.Success -> {
+            Result.success(Unit)
+        }
+
+        is SftpResult.ServerError -> {
+            Result.failure(
+                IOException("SFTP server error: ${result.message}"),
+            )
+        }
+
+        is SftpResult.ProtocolError -> {
+            Result.failure(
+                IOException("SFTP protocol error: ${result.message}"),
+            )
+        }
+
+        is SftpResult.IoError -> {
+            Result.failure(
+                result.cause as? Exception ?: IOException(result.cause.message ?: "SFTP I/O error"),
+            )
+        }
+    }
 
 /**
  * Convert SftpResult to Exception.
  */
-private fun SftpResult<*>.toException(): Exception = when (this) {
-    is SftpResult.Success<*> -> IOException("Operation succeeded but returned value (unexpected)")
-    is SftpResult.ServerError -> IOException("SFTP server error: ${message}")
-    is SftpResult.ProtocolError -> IOException("SFTP protocol error: ${message}")
-    is SftpResult.IoError -> cause as? Exception ?: IOException(cause.message ?: "SFTP I/O error")
-}
+private fun SftpResult<*>.toException(): Exception =
+    when (this) {
+        is SftpResult.Success<*> -> IOException("Operation succeeded but returned value (unexpected)")
+        is SftpResult.ServerError -> IOException("SFTP server error: $message")
+        is SftpResult.ProtocolError -> IOException("SFTP protocol error: $message")
+        is SftpResult.IoError -> cause as? Exception ?: IOException(cause.message ?: "SFTP I/O error")
+    }
 
 /**
  * Check if the given permissions indicate a directory.
  * S_IFMT (0xF000) mask with S_IFDIR (0x4000).
  */
-private fun isDirectoryFromPermissions(permissions: Int?): Boolean {
-    return permissions != null && (permissions and 0xF000) == 0x4000
-}
+private fun isDirectoryFromPermissions(permissions: Int?): Boolean = permissions != null && (permissions and 0xF000) == 0x4000

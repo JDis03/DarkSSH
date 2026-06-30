@@ -27,7 +27,6 @@ import java.security.interfaces.RSAPrivateCrtKey
  * This is a simplified implementation based on cbssh's internal OpenSshKeyWriter.
  */
 internal object KeyPairToPem {
-
     private val OPENSSH_V1_MAGIC = "openssh-key-v1\u0000".toByteArray(Charsets.US_ASCII)
     private const val LINE_LENGTH = 70
 
@@ -42,13 +41,14 @@ internal object KeyPairToPem {
         val publicKeyBlob = encodePublicKeyBlob(keyPair, keyType)
         val privateSection = buildPrivateSection(keyPair, keyType)
 
-        val binaryData = buildBinaryData(
-            cipherName = "none",
-            kdfName = "none",
-            kdfOptions = ByteArray(0),
-            publicKeyBlob = publicKeyBlob,
-            encryptedSection = privateSection,
-        )
+        val binaryData =
+            buildBinaryData(
+                cipherName = "none",
+                kdfName = "none",
+                kdfOptions = ByteArray(0),
+                publicKeyBlob = publicKeyBlob,
+                encryptedSection = privateSection,
+            )
 
         return formatOutput(binaryData)
     }
@@ -56,32 +56,46 @@ internal object KeyPairToPem {
     /**
      * Infer the SSH key type string from the keypair.
      */
-    private fun inferKeyType(keyPair: KeyPair): String {
-        return when {
-            keyPair.private is EdECPrivateKey -> "ssh-ed25519"
+    private fun inferKeyType(keyPair: KeyPair): String =
+        when {
+            keyPair.private is EdECPrivateKey -> {
+                "ssh-ed25519"
+            }
+
             keyPair.private is ECPrivateKey -> {
                 val ecPub = keyPair.public as ECPublicKey
                 val fieldSize = (ecPub.params.order.bitLength() + 7) / 8
                 when (fieldSize) {
                     32 -> "ecdsa-sha2-nistp256"
+
                     48 -> "ecdsa-sha2-nistp384"
+
                     66 -> "ecdsa-sha2-nistp521"
+
                     else -> throw IllegalArgumentException(
                         "Unsupported ECDSA field size: $fieldSize",
                     )
                 }
             }
-            keyPair.private is RSAPrivateCrtKey -> "ssh-rsa"
-            else -> throw IllegalArgumentException(
-                "Unsupported key type: ${keyPair.private.javaClass.name}",
-            )
+
+            keyPair.private is RSAPrivateCrtKey -> {
+                "ssh-rsa"
+            }
+
+            else -> {
+                throw IllegalArgumentException(
+                    "Unsupported key type: ${keyPair.private.javaClass.name}",
+                )
+            }
         }
-    }
 
     /**
      * Encode the public key in SSH wire format.
      */
-    private fun encodePublicKeyBlob(keyPair: KeyPair, keyType: String): ByteArray {
+    private fun encodePublicKeyBlob(
+        keyPair: KeyPair,
+        keyType: String,
+    ): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(encodeSshString(keyType.toByteArray(Charsets.US_ASCII)))
 
@@ -91,6 +105,7 @@ internal object KeyPairToPem {
                 val pubKey32 = pubEncoded.copyOfRange(pubEncoded.size - 32, pubEncoded.size)
                 out.write(encodeSshString(pubKey32))
             }
+
             keyType.startsWith("ecdsa-sha2-") -> {
                 val ecPub = keyPair.public as ECPublicKey
                 val curveName = keyType.removePrefix("ecdsa-sha2-")
@@ -100,6 +115,7 @@ internal object KeyPairToPem {
                 val qBytes = encodeEcPoint(ecPub, fieldSize)
                 out.write(encodeSshString(qBytes))
             }
+
             keyType == "ssh-rsa" -> {
                 val rsaPub = keyPair.public as java.security.interfaces.RSAPublicKey
                 out.write(encodeMpint(rsaPub.publicExponent.toByteArray()))
@@ -113,7 +129,10 @@ internal object KeyPairToPem {
     /**
      * Build the private section of the OpenSSH key format.
      */
-    private fun buildPrivateSection(keyPair: KeyPair, keyType: String): ByteArray {
+    private fun buildPrivateSection(
+        keyPair: KeyPair,
+        keyType: String,
+    ): ByteArray {
         // Random checkint for verification
         val checkInt = (Math.random() * Int.MAX_VALUE).toInt()
         val out = ByteArrayOutputStream()
@@ -141,7 +160,10 @@ internal object KeyPairToPem {
         return out.toByteArray()
     }
 
-    private fun writeEd25519Private(out: ByteArrayOutputStream, keyPair: KeyPair) {
+    private fun writeEd25519Private(
+        out: ByteArrayOutputStream,
+        keyPair: KeyPair,
+    ) {
         out.write(encodeSshString("ssh-ed25519".toByteArray(Charsets.US_ASCII)))
 
         // Public key (last 32 bytes of X.509 encoding)
@@ -167,13 +189,20 @@ internal object KeyPairToPem {
                     IllegalArgumentException("Cannot extract Ed25519 seed")
                 }
             }
-            else -> throw IllegalArgumentException(
-                "Cannot extract Ed25519 seed from ${privKey.javaClass.name}",
-            )
+
+            else -> {
+                throw IllegalArgumentException(
+                    "Cannot extract Ed25519 seed from ${privKey.javaClass.name}",
+                )
+            }
         }
     }
 
-    private fun writeEcdsaPrivate(out: ByteArrayOutputStream, keyPair: KeyPair, keyType: String) {
+    private fun writeEcdsaPrivate(
+        out: ByteArrayOutputStream,
+        keyPair: KeyPair,
+        keyType: String,
+    ) {
         out.write(encodeSshString(keyType.toByteArray(Charsets.US_ASCII)))
 
         val ecPub = keyPair.public as ECPublicKey
@@ -187,7 +216,10 @@ internal object KeyPairToPem {
         out.write(encodeMpint(ecPriv.s.toByteArray()))
     }
 
-    private fun writeRsaPrivate(out: ByteArrayOutputStream, keyPair: KeyPair) {
+    private fun writeRsaPrivate(
+        out: ByteArrayOutputStream,
+        keyPair: KeyPair,
+    ) {
         val rsaPriv = keyPair.private as RSAPrivateCrtKey
 
         out.write(encodeMpint(rsaPriv.modulus.toByteArray()))
@@ -198,7 +230,10 @@ internal object KeyPairToPem {
         out.write(encodeMpint(rsaPriv.primeQ.toByteArray()))
     }
 
-    private fun encodeEcPoint(ecPub: ECPublicKey, fieldSize: Int): ByteArray {
+    private fun encodeEcPoint(
+        ecPub: ECPublicKey,
+        fieldSize: Int,
+    ): ByteArray {
         val w = ecPub.w
         val x = w.affineX.toByteArray()
         val y = w.affineY.toByteArray()
@@ -244,29 +279,34 @@ internal object KeyPairToPem {
         return out.toByteArray()
     }
 
-    private fun encodeUint32(value: Int): ByteArray = byteArrayOf(
-        (value ushr 24).toByte(),
-        (value ushr 16).toByte(),
-        (value ushr 8).toByte(),
-        value.toByte(),
-    )
+    private fun encodeUint32(value: Int): ByteArray =
+        byteArrayOf(
+            (value ushr 24).toByte(),
+            (value ushr 16).toByte(),
+            (value ushr 8).toByte(),
+            value.toByte(),
+        )
 
     private fun encodeMpint(value: ByteArray): ByteArray {
         // SSH mpint format: 4-byte length || big-endian integer
         // If high bit is set, prepend 0x00 to indicate positive number
         val needsPad = value.isNotEmpty() && (value[0].toInt() and 0x80) != 0
-        val data = if (needsPad) {
-            byteArrayOf(0) + value
-        } else {
-            value
-        }
+        val data =
+            if (needsPad) {
+                byteArrayOf(0) + value
+            } else {
+                value
+            }
         return encodeSshString(data)
     }
 
     private fun formatOutput(data: ByteArray): String {
         val sb = StringBuilder()
         sb.appendLine("-----BEGIN OPENSSH PRIVATE KEY-----")
-        val base64 = java.util.Base64.getEncoder().encodeToString(data)
+        val base64 =
+            java.util.Base64
+                .getEncoder()
+                .encodeToString(data)
         sb.appendLine(base64.chunked(LINE_LENGTH).joinToString("\n"))
         sb.appendLine("-----END OPENSSH PRIVATE KEY-----")
         return sb.toString()

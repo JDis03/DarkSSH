@@ -85,7 +85,7 @@ sealed class SftpAuthState {
 
 class SftpClient(
     private val host: Host,
-) {
+) : ISftpClient {
     private var sshClient: SSHClient? = null
     private var sftpClient: SFTPClient? = null
 
@@ -131,7 +131,7 @@ class SftpClient(
         return ext !in compressedExtensions
     }
 
-    val isConnected: Boolean get() =
+    override val isConnected: Boolean get() =
         try {
             sshClient?.isConnected() == true
         } catch (_: Exception) {
@@ -179,7 +179,7 @@ class SftpClient(
             maxCircularBufferSize = 64 * 1024 * 1024 // 64MB (was 32MB)
         }
 
-    suspend fun connectWithPassword(password: String): Result<Unit> =
+    override suspend fun connectWithPassword(password: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val ssh = SSHClient(createConfig())
@@ -209,7 +209,7 @@ class SftpClient(
             }
         }
 
-    suspend fun connectWithKey(keyPair: KeyPair): Result<Unit> =
+    override suspend fun connectWithKey(keyPair: KeyPair): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val ssh = SSHClient(createConfig())
@@ -247,7 +247,7 @@ class SftpClient(
             }
         }
 
-    suspend fun disconnect() =
+    override suspend fun disconnect() =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.close()
@@ -260,13 +260,13 @@ class SftpClient(
             }
         }
 
-    fun setDisconnected() {
+    override fun setDisconnected() {
         sftpClient = null
         sshClient = null
         Timber.w("SSHJ SFTP marked as disconnected for ${host.hostname}")
     }
 
-    suspend fun pwd(): String =
+    override suspend fun pwd(): String =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.canonicalize(".") ?: "/"
@@ -276,7 +276,7 @@ class SftpClient(
             }
         }
 
-    suspend fun ls(path: String): Result<List<SftpEntry>> =
+    override suspend fun ls(path: String): Result<List<SftpEntry>> =
         withContext(Dispatchers.IO) {
             try {
                 val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
@@ -304,10 +304,10 @@ class SftpClient(
             }
         }
 
-    suspend fun downloadToStream(
+    override suspend fun downloadToStream(
         remotePath: String,
         outputStream: OutputStream,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
@@ -350,10 +350,10 @@ class SftpClient(
             }
         }
 
-    suspend fun downloadFile(
+    override suspend fun downloadFile(
         remotePath: String,
         localFile: File,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
@@ -512,10 +512,10 @@ class SftpClient(
             }
         }
 
-    suspend fun uploadFile(
+    override suspend fun uploadFile(
         localFile: File,
         remotePath: String,
-        onProgress: ((TransferProgress) -> Unit)? = null,
+        onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> {
         // Try SSH upload first (much faster), fallback to SFTP if it fails
         val sshResult = uploadViaSsh(localFile, remotePath, onProgress)
@@ -604,7 +604,7 @@ class SftpClient(
             }
         }
 
-    suspend fun mkdir(path: String): Result<Unit> =
+    override suspend fun mkdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.mkdir(path)
@@ -615,7 +615,7 @@ class SftpClient(
             }
         }
 
-    suspend fun rm(path: String): Result<Unit> =
+    override suspend fun rm(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.rm(path)
@@ -626,7 +626,7 @@ class SftpClient(
             }
         }
 
-    suspend fun rmdir(path: String): Result<Unit> =
+    override suspend fun rmdir(path: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.rmdir(path)
@@ -637,7 +637,7 @@ class SftpClient(
             }
         }
 
-    suspend fun rename(
+    override suspend fun rename(
         oldPath: String,
         newPath: String,
     ): Result<Unit> =
@@ -651,7 +651,7 @@ class SftpClient(
             }
         }
 
-    suspend fun exists(path: String): Boolean =
+    override suspend fun exists(path: String): Boolean =
         withContext(Dispatchers.IO) {
             try {
                 sftpClient?.statExistence(path) != null
@@ -660,7 +660,7 @@ class SftpClient(
             }
         }
 
-    suspend fun stat(path: String): Result<SftpEntry?> =
+    override suspend fun stat(path: String): Result<SftpEntry?> =
         withContext(Dispatchers.IO) {
             try {
                 val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
@@ -731,7 +731,7 @@ class SftpClient(
      * @param overwrite If true, overwrites destination if it exists (-f flag).
      *                  If false, fails silently if destination exists (cp default).
      */
-    suspend fun copyFileViaSsh(
+    override suspend fun copyFileViaSsh(
         sourcePath: String,
         destPath: String,
         isDirectory: Boolean = false,
@@ -840,7 +840,7 @@ class SftpClient(
      * Uses SSH mv for atomic rename and better error reporting.
      * Falls back to SFTP rename if SSH exec fails.
      */
-    suspend fun moveFile(
+    override suspend fun moveFile(
         sourcePath: String,
         destPath: String,
     ): Result<Unit> =

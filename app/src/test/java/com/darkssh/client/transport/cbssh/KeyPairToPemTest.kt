@@ -31,7 +31,6 @@ import java.security.spec.NamedParameterSpec
  * a valid OpenSSH PEM that cbssh can read back.
  */
 class KeyPairToPemTest {
-
     @Test
     fun `RSA key converts to valid PEM`() {
         val keyPair = generateRsaKeyPair(2048)
@@ -55,12 +54,16 @@ class KeyPairToPemTest {
         // PEM should be non-empty and well-formed
         assertTrue("PEM should be non-empty", pem.isNotEmpty())
         // Base64 content should decode back to openssh-key-v1 magic
-        val base64Content = pem
-            .replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
-            .replace("-----END OPENSSH PRIVATE KEY-----", "")
-            .replace("\n", "")
-            .trim()
-        val decoded = java.util.Base64.getDecoder().decode(base64Content)
+        val base64Content =
+            pem
+                .replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
+                .replace("-----END OPENSSH PRIVATE KEY-----", "")
+                .replace("\n", "")
+                .trim()
+        val decoded =
+            java.util.Base64
+                .getDecoder()
+                .decode(base64Content)
         val magic = String(decoded.copyOfRange(0, 15), Charsets.US_ASCII)
         assertEquals("openssh-key-v1\u0000", magic)
     }
@@ -119,19 +122,23 @@ class KeyPairToPemTest {
         val keyPair = generateRsaKeyPair(2048)
         val pem = KeyPairToPem.toPem(keyPair)
 
-        val base64Content = pem
-            .replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
-            .replace("-----END OPENSSH PRIVATE KEY-----", "")
-            .replace("\n", "")
-            .trim()
+        val base64Content =
+            pem
+                .replace("-----BEGIN OPENSSH PRIVATE KEY-----", "")
+                .replace("-----END OPENSSH PRIVATE KEY-----", "")
+                .replace("\n", "")
+                .trim()
 
         // Should be valid base64
-        val decoded = try {
-            java.util.Base64.getDecoder().decode(base64Content)
-        } catch (e: IllegalArgumentException) {
-            fail("PEM content is not valid base64: ${e.message}")
-            return
-        }
+        val decoded =
+            try {
+                java.util.Base64
+                    .getDecoder()
+                    .decode(base64Content)
+            } catch (e: IllegalArgumentException) {
+                fail("PEM content is not valid base64: ${e.message}")
+                return
+            }
 
         // First 15 bytes should be OpenSSH v1 magic
         val magic = String(decoded.copyOfRange(0, 15), Charsets.US_ASCII)

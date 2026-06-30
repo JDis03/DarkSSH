@@ -21,8 +21,9 @@ import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.service.CredentialStore
+import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpAuthState
-import com.darkssh.client.transport.SftpClient
+import com.darkssh.client.transport.SftpClientFactory
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.MainActivity
@@ -121,7 +122,7 @@ class SftpViewModel
     ) : AndroidViewModel(application) {
         companion object {
             // Made internal for access from SftpTransferService and UploadWorker
-            internal val activeClients = ConcurrentHashMap<Long, SftpClient>()
+            internal val activeClients = ConcurrentHashMap<Long, ISftpClient>()
 
             // Global transfer state (survives ViewModel recreation)
             private val activeTransfers = ConcurrentHashMap<String, TransferProgress>()
@@ -161,7 +162,7 @@ class SftpViewModel
         private val _uiState = MutableStateFlow(SftpUiState())
         val uiState: StateFlow<SftpUiState> = _uiState.asStateFlow()
 
-        private var sftpClient: SftpClient?
+        private var sftpClient: ISftpClient?
             get() = _uiState.value.host?.let { activeClients[it.id] }
             set(value) {
                 val hostId = _uiState.value.host?.id ?: return
@@ -230,18 +231,25 @@ class SftpViewModel
                         _uiState.value = _uiState.value.copy(error = "Host not found")
                         return@launch
                     }
-                
+
                 // Load saved preferences
-                val savedSortBy = com.darkssh.client.util.AppPreferences.getSftpSortBy(getApplication())
-                val savedSortAscending = com.darkssh.client.util.AppPreferences.getSftpSortAscending(getApplication())
-                val savedShowHidden = com.darkssh.client.util.AppPreferences.getSftpShowHidden(getApplication())
-                
-                _uiState.value = _uiState.value.copy(
-                    host = h,
-                    sortBy = SortBy.valueOf(savedSortBy),
-                    sortAscending = savedSortAscending,
-                    showHiddenFiles = savedShowHidden,
-                )
+                val savedSortBy =
+                    com.darkssh.client.util.AppPreferences
+                        .getSftpSortBy(getApplication())
+                val savedSortAscending =
+                    com.darkssh.client.util.AppPreferences
+                        .getSftpSortAscending(getApplication())
+                val savedShowHidden =
+                    com.darkssh.client.util.AppPreferences
+                        .getSftpShowHidden(getApplication())
+
+                _uiState.value =
+                    _uiState.value.copy(
+                        host = h,
+                        sortBy = SortBy.valueOf(savedSortBy),
+                        sortAscending = savedSortAscending,
+                        showHiddenFiles = savedShowHidden,
+                    )
 
 
 
@@ -273,7 +281,7 @@ class SftpViewModel
             viewModelScope.launch {
                 _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
 
-                val client = SftpClient(h)
+                val client = SftpClientFactory.create(h, getApplication())
                 val result = client.connectWithPassword(password)
 
                 if (result.isSuccess) {
@@ -321,19 +329,22 @@ class SftpViewModel
                 _uiState.value.copy(
                     entries = filterEntries(current.allEntries, current.showHiddenFiles),
                 )
-            
+
             // Save preferences
-            com.darkssh.client.util.AppPreferences.setSftpSortBy(getApplication(), sortBy.name)
-            com.darkssh.client.util.AppPreferences.setSftpSortAscending(getApplication(), ascending)
+            com.darkssh.client.util.AppPreferences
+                .setSftpSortBy(getApplication(), sortBy.name)
+            com.darkssh.client.util.AppPreferences
+                .setSftpSortAscending(getApplication(), ascending)
         }
 
         fun toggleShowHiddenFiles() {
             val current = _uiState.value
             val showHidden = !current.showHiddenFiles
-            
+
             // Save preference
-            com.darkssh.client.util.AppPreferences.setSftpShowHidden(getApplication(), showHidden)
-            
+            com.darkssh.client.util.AppPreferences
+                .setSftpShowHidden(getApplication(), showHidden)
+
             _uiState.value =
                 current.copy(
                     showHiddenFiles = showHidden,
@@ -385,7 +396,7 @@ class SftpViewModel
             val password = CredentialStore.getPassword(h.id) ?: return false
 
             return try {
-                val c = SftpClient(h)
+                val c = SftpClientFactory.create(h, getApplication())
                 if (c.connectWithPassword(password).isSuccess) {
                     activeClients[hostId] = c
                     true

@@ -14,6 +14,7 @@
 
 package com.darkssh.client.transport.cbssh
 
+import com.darkssh.client.transport.TransferProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -52,14 +53,15 @@ class CbsshTransfer(
         remotePath: String,
         localFile: File,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> = withContext(Dispatchers.IO) {
-        val outputStream = localFile.outputStream()
-        try {
-            downloadToStreamInternal(remotePath, outputStream, onProgress)
-        } finally {
-            outputStream.close()
+    ): SftpResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val outputStream = localFile.outputStream()
+            try {
+                downloadToStreamInternal(remotePath, outputStream, onProgress)
+            } finally {
+                outputStream.close()
+            }
         }
-    }
 
     /**
      * Download a file from the remote server to an OutputStream.
@@ -69,9 +71,10 @@ class CbsshTransfer(
         remotePath: String,
         outputStream: OutputStream,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> = withContext(Dispatchers.IO) {
-        downloadToStreamInternal(remotePath, outputStream, onProgress)
-    }
+    ): SftpResult<Unit> =
+        withContext(Dispatchers.IO) {
+            downloadToStreamInternal(remotePath, outputStream, onProgress)
+        }
 
     /**
      * Internal download implementation.
@@ -82,22 +85,24 @@ class CbsshTransfer(
         onProgress: ((TransferProgress) -> Unit)?,
     ): SftpResult<Unit> {
         // Get file size
-        val attrs: org.connectbot.sshlib.SftpAttributes = when (val result = sftp.stat(remotePath)) {
-            is SftpResult.Success -> result.value
-            is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
-            is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-            is SftpResult.IoError -> return SftpResult.IoError(result.cause)
-        }
+        val attrs: org.connectbot.sshlib.SftpAttributes =
+            when (val result = sftp.stat(remotePath)) {
+                is SftpResult.Success -> result.value
+                is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
+                is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
+                is SftpResult.IoError -> return SftpResult.IoError(result.cause)
+            }
         val totalBytes = attrs.size ?: 0L
         val startTime = System.currentTimeMillis()
 
         // Open file for reading
-        val handle: org.connectbot.sshlib.SftpFileHandle = when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
-            is SftpResult.Success -> result.value
-            is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
-            is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-            is SftpResult.IoError -> return SftpResult.IoError(result.cause)
-        }
+        val handle: org.connectbot.sshlib.SftpFileHandle =
+            when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
+                is SftpResult.Success -> result.value
+                is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
+                is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
+                is SftpResult.IoError -> return SftpResult.IoError(result.cause)
+            }
 
         try {
             val bufferSize = BUFFER_SIZE
@@ -108,12 +113,17 @@ class CbsshTransfer(
             // Read in chunks
             while (true) {
                 val chunkResult = sftp.read(handle, bytesRead, bufferSize)
-                val chunk: ByteArray = when (chunkResult) {
-                    is SftpResult.Success -> chunkResult.value ?: break  // EOF
-                    is SftpResult.ServerError -> return SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
-                    is SftpResult.ProtocolError -> return SftpResult.ProtocolError(chunkResult.message)
-                    is SftpResult.IoError -> return SftpResult.IoError(chunkResult.cause)
-                }
+                val chunk: ByteArray =
+                    when (chunkResult) {
+                        is SftpResult.Success -> chunkResult.value ?: break
+
+                        // EOF
+                        is SftpResult.ServerError -> return SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
+
+                        is SftpResult.ProtocolError -> return SftpResult.ProtocolError(chunkResult.message)
+
+                        is SftpResult.IoError -> return SftpResult.IoError(chunkResult.cause)
+                    }
 
                 outputStream.write(chunk)
                 bytesRead += chunk.size
@@ -122,19 +132,19 @@ class CbsshTransfer(
                 if (bytesRead - lastReportedBytes >= reportInterval || bytesRead >= totalBytes) {
                     onProgress?.invoke(
                         TransferProgress(
-                            bytesTransferred = bytesRead,
-                            totalBytes = totalBytes,
-                            filename = remotePath.substringAfterLast('/'),
+                            transferred = bytesRead,
+                            total = totalBytes,
+                            filePath = remotePath.substringAfterLast('/'),
                             startTime = startTime,
                             currentTime = System.currentTimeMillis(),
-                        )
+                        ),
                     )
                     lastReportedBytes = bytesRead
                 }
             }
 
             outputStream.flush()
-            Timber.d("Download completed: ${bytesRead} bytes from $remotePath")
+            Timber.d("Download completed: $bytesRead bytes from $remotePath")
             return SftpResult.Success(Unit)
         } catch (e: Exception) {
             Timber.e(e, "Download failed: $remotePath")
@@ -156,72 +166,80 @@ class CbsshTransfer(
         localFile: File,
         remotePath: String,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> = withContext(Dispatchers.IO) {
-        if (!localFile.exists()) {
-            return@withContext SftpResult.IoError(
-                IllegalArgumentException("Local file does not exist: ${localFile.absolutePath}"),
-            )
-        }
-
-        val totalBytes = localFile.length()
-        val startTime = System.currentTimeMillis()
-
-        // Open remote file for writing
-        val handle = when (val result = sftp.open(
-            remotePath,
-            setOf(
-                org.connectbot.sshlib.SftpOpenFlag.WRITE,
-                org.connectbot.sshlib.SftpOpenFlag.CREATE,
-                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
-            ),
-        )) {
-            is SftpResult.Success -> result.value
-            else -> return@withContext result.toUnit()
-        }
-
-        try {
-            val reportInterval = UPLOAD_REPORT_INTERVAL
-            var bytesWritten = 0L
-            var lastReportedBytes = 0L
-            val buffer = ByteArray(BUFFER_SIZE)
-
-            localFile.inputStream().use { input ->
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read == -1) break
-
-                    val writeResult = sftp.write(handle, bytesWritten, buffer.copyOf(read))
-                    when (writeResult) {
-                        is SftpResult.Success -> { /* continue */ }
-                        else -> return@withContext writeResult
-                    }
-                    bytesWritten += read
-
-                    // Throttled progress callback
-                    if (bytesWritten - lastReportedBytes >= reportInterval || bytesWritten >= totalBytes) {
-                        onProgress?.invoke(
-                            TransferProgress(
-                                bytesTransferred = bytesWritten,
-                                totalBytes = totalBytes,
-                                filename = localFile.name,
-                                startTime = startTime,
-                                currentTime = System.currentTimeMillis(),
-                            )
-                        )
-                        lastReportedBytes = bytesWritten
-                    }
-                }
+    ): SftpResult<Unit> =
+        withContext(Dispatchers.IO) {
+            if (!localFile.exists()) {
+                return@withContext SftpResult.IoError(
+                    IllegalArgumentException("Local file does not exist: ${localFile.absolutePath}"),
+                )
             }
 
-            Timber.d("Upload completed: ${bytesWritten} bytes to $remotePath")
-            return@withContext SftpResult.Success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Upload failed: $remotePath")
-            return@withContext SftpResult.IoError(e)
-        } finally {
-            sftp.close(handle)
+            val totalBytes = localFile.length()
+            val startTime = System.currentTimeMillis()
+
+            // Open remote file for writing
+            val handle =
+                when (
+                    val result =
+                        sftp.open(
+                            remotePath,
+                            setOf(
+                                org.connectbot.sshlib.SftpOpenFlag.WRITE,
+                                org.connectbot.sshlib.SftpOpenFlag.CREATE,
+                                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
+                            ),
+                        )
+                ) {
+                    is SftpResult.Success -> result.value
+                    else -> return@withContext result.toUnit()
+                }
+
+            try {
+                val reportInterval = UPLOAD_REPORT_INTERVAL
+                var bytesWritten = 0L
+                var lastReportedBytes = 0L
+                val buffer = ByteArray(BUFFER_SIZE)
+
+                localFile.inputStream().use { input ->
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read == -1) break
+
+                        val writeResult = sftp.write(handle, bytesWritten, buffer.copyOf(read))
+                        when (writeResult) {
+                            is SftpResult.Success -> { /* continue */ }
+
+                            else -> {
+                                return@withContext writeResult
+                            }
+                        }
+                        bytesWritten += read
+
+                        // Throttled progress callback
+                        if (bytesWritten - lastReportedBytes >= reportInterval || bytesWritten >= totalBytes) {
+                            onProgress?.invoke(
+                                TransferProgress(
+                                    transferred = bytesWritten,
+                                    total = totalBytes,
+                                    filePath = localFile.name,
+                                    startTime = startTime,
+                                    currentTime = System.currentTimeMillis(),
+                                ),
+                            )
+                            lastReportedBytes = bytesWritten
+                        }
+                    }
+                }
+
+                Timber.d("Upload completed: $bytesWritten bytes to $remotePath")
+                return@withContext SftpResult.Success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Upload failed: $remotePath")
+                return@withContext SftpResult.IoError(e)
+            } finally {
+                sftp.close(handle)
+            }
         }
-    }
 
     /**
      * Upload a local file to the remote server using parallel chunks.
@@ -236,86 +254,98 @@ class CbsshTransfer(
         onProgress: ((TransferProgress) -> Unit)? = null,
         chunkSize: Long = DEFAULT_CHUNK_SIZE,
         parallelChunks: Int = DEFAULT_PARALLEL_CHUNKS,
-    ): SftpResult<Unit> = withContext(Dispatchers.IO) {
-        if (!localFile.exists()) {
-            return@withContext SftpResult.IoError(
-                IllegalArgumentException("Local file does not exist: ${localFile.absolutePath}"),
-            )
-        }
-
-        val totalBytes = localFile.length()
-        val startTime = System.currentTimeMillis()
-        val totalProgress = java.util.concurrent.atomic.AtomicLong(0)
-        val reportInterval = UPLOAD_REPORT_INTERVAL
-
-        // Open remote file for writing (no TRUNCATE for parallel writes)
-        val handle = when (val result = sftp.open(
-            remotePath,
-            setOf(
-                org.connectbot.sshlib.SftpOpenFlag.WRITE,
-                org.connectbot.sshlib.SftpOpenFlag.CREATE,
-                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
-            ),
-        )) {
-            is SftpResult.Success -> result.value
-            else -> return@withContext result.toUnit()
-        }
-
-        try {
-            // Calculate chunk ranges
-            val chunks = (0 until ((totalBytes + chunkSize - 1) / chunkSize).toInt()).map { i ->
-                val start = i * chunkSize
-                val end = minOf(start + chunkSize, totalBytes)
-                start until end
+    ): SftpResult<Unit> =
+        withContext(Dispatchers.IO) {
+            if (!localFile.exists()) {
+                return@withContext SftpResult.IoError(
+                    IllegalArgumentException("Local file does not exist: ${localFile.absolutePath}"),
+                )
             }
 
-            // Upload chunks concurrently
-            coroutineScope {
-                chunks.map { chunk ->
-                    async(Dispatchers.IO) {
-                        val buffer = ByteArray(BUFFER_SIZE)
-                        localFile.inputStream().use { input ->
-                            input.skip(chunk.first)
-                            var pos = chunk.first
-                            while (pos < chunk.last) {
-                                val toRead = minOf(buffer.size.toLong(), chunk.last - pos).toInt()
-                                val read = input.read(buffer, 0, toRead)
-                                if (read == -1) break
+            val totalBytes = localFile.length()
+            val startTime = System.currentTimeMillis()
+            val totalProgress =
+                java.util.concurrent.atomic
+                    .AtomicLong(0)
+            val reportInterval = UPLOAD_REPORT_INTERVAL
 
-                                val writeResult = sftp.write(handle, pos, buffer.copyOf(read))
-                                when (writeResult) {
-                                    is SftpResult.Success -> { /* continue */ }
-                                    else -> throw writeResult.toException()
-                                }
-                                pos += read
+            // Open remote file for writing (no TRUNCATE for parallel writes)
+            val handle =
+                when (
+                    val result =
+                        sftp.open(
+                            remotePath,
+                            setOf(
+                                org.connectbot.sshlib.SftpOpenFlag.WRITE,
+                                org.connectbot.sshlib.SftpOpenFlag.CREATE,
+                                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
+                            ),
+                        )
+                ) {
+                    is SftpResult.Success -> result.value
+                    else -> return@withContext result.toUnit()
+                }
 
-                                val written = totalProgress.addAndGet(read.toLong())
-                                if (written % reportInterval < read || written >= totalBytes) {
-                                    onProgress?.invoke(
-                                        TransferProgress(
-                                            bytesTransferred = written,
-                                            totalBytes = totalBytes,
-                                            filename = localFile.name,
-                                            startTime = startTime,
-                                            currentTime = System.currentTimeMillis(),
-                                        )
-                                    )
+            try {
+                // Calculate chunk ranges
+                val chunks =
+                    (0 until ((totalBytes + chunkSize - 1) / chunkSize).toInt()).map { i ->
+                        val start = i * chunkSize
+                        val end = minOf(start + chunkSize, totalBytes)
+                        start until end
+                    }
+
+                // Upload chunks concurrently
+                coroutineScope {
+                    chunks
+                        .map { chunk ->
+                            async(Dispatchers.IO) {
+                                val buffer = ByteArray(BUFFER_SIZE)
+                                localFile.inputStream().use { input ->
+                                    input.skip(chunk.first)
+                                    var pos = chunk.first
+                                    while (pos < chunk.last) {
+                                        val toRead = minOf(buffer.size.toLong(), chunk.last - pos).toInt()
+                                        val read = input.read(buffer, 0, toRead)
+                                        if (read == -1) break
+
+                                        val writeResult = sftp.write(handle, pos, buffer.copyOf(read))
+                                        when (writeResult) {
+                                            is SftpResult.Success -> { /* continue */ }
+
+                                            else -> {
+                                                throw writeResult.toException()
+                                            }
+                                        }
+                                        pos += read
+
+                                        val written = totalProgress.addAndGet(read.toLong())
+                                        if (written % reportInterval < read || written >= totalBytes) {
+                                            onProgress?.invoke(
+                                                TransferProgress(
+                                                    transferred = written,
+                                                    total = totalBytes,
+                                                    filePath = localFile.name,
+                                                    startTime = startTime,
+                                                    currentTime = System.currentTimeMillis(),
+                                                ),
+                                            )
+                                        }
+                                    }
                                 }
                             }
-                        }
-                    }
-                }.awaitAll()
-            }
+                        }.awaitAll()
+                }
 
-            Timber.d("Parallel upload completed: $totalBytes bytes to $remotePath")
-            return@withContext SftpResult.Success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Parallel upload failed: $remotePath")
-            return@withContext SftpResult.IoError(e)
-        } finally {
-            sftp.close(handle)
+                Timber.d("Parallel upload completed: $totalBytes bytes to $remotePath")
+                return@withContext SftpResult.Success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Parallel upload failed: $remotePath")
+                return@withContext SftpResult.IoError(e)
+            } finally {
+                sftp.close(handle)
+            }
         }
-    }
 
     /**
      * Server-side file copy using SFTP streams.
@@ -325,95 +355,112 @@ class CbsshTransfer(
         sourcePath: String,
         destPath: String,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> = withContext(Dispatchers.IO) {
-        val totalBytes = when (val result = sftp.stat(sourcePath)) {
-            is SftpResult.Success -> result.value.size ?: 0L
-            else -> return@withContext result.toUnit()
-        }
-        val startTime = System.currentTimeMillis()
+    ): SftpResult<Unit> =
+        withContext(Dispatchers.IO) {
+            val totalBytes =
+                when (val result = sftp.stat(sourcePath)) {
+                    is SftpResult.Success -> result.value.size ?: 0L
+                    else -> return@withContext result.toUnit()
+                }
+            val startTime = System.currentTimeMillis()
 
-        val sourceHandle = when (val result = sftp.open(sourcePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
-            is SftpResult.Success -> result.value
-            else -> return@withContext result.toUnit()
-        }
-
-        val destHandle = when (val result = sftp.open(
-            destPath,
-            setOf(
-                org.connectbot.sshlib.SftpOpenFlag.WRITE,
-                org.connectbot.sshlib.SftpOpenFlag.CREATE,
-                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
-            ),
-        )) {
-            is SftpResult.Success -> result.value
-            else -> {
-                sftp.close(sourceHandle)
-                return@withContext result.toUnit()
-            }
-        }
-
-        try {
-            val reportInterval = COPY_REPORT_INTERVAL
-            var offset = 0L
-            var lastReportedBytes = 0L
-
-            while (true) {
-                val chunkResult = sftp.read(sourceHandle, offset, COPY_BUFFER_SIZE)
-                val chunk: ByteArray = when (chunkResult) {
-                    is SftpResult.Success -> chunkResult.value ?: break
-                    is SftpResult.ServerError -> {
-                        sftp.close(sourceHandle)
-                        sftp.close(destHandle)
-                        return@withContext SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
-                    }
-                    is SftpResult.ProtocolError -> {
-                        sftp.close(sourceHandle)
-                        sftp.close(destHandle)
-                        return@withContext SftpResult.ProtocolError(chunkResult.message)
-                    }
-                    is SftpResult.IoError -> {
-                        sftp.close(sourceHandle)
-                        sftp.close(destHandle)
-                        return@withContext SftpResult.IoError(chunkResult.cause)
-                    }
+            val sourceHandle =
+                when (val result = sftp.open(sourcePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
+                    is SftpResult.Success -> result.value
+                    else -> return@withContext result.toUnit()
                 }
 
-                val writeResult = sftp.write(destHandle, offset, chunk)
-                when (writeResult) {
-                    is SftpResult.Success -> { /* continue */ }
+            val destHandle =
+                when (
+                    val result =
+                        sftp.open(
+                            destPath,
+                            setOf(
+                                org.connectbot.sshlib.SftpOpenFlag.WRITE,
+                                org.connectbot.sshlib.SftpOpenFlag.CREATE,
+                                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
+                            ),
+                        )
+                ) {
+                    is SftpResult.Success -> {
+                        result.value
+                    }
+
                     else -> {
                         sftp.close(sourceHandle)
-                        sftp.close(destHandle)
-                        return@withContext writeResult
+                        return@withContext result.toUnit()
                     }
                 }
-                offset += chunk.size
 
-                // Throttled progress (every 5MB for copy)
-                if (offset - lastReportedBytes >= reportInterval || offset >= totalBytes) {
-                    onProgress?.invoke(
-                        TransferProgress(
-                            bytesTransferred = offset,
-                            totalBytes = totalBytes,
-                            filename = sourcePath.substringAfterLast('/'),
-                            startTime = startTime,
-                            currentTime = System.currentTimeMillis(),
+            try {
+                val reportInterval = COPY_REPORT_INTERVAL
+                var offset = 0L
+                var lastReportedBytes = 0L
+
+                while (true) {
+                    val chunkResult = sftp.read(sourceHandle, offset, COPY_BUFFER_SIZE)
+                    val chunk: ByteArray =
+                        when (chunkResult) {
+                            is SftpResult.Success -> {
+                                chunkResult.value ?: break
+                            }
+
+                            is SftpResult.ServerError -> {
+                                sftp.close(sourceHandle)
+                                sftp.close(destHandle)
+                                return@withContext SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
+                            }
+
+                            is SftpResult.ProtocolError -> {
+                                sftp.close(sourceHandle)
+                                sftp.close(destHandle)
+                                return@withContext SftpResult.ProtocolError(chunkResult.message)
+                            }
+
+                            is SftpResult.IoError -> {
+                                sftp.close(sourceHandle)
+                                sftp.close(destHandle)
+                                return@withContext SftpResult.IoError(chunkResult.cause)
+                            }
+                        }
+
+                    val writeResult = sftp.write(destHandle, offset, chunk)
+                    when (writeResult) {
+                        is SftpResult.Success -> { /* continue */ }
+
+                        else -> {
+                            sftp.close(sourceHandle)
+                            sftp.close(destHandle)
+                            return@withContext writeResult
+                        }
+                    }
+                    offset += chunk.size
+
+                    // Throttled progress (every 5MB for copy)
+                    if (offset - lastReportedBytes >= reportInterval || offset >= totalBytes) {
+                        onProgress?.invoke(
+                            TransferProgress(
+                                transferred = offset,
+                                total = totalBytes,
+                                filePath = sourcePath.substringAfterLast('/'),
+                                startTime = startTime,
+                                currentTime = System.currentTimeMillis(),
+                            ),
                         )
-                    )
-                    lastReportedBytes = offset
+                        lastReportedBytes = offset
+                    }
                 }
-            }
 
-            Timber.d("Server-side copy completed: ${offset} bytes from $sourcePath to $destPath")
-            return@withContext SftpResult.Success(Unit)
-        } catch (e: Exception) {
-            Timber.e(e, "Server-side copy failed: $sourcePath -> $destPath")
-            return@withContext SftpResult.IoError(e)
-        } finally {
-            sftp.close(sourceHandle)
-            sftp.close(destHandle)
+                Timber.d("Server-side copy completed: $offset bytes from $sourcePath to $destPath")
+                return@withContext SftpResult.Success(Unit)
+            } catch (e: Exception) {
+                Timber.e(e, "Server-side copy failed: $sourcePath -> $destPath")
+                return@withContext SftpResult.IoError(e)
+            } finally {
+                sftp.close(sourceHandle)
+                sftp.close(destHandle)
+            }
         }
-    }
 
     companion object {
         /** Buffer size for read/write operations (32KB) */
@@ -443,19 +490,21 @@ class CbsshTransfer(
  * Convenience extension to convert any SftpResult to a Unit version preserving error info.
  */
 @Suppress("UNCHECKED_CAST")
-private fun <T> SftpResult<T>.toUnit(): SftpResult<Unit> = when (this) {
-    is SftpResult.Success<*> -> SftpResult.Success(Unit) as SftpResult<Unit>
-    is SftpResult.ServerError -> SftpResult.ServerError(statusCode, message)
-    is SftpResult.ProtocolError -> SftpResult.ProtocolError(message)
-    is SftpResult.IoError -> SftpResult.IoError(cause)
-}
+private fun <T> SftpResult<T>.toUnit(): SftpResult<Unit> =
+    when (this) {
+        is SftpResult.Success<*> -> SftpResult.Success(Unit) as SftpResult<Unit>
+        is SftpResult.ServerError -> SftpResult.ServerError(statusCode, message)
+        is SftpResult.ProtocolError -> SftpResult.ProtocolError(message)
+        is SftpResult.IoError -> SftpResult.IoError(cause)
+    }
 
 /**
  * Convenience extension to convert SftpResult to Exception.
  */
-private fun SftpResult<*>.toException(): Exception = when (this) {
-    is SftpResult.Success<*> -> IOException("SFTP success cannot be converted to exception")
-    is SftpResult.ServerError -> IOException("SFTP server error: ${message}")
-    is SftpResult.ProtocolError -> IOException("SFTP protocol error: ${message}")
-    is SftpResult.IoError -> (cause as? Exception) ?: IOException(cause.message ?: "SFTP I/O error")
-}
+private fun SftpResult<*>.toException(): Exception =
+    when (this) {
+        is SftpResult.Success<*> -> IOException("SFTP success cannot be converted to exception")
+        is SftpResult.ServerError -> IOException("SFTP server error: $message")
+        is SftpResult.ProtocolError -> IOException("SFTP protocol error: $message")
+        is SftpResult.IoError -> (cause as? Exception) ?: IOException(cause.message ?: "SFTP I/O error")
+    }

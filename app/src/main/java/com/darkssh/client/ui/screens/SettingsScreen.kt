@@ -21,6 +21,7 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -166,6 +167,38 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
+            // Experimental: cbssh SFTP toggle
+            var useCbsshSftp by remember {
+                mutableStateOf(AppPreferences.getUseCbsshSftp(context))
+            }
+
+            ListItem(
+                headlineContent = { Text("Use cbssh SFTP (experimental)") },
+                supportingContent = {
+                    Text(
+                        "Switch to the new Kotlin-based SFTP backend. " +
+                            "Requires reconnecting SFTP sessions.",
+                    )
+                },
+                trailingContent = {
+                    Switch(
+                        checked = useCbsshSftp,
+                        onCheckedChange = { checked ->
+                            useCbsshSftp = checked
+                            AppPreferences.setUseCbsshSftp(context, checked)
+                        },
+                    )
+                },
+                modifier =
+                    Modifier.clickable {
+                        val newValue = !useCbsshSftp
+                        useCbsshSftp = newValue
+                        AppPreferences.setUseCbsshSftp(context, newValue)
+                    },
+            )
         }
     }
 }
