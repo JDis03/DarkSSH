@@ -521,6 +521,7 @@ class SftpViewModel
             createDownloadNotificationChannel(app)
             showDownloadNotification(app, notifId, target.fileName, 0L, 0L)
 
+            Timber.d("[DL] startDownload: ${target.fileName} remotePath=$remotePath target=${target::class.simpleName}")
             val id = ++transferIdCounter
             val job = viewModelScope.launch(Dispatchers.IO) {
                 addTransfer(TransferInfo(
@@ -582,6 +583,7 @@ class SftpViewModel
         ): Result<Unit> =
             withContext(Dispatchers.IO) {
                 try {
+                    Timber.d("[DL] downloadViaMediaStore: ${target.fileName}")
                     val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
 
                     // Find existing entry with same name
@@ -619,15 +621,18 @@ class SftpViewModel
                     val outputStream =
                         app.contentResolver.openOutputStream(uri, "wt")
                             ?: run {
+                                Timber.e("[DL] Cannot open MediaStore outputStream for ${target.fileName}")
                                 if (existingUri == null) {
                                     app.contentResolver.delete(uri, null, null)
                                 }
                                 return@withContext Result.failure(Exception("Cannot open output stream"))
                             }
 
+                    Timber.d("[DL] MediaStore URI ready: $uri, calling downloadToStream")
                     try {
                         outputStream.use { stream ->
                             val result = sftpClient?.downloadToStream(remotePath, stream, onProgress)
+                            Timber.d("[DL] downloadToStream returned: success=${result?.isSuccess} failure=${result?.exceptionOrNull()?.message}")
                             if (result?.isFailure == true) {
                                 if (existingUri == null) {
                                     app.contentResolver.delete(uri, null, null)

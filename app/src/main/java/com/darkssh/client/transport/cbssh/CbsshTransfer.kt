@@ -89,24 +89,47 @@ class CbsshTransfer(
         outputStream: OutputStream,
         onProgress: ((TransferProgress) -> Unit)?,
     ): SftpResult<Unit> {
+        Timber.d("[DL] stat: $remotePath")
+
         // Get file size
         val totalBytes: Long =
             when (val result = sftp.stat(remotePath)) {
                 is SftpResult.Success -> result.value.size ?: 0L
-                is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
-                is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-                is SftpResult.IoError -> return SftpResult.IoError(result.cause)
+                is SftpResult.ServerError -> {
+                    Timber.e("[DL] stat FAILED ServerError ${result.statusCode}: ${result.message}")
+                    return SftpResult.ServerError(result.statusCode, result.message)
+                }
+                is SftpResult.ProtocolError -> {
+                    Timber.e("[DL] stat FAILED ProtocolError: ${result.message}")
+                    return SftpResult.ProtocolError(result.message)
+                }
+                is SftpResult.IoError -> {
+                    Timber.e(result.cause, "[DL] stat FAILED IoError")
+                    return SftpResult.IoError(result.cause)
+                }
             }
+        Timber.d("[DL] stat OK: totalBytes=$totalBytes")
         val startTime = System.currentTimeMillis()
 
         // Open file for reading
+        Timber.d("[DL] open handle: $remotePath")
         val handle =
             when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
                 is SftpResult.Success -> result.value
-                is SftpResult.ServerError -> return SftpResult.ServerError(result.statusCode, result.message)
-                is SftpResult.ProtocolError -> return SftpResult.ProtocolError(result.message)
-                is SftpResult.IoError -> return SftpResult.IoError(result.cause)
+                is SftpResult.ServerError -> {
+                    Timber.e("[DL] open FAILED ServerError ${result.statusCode}: ${result.message}")
+                    return SftpResult.ServerError(result.statusCode, result.message)
+                }
+                is SftpResult.ProtocolError -> {
+                    Timber.e("[DL] open FAILED ProtocolError: ${result.message}")
+                    return SftpResult.ProtocolError(result.message)
+                }
+                is SftpResult.IoError -> {
+                    Timber.e(result.cause, "[DL] open FAILED IoError")
+                    return SftpResult.IoError(result.cause)
+                }
             }
+        Timber.d("[DL] handle opened OK, starting pipeline depth=$DOWNLOAD_PIPELINE_DEPTH chunk=${DOWNLOAD_CHUNK_SIZE / 1024}KB")
 
         try {
             val chunkSize = DOWNLOAD_CHUNK_SIZE
@@ -116,6 +139,7 @@ class CbsshTransfer(
             var lastReportedBytes = 0L
             var readOffset = 0L
             var done = false
+            var chunksReceived = 0
 
             // Sliding window of in-flight read requests
             val window = ArrayDeque<kotlinx.coroutines.Deferred<SftpResult<ByteArray?>>>(pipelineDepth)
@@ -128,26 +152,49 @@ class CbsshTransfer(
                     readOffset += chunkSize
                     window.addLast(async { sftp.read(handle, offset, chunkSize) })
                 }
+                Timber.d("[DL] pipeline pre-filled: ${window.size} requests in-flight")
 
                 while (window.isNotEmpty()) {
                     // Drain the oldest request
                     val chunkResult = window.removeFirst().await()
                     val chunk: ByteArray =
                         when (chunkResult) {
-                            is SftpResult.Success -> chunkResult.value ?: break  // null = EOF
-                            is SftpResult.ServerError ->
+                            is SftpResult.Success -> {
+                                val data = chunkResult.value
+                                if (data == null) {
+                                    Timber.d("[DL] EOF after $bytesWritten bytes ($chunksReceived chunks)")
+                                    break
+                                }
+                                data
+                            }
+                            is SftpResult.ServerError -> {
+                                Timber.e("[DL] read FAILED ServerError ${chunkResult.statusCode}: ${chunkResult.message} after ${bytesWritten}B")
                                 return@coroutineScope SftpResult.ServerError(chunkResult.statusCode, chunkResult.message)
-                            is SftpResult.ProtocolError ->
+                            }
+                            is SftpResult.ProtocolError -> {
+                                Timber.e("[DL] read FAILED ProtocolError: ${chunkResult.message} after ${bytesWritten}B")
                                 return@coroutineScope SftpResult.ProtocolError(chunkResult.message)
-                            is SftpResult.IoError ->
+                            }
+                            is SftpResult.IoError -> {
+                                Timber.e(chunkResult.cause, "[DL] read FAILED IoError after ${bytesWritten}B")
                                 return@coroutineScope SftpResult.IoError(chunkResult.cause)
+                            }
                         }
 
                     outputStream.write(chunk)
                     bytesWritten += chunk.size
+                    chunksReceived++
+
+                    // Log first few chunks to confirm flow
+                    if (chunksReceived <= 3) {
+                        Timber.d("[DL] chunk #$chunksReceived: ${chunk.size}B received, total=${bytesWritten}B")
+                    }
 
                     // Progress callback (throttled)
                     if (bytesWritten - lastReportedBytes >= reportInterval || bytesWritten >= totalBytes) {
+                        val elapsed = System.currentTimeMillis() - startTime
+                        val speedKBs = if (elapsed > 0) bytesWritten / elapsed else 0
+                        Timber.d("[DL] progress: ${bytesWritten}/${totalBytes}B (${speedKBs}KB/s)")
                         onProgress?.invoke(
                             TransferProgress(
                                 transferred = bytesWritten,
@@ -174,13 +221,15 @@ class CbsshTransfer(
             }
 
             outputStream.flush()
-            Timber.d("Download completed: $bytesWritten bytes from $remotePath")
+            val elapsed = System.currentTimeMillis() - startTime
+            val speedKBs = if (elapsed > 0) bytesWritten * 1000 / elapsed / 1024 else 0
+            Timber.d("[DL] DONE: $bytesWritten bytes in ${elapsed}ms = ${speedKBs}KB/s")
             return SftpResult.Success(Unit)
         } catch (e: kotlinx.coroutines.CancellationException) {
-            Timber.d("Download cancelled: $remotePath")
+            Timber.d("[DL] cancelled: $remotePath")
             throw e
         } catch (e: Exception) {
-            Timber.e(e, "Download failed: $remotePath")
+            Timber.e(e, "[DL] exception: $remotePath")
             return SftpResult.IoError(e)
         } finally {
             sftp.close(handle)
