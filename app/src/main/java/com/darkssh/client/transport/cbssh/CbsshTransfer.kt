@@ -559,10 +559,10 @@ class CbsshTransfer(
 
         /**
          * Number of concurrent in-flight SFTP read requests (pipeline depth).
-         * 8 × 32KB = 256KB of data requested at a time. With a 16MB SSH window
-         * the server can respond to all of them without waiting for WINDOW_ADJUST.
+         * 32 × 32KB = 1MB of data requested at a time. Larger depth reduces
+         * latency between request and response processing.
          */
-        private const val DOWNLOAD_PIPELINE_DEPTH = 8
+        private const val DOWNLOAD_PIPELINE_DEPTH = 32
 
         /** Larger buffer for server-side copy (128KB) */
         private const val COPY_BUFFER_SIZE = 128 * 1024
