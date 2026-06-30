@@ -70,3 +70,6 @@ session-handoff.md
 
 # Pending files (waiting for dependency to be added)
 *.pending
+candy-icons
+sweet-folders
+material/
