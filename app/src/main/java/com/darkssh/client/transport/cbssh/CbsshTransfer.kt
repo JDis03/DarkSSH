@@ -583,10 +583,13 @@ class CbsshTransfer(
 
         /**
          * Number of concurrent in-flight SFTP read requests (pipeline depth).
-         * 32 × 32KB = 1MB of data requested at a time. Larger depth reduces
-         * latency between request and response processing.
+         * 8 × 32KB = 256KB of data requested at a time.
+         *
+         * Empirically: depth=32 over VPN triggers 30s SFTP request timeouts
+         * (server drops responses under high concurrent request load).
+         * depth=8 is the safest default. If latency is low (LAN), 16-32 is fine.
          */
-        private const val DOWNLOAD_PIPELINE_DEPTH = 32
+        private const val DOWNLOAD_PIPELINE_DEPTH = 8
 
         /** Larger buffer for server-side copy (128KB) */
         private const val COPY_BUFFER_SIZE = 128 * 1024
