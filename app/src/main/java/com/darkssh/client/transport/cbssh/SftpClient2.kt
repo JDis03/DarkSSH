@@ -61,6 +61,20 @@ class SftpClient2(
         get() = sftpClient != null && sshClient?.isAuthenticated == true
 
     /**
+     * Mark connection as dead after an unrecoverable IoError.
+     * Sets isConnected to false so the ViewModel reconnects.
+     */
+    private fun markDead(cause: Throwable) {
+        Timber.w("cbssh SFTP connection died: ${cause.message} — marking disconnected")
+        DebugLogger.w("SftpClient2", "❌ Conexión muerta: ${cause.message}")
+        keepAliveJob?.cancel()
+        keepAliveJob = null
+        sftpClient = null
+        transfer = null
+        // Don't null sshClient — let isAuthenticated reflect the real state
+    }
+
+    /**
      * Connect to SFTP server using password authentication.
      */
     override suspend fun connectWithPassword(password: String): Result<Unit> =
@@ -335,9 +349,8 @@ class SftpClient2(
                 }
 
                 is SftpResult.IoError -> {
-                    Result.failure(
-                        result.cause,
-                    )
+                    markDead(result.cause)
+                    Result.failure(result.cause)
                 }
             }
         }
