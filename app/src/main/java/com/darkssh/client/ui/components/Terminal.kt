@@ -7,6 +7,7 @@ import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -31,6 +32,7 @@ fun Terminal(
     terminalBridge: TerminalBridge? = null,
     showSoftKeyboard: Boolean = true,
     isActive: Boolean = true, // Whether this terminal is the active/visible tab
+    focusTrigger: Int = 0, // External trigger to force focus transfer
 ) {
     val context = LocalContext.current
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -39,7 +41,28 @@ fun Terminal(
 
     val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
 
-    // Note: Focus control is now handled in the update block for immediate effect
+    // Explicit focus transfer when this terminal becomes active OR focus trigger changes
+    LaunchedEffect(isActive, showSoftKeyboard, focusTrigger) {
+        val view = terminalViewRef.value
+        if (view != null) {
+            if (isActive && showSoftKeyboard) {
+                view.post {
+                    view.rootView?.findFocus()?.clearFocus()
+                    view.requestFocus()
+                    imm.showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                    Timber.d("Terminal: Focus transferred to active tab")
+                }
+            } else if (!isActive) {
+                view.post {
+                    if (view.hasFocus()) {
+                        view.clearFocus()
+                        imm.hideSoftInputFromWindow(view.windowToken, 0)
+                        Timber.d("Terminal: Focus cleared from inactive tab")
+                    }
+                }
+            }
+        }
+    }
 
     AndroidView(
         factory = { ctx ->

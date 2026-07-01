@@ -93,6 +93,8 @@ fun ConsoleScreen(
     var showMenu by remember { mutableStateOf(false) }
     var promptInput by remember { mutableStateOf("") }
     var showSoftwareKeyboard by remember { mutableStateOf(true) }
+    var focusTrigger by remember { mutableStateOf(0) }
+    var prevIsActive by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val terminalTypeface = remember {
@@ -103,8 +105,19 @@ fun ConsoleScreen(
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val imeVisible = imeHeight > 0.dp
 
-    LaunchedEffect(imeVisible) {
-        showSoftwareKeyboard = imeVisible
+    // Termius pattern: force keyboard on when THIS terminal becomes active
+    LaunchedEffect(isActive) {
+        if (isActive && !prevIsActive) {
+            showSoftwareKeyboard = true
+        }
+        prevIsActive = isActive
+    }
+
+    LaunchedEffect(imeVisible, isActive) {
+        // Only sync with IME visibility when this terminal is NOT active
+        if (!isActive && !imeVisible) {
+            showSoftwareKeyboard = false
+        }
     }
 
     DisposableEffect(hostId, tabId) {
@@ -113,6 +126,16 @@ fun ConsoleScreen(
         onDispose {
             viewModel.detachFromBridge()
         }
+    }
+
+    // Force focus when this terminal becomes active (Termius pattern)
+    DisposableEffect(isActive) {
+        if (isActive) {
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                focusTrigger++
+            }, 100)
+        }
+        onDispose { }
     }
 
     // NOTE: Active bridge management is now handled by TabbedMainScreen (Termius pattern)
@@ -201,6 +224,7 @@ fun ConsoleScreen(
                     terminalBridge = currentBridge,
                     modifier = Modifier.fillMaxSize(),
                     showSoftKeyboard = showSoftwareKeyboard,
+                    focusTrigger = focusTrigger,
                     fontSize = fontSize,
                     typeface = terminalTypeface,
                     isActive = isActive, // Control focus based on tab visibility
