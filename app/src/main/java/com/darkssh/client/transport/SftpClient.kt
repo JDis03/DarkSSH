@@ -185,15 +185,15 @@ class SftpClient(
                 val ssh = SSHClient(createConfig())
                 ssh.addHostKeyVerifier(PromiscuousVerifier())
 
-                ssh.connectTimeout = 30000
-                ssh.timeout = 0
+                ssh.connectTimeout = 15000
+                // 0 en sshj 0.38 usa el DEFAULT (30s). Ponemos 5min para
+                // sobrevivir background throttling de Android.
+                ssh.timeout = 300_000
 
                 ssh.connect(host.hostname, if (host.port <= 0) 22 else host.port)
 
-                // MAXIMIZE throughput: Use large window sizes for max bandwidth utilization
-                // 32MB window + 256KB packets (max safe size for SSH protocol)
-                ssh.connection.windowSize = 32L * 1024 * 1024 // 32MB (was 8MB)
-                ssh.connection.maxPacketSize = 128 * 1024 // 128KB (safer for compatibility, was 256KB)
+                ssh.connection.windowSize = 32L * 1024 * 1024
+                ssh.connection.maxPacketSize = 128 * 1024
                 ssh.connection.keepAlive.keepAliveInterval = 15
 
                 ssh.authPassword(host.username, password)
@@ -215,15 +215,13 @@ class SftpClient(
                 val ssh = SSHClient(createConfig())
                 ssh.addHostKeyVerifier(PromiscuousVerifier())
 
-                ssh.connectTimeout = 30000
-                ssh.timeout = 0
+                ssh.connectTimeout = 15000
+                ssh.timeout = 300_000
 
                 ssh.connect(host.hostname, if (host.port <= 0) 22 else host.port)
 
-                // MAXIMIZE throughput: Use large window sizes for max bandwidth utilization
-                // 32MB window + 256KB packets (max safe size for SSH protocol)
-                ssh.connection.windowSize = 32L * 1024 * 1024 // 32MB (was 8MB)
-                ssh.connection.maxPacketSize = 128 * 1024 // 128KB (safer for compatibility, was 256KB)
+                ssh.connection.windowSize = 32L * 1024 * 1024
+                ssh.connection.maxPacketSize = 128 * 1024
                 ssh.connection.keepAlive.keepAliveInterval = 15
 
                 // Convert java.security.KeyPair to sshj KeyProvider
