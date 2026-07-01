@@ -128,10 +128,7 @@ fun SftpScreen(
     // This ensures single source of truth and prevents race conditions during tab switches
     // SftpScreen just renders the file browser, it doesn't control which bridge is active
     
-    // Debug: Log when transferProgress changes
-    androidx.compose.runtime.LaunchedEffect(uiState.transferProgress) {
-        timber.log.Timber.d("SftpScreen: transferProgress changed to ${uiState.transferProgress?.percentage}%")
-    }
+
     var showMkdirDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showRenameDialog by remember { mutableStateOf<SftpEntry?>(null) }
@@ -450,17 +447,14 @@ fun SftpScreen(
                 onNavigate = { path -> viewModel.listDirectory(path) },
             )
 
-            // Show transfer progress dialog (like File Manager+)
-            uiState.transferProgress?.let { progress ->
-                TransferProgressDialog(
-                    progress = progress,
-                    isUpload = true,  // TODO: Detect if upload or download
-                    onHide = { 
-                        viewModel.hideTransferDialog()
-                    },
-                    onCancel = { 
-                        viewModel.cancelTransfer()
-                    }
+            // Transfer queue panel
+            if (uiState.transfers.isNotEmpty()) {
+                TransferQueueDialog(
+                    transfers = uiState.transfers,
+                    onCancel = { id -> viewModel.cancelTransfer(id) },
+                    onDismiss = { id -> viewModel.dismissTransfer(id) },
+                    onDismissAll = { viewModel.dismissAllCompleted() },
+                    onClose = { viewModel.dismissAllCompleted() },
                 )
             }
 

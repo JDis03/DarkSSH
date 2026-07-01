@@ -78,7 +78,6 @@ data class SftpUiState(
     val pathStack: List<String> = emptyList(),
     val selectedEntries: Set<String> = emptySet(),
     val transfers: List<TransferInfo> = emptyList(),
-    val transferProgress: TransferProgress? = null,
     val authState: SftpAuthState = SftpAuthState.Idle,
     val host: Host? = null,
     val renameConflict: RenameConflict? = null,
@@ -96,15 +95,20 @@ data class DownloadConflict(
     val fileName: String,
 )
 
+enum class TransferStatus { ACTIVE, COMPLETED, FAILED, CANCELLED }
+
 data class TransferInfo(
     val id: Long,
     val fileName: String,
     val remotePath: String,
     val localPath: String,
     val isDownload: Boolean,
-    val isComplete: Boolean = false,
+    val status: TransferStatus = TransferStatus.ACTIVE,
     val error: String? = null,
-)
+    val progress: TransferProgress? = null,
+) {
+    val isComplete: Boolean get() = status != TransferStatus.ACTIVE
+}
 
 @HiltViewModel
 class SftpViewModel
@@ -167,10 +171,9 @@ class SftpViewModel
             }
         private var transferIdCounter = 0L
         private var downloadNotificationId = 1000
+        private val transferJobs = java.util.concurrent.ConcurrentHashMap<Long, kotlinx.coroutines.Job>()
 
         private var pendingRename: PendingRename? = null
-        private var currentTransferJob: kotlinx.coroutines.Job? = null
-        private var transferDialogHidden = false
 
         data class PendingRename(
             val entry: SftpEntry,
@@ -230,12 +233,7 @@ class SftpViewModel
                     showHiddenFiles = savedShowHidden,
                 )
 
-                // Restore active transfer if exists and not hidden
-                val transferKey = "upload_$hostId"
-                val activeTransfer = getActiveTransfer(transferKey)
-                if (activeTransfer != null && !transferDialogHidden) {
-                    _uiState.value = _uiState.value.copy(transferProgress = activeTransfer)
-                }
+
 
                 // Check if there's an existing connection from previous session
                 val existing = activeClients[hostId]
@@ -502,52 +500,49 @@ class SftpViewModel
             createDownloadNotificationChannel(app)
             showDownloadNotification(app, notifId, target.fileName, 0L, 0L)
 
-            var counter = 0
-            viewModelScope.launch(Dispatchers.IO) {
-                val id = ++transferIdCounter
-                val transfer =
-                    TransferInfo(
-                        id = id,
-                        fileName = target.fileName,
-                        remotePath = remotePath,
-                        localPath = target.displayPath,
-                        isDownload = true,
-                    )
-                addTransfer(transfer)
+            val id = ++transferIdCounter
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                addTransfer(TransferInfo(
+                    id = id,
+                    fileName = target.fileName,
+                    remotePath = remotePath,
+                    localPath = target.displayPath,
+                    isDownload = true,
+                ))
 
-                val result =
+                val result = try {
                     when (target) {
-                        is DownloadTarget.MediaStore -> {
+                        is DownloadTarget.MediaStore ->
                             downloadViaMediaStore(remotePath, target, app, notifId) { progress ->
-                                if (counter++ % 5 == 0) {
-                                    _uiState.value = _uiState.value.copy(transferProgress = progress)
-                                    showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
-                                }
+                                updateTransferProgress(id, progress)
+                                showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
                             }
-                        }
-
-                        is DownloadTarget.FileTarget -> {
+                        is DownloadTarget.FileTarget ->
                             sftpClient?.downloadFile(remotePath, target.file) { progress ->
-                                if (counter++ % 5 == 0) {
-                                    _uiState.value = _uiState.value.copy(transferProgress = progress)
-                                    showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
-                                }
+                                updateTransferProgress(id, progress)
+                                showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
                             } ?: Result.failure(Exception("SFTP not connected"))
-                        }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    Result.failure(e)
+                }
 
+                val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
                 withContext(Dispatchers.Main) {
-                    updateTransfer(id, isComplete = true, error = result.exceptionOrNull()?.message)
-                    _uiState.value = _uiState.value.copy(transferProgress = null)
-                    if (result.isSuccess) {
-                        _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
-                        showDownloadCompleteNotification(app, notifId, target.fileName)
-                    } else {
-                        _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
-                        showDownloadFailedNotification(app, notifId, target.fileName)
+                    if (!cancelled) {
+                        if (result.isSuccess) {
+                            updateTransfer(id, TransferStatus.COMPLETED)
+                            _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                            showDownloadCompleteNotification(app, notifId, target.fileName)
+                        } else {
+                            updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
+                            _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
+                            showDownloadFailedNotification(app, notifId, target.fileName)
+                        }
                     }
                 }
             }
+            transferJobs[id] = job
         }
 
         private suspend fun downloadViaMediaStore(
@@ -886,85 +881,52 @@ class SftpViewModel
             val app = getApplication<Application>()
             createUploadNotificationChannel(app)
             val notifId = 3000 + originalName.hashCode() % 1000
-            transferDialogHidden = false
-            val transferKey = "upload_$hostId"
 
-            currentTransferJob =
-                viewModelScope.launch {
-                    try {
-                        val initialProgress = TransferProgress(0, localFile.length(), originalName)
-                        setActiveTransfer(transferKey, initialProgress)
-                        if (!transferDialogHidden) {
-                            _uiState.value = _uiState.value.copy(transferProgress = initialProgress)
-                        }
-                        showUploadNotification(app, notifId, originalName, 0, localFile.length())
+            val id = ++transferIdCounter
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                addTransfer(TransferInfo(
+                    id = id,
+                    fileName = originalName,
+                    remotePath = remotePath,
+                    localPath = localFile.absolutePath,
+                    isDownload = false,
+                    progress = TransferProgress(0, localFile.length(), originalName),
+                ))
+                showUploadNotification(app, notifId, originalName, 0, localFile.length())
 
-                        var counter = 0
-                        val result =
-                            sftpClient?.uploadFile(localFile, remotePath) { progress ->
-                                setActiveTransfer(transferKey, progress)
-                                if (counter++ % 5 == 0) {
-                                    if (!transferDialogHidden) {
-                                        _uiState.value = _uiState.value.copy(transferProgress = progress)
-                                    }
-                                    showUploadNotification(app, notifId, originalName, progress.transferred, progress.total)
-                                }
-                            } ?: Result.failure(Exception("SFTP not connected"))
+                val result = try {
+                    sftpClient?.uploadFile(localFile, remotePath) { progress ->
+                        updateTransferProgress(id, progress)
+                        showUploadNotification(app, notifId, originalName, progress.transferred, progress.total)
+                    } ?: Result.failure(Exception("SFTP not connected"))
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    Result.failure(e)
+                }
 
+                val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
+                withContext(Dispatchers.Main) {
+                    if (!cancelled) {
                         result.fold(
                             onSuccess = {
-                                currentTransferJob = null
-                                transferDialogHidden = false
-                                setActiveTransfer(transferKey, null)
-                                _uiState.value =
-                                    _uiState.value.copy(
-                                        transferProgress = null,
-                                        message = "Upload complete: $originalName",
-                                    )
+                                updateTransfer(id, TransferStatus.COMPLETED)
+                                _uiState.value = _uiState.value.copy(message = "Upload complete: $originalName")
                                 showUploadCompleteNotification(app, notifId, originalName)
                                 if (localFile.name.startsWith("upload_") && localFile.extension == "tmp") {
-                                    localFile.delete()
+                                    try { localFile.delete() } catch (e: Exception) { Timber.w("Failed to delete temp: ${e.message}") }
                                 }
                                 listDirectory(_uiState.value.currentPath)
                             },
                             onFailure = { error ->
-                                currentTransferJob = null
-                                transferDialogHidden = false
-                                setActiveTransfer(transferKey, null)
-                                _uiState.value =
-                                    _uiState.value.copy(
-                                        transferProgress = null,
-                                        error = "Upload failed: ${error.message}",
-                                    )
+                                updateTransfer(id, TransferStatus.FAILED, error.message)
+                                _uiState.value = _uiState.value.copy(error = "Upload failed: ${error.message}")
                                 showUploadFailedNotification(app, notifId, originalName)
                                 Timber.e(error, "Upload failed")
                             },
                         )
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        currentTransferJob = null
-                        transferDialogHidden = false
-                        setActiveTransfer(transferKey, null)
-                        _uiState.value = _uiState.value.copy(transferProgress = null)
-                        Timber.d("Upload cancelled: $originalName")
-                        val notificationManager =
-                            app.getSystemService(
-                                android.content.Context.NOTIFICATION_SERVICE,
-                            ) as android.app.NotificationManager
-                        notificationManager.cancel(notifId)
-                        throw e
-                    } catch (e: Exception) {
-                        currentTransferJob = null
-                        transferDialogHidden = false
-                        setActiveTransfer(transferKey, null)
-                        _uiState.value =
-                            _uiState.value.copy(
-                                transferProgress = null,
-                                error = "Upload error: ${e.message}",
-                            )
-                        showUploadFailedNotification(app, notifId, originalName)
-                        Timber.e(e, "Upload exception")
                     }
                 }
+            }
+            transferJobs[id] = job
         }
 
         private fun observeUploadWork(
@@ -990,19 +952,12 @@ class SftpViewModel
                                         startTime = startTime,
                                         currentTime = System.currentTimeMillis(),
                                     )
-                                if (!transferDialogHidden) {
-                                    _uiState.value = _uiState.value.copy(transferProgress = progress)
-                                }
                             }
                         }
 
                         WorkInfo.State.SUCCEEDED -> {
                             setActiveWorkId(hostId, null)
-                            _uiState.value =
-                                _uiState.value.copy(
-                                    transferProgress = null,
-                                    message = "Upload complete: $fileName",
-                                )
+                            _uiState.value = _uiState.value.copy(message = "Upload complete: $fileName")
                             listDirectory(_uiState.value.currentPath)
                             Timber.d("Upload work succeeded: $fileName")
                         }
@@ -1010,29 +965,16 @@ class SftpViewModel
                         WorkInfo.State.FAILED -> {
                             setActiveWorkId(hostId, null)
                             val errorMessage = workInfo.outputData.getString("error") ?: "Unknown error"
-                            _uiState.value =
-                                _uiState.value.copy(
-                                    transferProgress = null,
-                                    error = "Upload failed: $errorMessage",
-                                )
+                            _uiState.value = _uiState.value.copy(error = "Upload failed: $errorMessage")
                             Timber.e("Upload work failed: $fileName - $errorMessage")
                         }
 
                         WorkInfo.State.CANCELLED -> {
                             setActiveWorkId(hostId, null)
-                            _uiState.value = _uiState.value.copy(transferProgress = null)
                             Timber.d("Upload work cancelled: $fileName")
                         }
 
-                        else -> {
-                            // ENQUEUED or BLOCKED - show initial state
-                            if (workInfo?.state == WorkInfo.State.ENQUEUED) {
-                                val initialProgress = TransferProgress(0, 100, fileName)
-                                if (!transferDialogHidden) {
-                                    _uiState.value = _uiState.value.copy(transferProgress = initialProgress)
-                                }
-                            }
-                        }
+                        else -> {}
                     }
                 }
             }
@@ -1152,24 +1094,24 @@ class SftpViewModel
         }
 
         private fun addTransfer(transfer: TransferInfo) {
-            _uiState.value =
-                _uiState.value.copy(
-                    transfers = _uiState.value.transfers + transfer,
-                )
+            _uiState.value = _uiState.value.copy(transfers = _uiState.value.transfers + transfer)
         }
 
-        private fun updateTransfer(
-            id: Long,
-            isComplete: Boolean,
-            error: String? = null,
-        ) {
-            _uiState.value =
-                _uiState.value.copy(
-                    transfers =
-                        _uiState.value.transfers.map {
-                            if (it.id == id) it.copy(isComplete = isComplete, error = error) else it
-                        },
-                )
+        private fun updateTransferProgress(id: Long, progress: TransferProgress) {
+            _uiState.value = _uiState.value.copy(
+                transfers = _uiState.value.transfers.map {
+                    if (it.id == id) it.copy(progress = progress) else it
+                },
+            )
+        }
+
+        private fun updateTransfer(id: Long, status: TransferStatus, error: String? = null) {
+            transferJobs.remove(id)
+            _uiState.value = _uiState.value.copy(
+                transfers = _uiState.value.transfers.map {
+                    if (it.id == id) it.copy(status = status, error = error) else it
+                },
+            )
         }
 
         // Copy/Cut/Paste operations (like File Manager+)
@@ -1298,46 +1240,27 @@ class SftpViewModel
 
         fun getClipboardFileCount(): Int = SftpClipboard.getFileCount()
 
-        fun hideTransferDialog() {
-            // Hide dialog but keep transfer running in background
-            transferDialogHidden = true
-            _uiState.update { it.copy(transferProgress = null) }
-            Timber.d("Transfer dialog hidden, transfer continues in background")
+        fun cancelTransfer(id: Long) {
+            transferJobs[id]?.cancel()
+            updateTransfer(id, TransferStatus.CANCELLED)
         }
 
-        fun cancelTransfer() {
-            val hostId = _uiState.value.host?.id ?: return
-
-            // Cancel WorkManager upload if exists
-            val workId = getActiveWorkId(hostId)
-            if (workId != null) {
-                val workManager = WorkManager.getInstance(getApplication())
-                workManager.cancelWorkById(workId)
-                setActiveWorkId(hostId, null)
-                Timber.d("Cancelled WorkManager upload: $workId")
-            }
-
-            // Cancel legacy coroutine job if exists (for backwards compatibility)
-            currentTransferJob?.cancel()
-            currentTransferJob = null
-            transferDialogHidden = false
-
-            // Clear from global state
-            val transferKey = "upload_$hostId"
-            setActiveTransfer(transferKey, null)
-
-            _uiState.update { it.copy(transferProgress = null) }
-            Timber.d("Transfer cancelled")
+        fun dismissTransfer(id: Long) {
+            _uiState.value = _uiState.value.copy(
+                transfers = _uiState.value.transfers.filter { it.id != id },
+            )
         }
 
-        fun showTransferDialog() {
-            // Show the transfer dialog again if hidden
-            transferDialogHidden = false
+        fun dismissAllCompleted() {
+            _uiState.value = _uiState.value.copy(
+                transfers = _uiState.value.transfers.filter { it.status == TransferStatus.ACTIVE },
+            )
         }
 
         override fun onCleared() {
             super.onCleared()
-            currentTransferJob?.cancel()
+            transferJobs.values.forEach { it.cancel() }
+            transferJobs.clear()
 
             // Clean up this ViewModel's resources from static maps
             val hostId = _uiState.value.host?.id
