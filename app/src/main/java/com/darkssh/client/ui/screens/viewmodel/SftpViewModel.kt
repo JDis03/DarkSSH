@@ -196,8 +196,16 @@ class SftpViewModel
                             val workInfo = workManager.getWorkInfoById(workId).get()
                             if (workInfo != null && !workInfo.state.isFinished) {
                                 // Work is still running, resume observing it
-                                val fileName = "file" // We don't have fileName stored, will update from progress
-                                observeUploadWork(workManager, workId, fileName, hostId)
+                                val fileName = "file"
+                                val resumedTransferId = ++transferIdCounter
+                                addTransfer(TransferInfo(
+                                    id = resumedTransferId,
+                                    fileName = fileName,
+                                    remotePath = "",
+                                    localPath = "",
+                                    isDownload = false,
+                                ))
+                                observeUploadWork(workManager, workId, fileName, hostId, resumedTransferId)
                                 Timber.d("Resumed observing upload work: $workId")
                             } else {
                                 // Work is finished or not found, clear it
@@ -842,7 +850,6 @@ class SftpViewModel
                     }
 
                 if (useWorkManager) {
-                    // Use WorkManager for background upload (survives app closure)
                     Timber.d("Enqueuing upload to WorkManager: $originalName")
 
                     val uploadWorkRequest =
@@ -859,7 +866,19 @@ class SftpViewModel
                     val workManager = WorkManager.getInstance(app)
                     workManager.enqueue(uploadWorkRequest)
                     setActiveWorkId(hostId, uploadWorkRequest.id)
-                    observeUploadWork(workManager, uploadWorkRequest.id, originalName, hostId)
+
+                    // Agregar al queue de la UI
+                    val transferId = ++transferIdCounter
+                    addTransfer(TransferInfo(
+                        id = transferId,
+                        fileName = originalName,
+                        remotePath = remotePath,
+                        localPath = localFile.absolutePath,
+                        isDownload = false,
+                        progress = TransferProgress(0, localFile.length(), originalName),
+                    ))
+
+                    observeUploadWork(workManager, uploadWorkRequest.id, originalName, hostId, transferId)
                     Timber.d("Upload work enqueued with ID: ${uploadWorkRequest.id}")
                 } else {
                     // Fallback to direct upload (legacy method)
@@ -934,6 +953,7 @@ class SftpViewModel
             workId: UUID,
             fileName: String,
             hostId: Long,
+            transferId: Long,
         ) {
             viewModelScope.launch {
                 workManager.getWorkInfoByIdFlow(workId).collect { workInfo ->
@@ -942,36 +962,34 @@ class SftpViewModel
                             val transferred = workInfo.progress.getLong(UploadWorker.PROGRESS_CURRENT, 0L)
                             val total = workInfo.progress.getLong(UploadWorker.PROGRESS_TOTAL, 0L)
                             val startTime = workInfo.progress.getLong(UploadWorker.PROGRESS_START_TIME, System.currentTimeMillis())
-
                             if (total > 0) {
-                                val progress =
-                                    TransferProgress(
-                                        transferred = transferred,
-                                        total = total,
-                                        filePath = fileName,
-                                        startTime = startTime,
-                                        currentTime = System.currentTimeMillis(),
-                                    )
+                                updateTransferProgress(transferId, TransferProgress(
+                                    transferred = transferred,
+                                    total = total,
+                                    filePath = fileName,
+                                    startTime = startTime,
+                                    currentTime = System.currentTimeMillis(),
+                                ))
                             }
                         }
 
                         WorkInfo.State.SUCCEEDED -> {
                             setActiveWorkId(hostId, null)
+                            updateTransfer(transferId, TransferStatus.COMPLETED)
                             _uiState.value = _uiState.value.copy(message = "Upload complete: $fileName")
                             listDirectory(_uiState.value.currentPath)
-                            Timber.d("Upload work succeeded: $fileName")
                         }
 
                         WorkInfo.State.FAILED -> {
                             setActiveWorkId(hostId, null)
                             val errorMessage = workInfo.outputData.getString("error") ?: "Unknown error"
+                            updateTransfer(transferId, TransferStatus.FAILED, errorMessage)
                             _uiState.value = _uiState.value.copy(error = "Upload failed: $errorMessage")
-                            Timber.e("Upload work failed: $fileName - $errorMessage")
                         }
 
                         WorkInfo.State.CANCELLED -> {
                             setActiveWorkId(hostId, null)
-                            Timber.d("Upload work cancelled: $fileName")
+                            updateTransfer(transferId, TransferStatus.CANCELLED)
                         }
 
                         else -> {}
@@ -1241,7 +1259,17 @@ class SftpViewModel
         fun getClipboardFileCount(): Int = SftpClipboard.getFileCount()
 
         fun cancelTransfer(id: Long) {
+            // Cancela coroutine job (uploads directos / downloads)
             transferJobs[id]?.cancel()
+            // Cancela WorkManager job si existe para este host
+            val hostId = _uiState.value.host?.id
+            if (hostId != null) {
+                val workId = getActiveWorkId(hostId)
+                if (workId != null) {
+                    WorkManager.getInstance(getApplication()).cancelWorkById(workId)
+                    setActiveWorkId(hostId, null)
+                }
+            }
             updateTransfer(id, TransferStatus.CANCELLED)
         }
 
