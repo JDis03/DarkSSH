@@ -1193,12 +1193,12 @@ class SftpViewModel
                             when (clipboardData.operation) {
                                 SftpClipboard.Operation.COPY -> {
                                     // Copy file/directory via SSH (much faster than SFTP streaming)
-                                    val result = client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory)
+                                    val result = client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory, overwrite = true)
                                     if (result.isSuccess) {
                                         Timber.d("Copied: $sourcePath -> $destPath")
                                         successCount++
                                     } else {
-                                        Timber.e("Failed to copy: ${entry.name}")
+                                        Timber.e("Failed to copy: ${entry.name} - ${result.exceptionOrNull()?.message}")
                                         failCount++
                                     }
                                 }

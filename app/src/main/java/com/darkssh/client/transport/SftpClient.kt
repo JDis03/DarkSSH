@@ -726,19 +726,32 @@ class SftpClient(
 
     /**
      * Copy a file/directory from source to destination on the remote server via SSH cp command
-     * This is MUCH faster than SFTP streaming because it happens locally on the server
+     * This is MUCH faster than SFTP streaming because it happens locally on the server.
+     *
+     * @param overwrite If true, overwrites destination if it exists (-f flag).
+     *                  If false, fails silently if destination exists (cp default).
      */
     suspend fun copyFileViaSsh(
         sourcePath: String,
         destPath: String,
         isDirectory: Boolean = false,
+        overwrite: Boolean = false,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val client = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
 
+                // Skip if source and dest are the same
+                if (sourcePath == destPath) {
+                    Timber.w("Copy skipped: source equals dest: $sourcePath")
+                    return@withContext Result.success(Unit)
+                }
+
                 // Build cp command with proper escaping
-                val flags = if (isDirectory) "-r" else ""
+                val flags = buildString {
+                    if (isDirectory) append("-r ")
+                    if (overwrite) append("-f ")
+                }.trim()
                 val command = "cp $flags ${escapePath(sourcePath)} ${escapePath(destPath)}"
 
                 DebugLogger.i("SftpClient", "Copying via SSH: $command")
@@ -751,7 +764,7 @@ class SftpClient(
                         Result.success(Unit)
                     },
                     onFailure = { error ->
-                        Timber.e(error, "Copy failed")
+                        Timber.e(error, "Copy failed: $error")
                         Result.failure(error)
                     },
                 )
