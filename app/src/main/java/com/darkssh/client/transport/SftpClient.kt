@@ -823,7 +823,9 @@ class SftpClient(
         }
 
     /**
-     * Move/rename a file or directory on the remote server
+     * Move/rename a file or directory on the remote server.
+     * Uses SSH mv for atomic rename and better error reporting.
+     * Falls back to SFTP rename if SSH exec fails.
      */
     suspend fun moveFile(
         sourcePath: String,
@@ -832,12 +834,29 @@ class SftpClient(
         withContext(Dispatchers.IO) {
             try {
                 val client = sshClient ?: return@withContext Result.failure(Exception("Client not connected"))
+
+                // Skip if source and dest are the same
+                if (sourcePath == destPath) {
+                    Timber.w("Move skipped: source equals dest: $sourcePath")
+                    return@withContext Result.success(Unit)
+                }
+
+                // Use SSH mv - atomic on same FS, works for files and dirs, clearer errors
+                val command = "mv -f ${escapePath(sourcePath)} ${escapePath(destPath)}"
+                DebugLogger.i("SftpClient", "Moving via SSH: $command")
+                Timber.d("Executing: $command")
+
+                val execResult = executeCommand(command)
+                if (execResult.isSuccess) {
+                    Timber.d("Moved file: $sourcePath -> $destPath")
+                    return@withContext Result.success(Unit)
+                }
+
+                // Fallback to SFTP rename if SSH mv failed
+                Timber.w("SSH mv failed, falling back to SFTP rename")
                 val sftp = client.newSFTPClient()
-
-                // Use SFTP rename command (works for both files and directories)
                 sftp.rename(sourcePath, destPath)
-
-                Timber.d("Moved file: $sourcePath -> $destPath")
+                Timber.d("Moved file via SFTP rename: $sourcePath -> $destPath")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to move file: $sourcePath -> $destPath")
