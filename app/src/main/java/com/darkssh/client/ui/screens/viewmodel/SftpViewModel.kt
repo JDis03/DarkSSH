@@ -1149,9 +1149,19 @@ class SftpViewModel
         }
 
         fun pasteFiles() {
-            val clipboardData = SftpClipboard.paste() ?: return
-            val hostId = _uiState.value.host?.id ?: return
+            val clipboardData = SftpClipboard.paste() ?: run {
+                Timber.w("pasteFiles: clipboard is empty")
+                _uiState.value = _uiState.value.copy(error = "Clipboard is empty")
+                return
+            }
+            val hostId = _uiState.value.host?.id ?: run {
+                Timber.w("pasteFiles: no host in state")
+                return
+            }
             val targetPath = _uiState.value.currentPath.trimEnd('/')
+
+            Timber.d("pasteFiles: op=${clipboardData.operation} files=${clipboardData.files.size} " +
+                    "srcHost=${clipboardData.hostId} dstHost=$hostId srcPath=${clipboardData.sourcePath} dstPath=$targetPath")
 
             if (clipboardData.hostId != hostId) {
                 _uiState.value =
@@ -1210,6 +1220,7 @@ class SftpViewModel
                                         Timber.d("Moved: $sourcePath -> $destPath")
                                         successCount++
                                     } else {
+                                        Timber.e("Failed to move: ${entry.name} - ${result.exceptionOrNull()?.message}")
                                         failCount++
                                     }
                                 }
