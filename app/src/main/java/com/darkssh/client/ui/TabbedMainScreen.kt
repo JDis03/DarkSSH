@@ -148,6 +148,20 @@ fun TabbedMainScreen(
         }
     }
 
+    // Reactive: when a new bridge is added, check if it should be active for the current tab
+    // This handles the case where the bridge is created AFTER the tab change effect runs
+    val bridges by terminalService?.bridges?.collectAsState() ?: remember { mutableStateOf(emptyList()) }
+    LaunchedEffect(bridges.size, currentTabIndex) {
+        val currentTab = tabs.getOrNull(currentTabIndex)
+        if (currentTab?.type == TabType.SSH_TERMINAL) {
+            val bridge = bridges.firstOrNull { it.tabId == currentTab.id }
+            if (bridge != null && terminalService?.activeBridge?.value != bridge) {
+                Timber.d("TabbedMainScreen: New bridge detected for current tab ${currentTab.id}, updating active bridge")
+                terminalService?.setActiveBridge(bridge)
+            }
+        }
+    }
+
     // Sync ViewModel when user manually swipes (but not when we're syncing programmatically)
     LaunchedEffect(pagerState.settledPage) {
         // Only sync when user gesture completes (settledPage changes) and we're not syncing

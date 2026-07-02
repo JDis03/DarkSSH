@@ -142,6 +142,12 @@ class TerminalService : Service() {
         val bridge = TerminalBridge(host, this, knownHostRepository, tabRepository, clipboardManager, tabId)
         _bridges.value = _bridges.value + bridge
 
+        // Auto-set as active bridge if this is the first bridge or no active bridge
+        if (_activeBridge.value == null || _bridges.value.size == 1) {
+            Timber.d("TerminalService: Auto-setting bridge as active (first bridge or no active bridge)")
+            _activeBridge.value = bridge
+        }
+
         val notification = createConnectionNotification(host)
         startForeground(NOTIFICATION_ID, notification)
 
