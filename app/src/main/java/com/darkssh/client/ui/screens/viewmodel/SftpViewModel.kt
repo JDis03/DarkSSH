@@ -29,10 +29,12 @@ import com.darkssh.client.ui.MainActivity
 import com.darkssh.client.worker.UploadWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -1160,107 +1162,101 @@ class SftpViewModel
             }
             val targetPath = _uiState.value.currentPath.trimEnd('/')
 
-            Timber.d("pasteFiles: op=${clipboardData.operation} files=${clipboardData.files.size} " +
-                    "srcHost=${clipboardData.hostId} dstHost=$hostId srcPath=${clipboardData.sourcePath} dstPath=$targetPath")
-
             if (clipboardData.hostId != hostId) {
-                _uiState.value =
-                    _uiState.value.copy(
-                        error = "Cannot paste files from different host",
-                    )
+                _uiState.value = _uiState.value.copy(error = "Cannot paste files from different host")
                 return
             }
 
-            val operationName =
-                when (clipboardData.operation) {
-                    SftpClipboard.Operation.COPY -> "Copying"
-                    SftpClipboard.Operation.CUT -> "Moving"
+            val isMove = clipboardData.operation == SftpClipboard.Operation.CUT
+            val total = clipboardData.files.size
+
+            Timber.d("pasteFiles: op=${clipboardData.operation} files=$total src=${clipboardData.sourcePath} dst=$targetPath")
+
+            val id = ++transferIdCounter
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                // Añadir al queue con progreso 0/total
+                addTransfer(TransferInfo(
+                    id = id,
+                    fileName = if (total == 1) clipboardData.files[0].name
+                               else "$total archivos",
+                    remotePath = targetPath,
+                    localPath = clipboardData.sourcePath,
+                    isDownload = false,
+                    progress = TransferProgress(0, total.toLong(), if (isMove) "Moviendo…" else "Copiando…"),
+                ))
+
+                val client = activeClients[hostId]
+                if (client == null || !client.isConnected) {
+                    withContext(Dispatchers.Main) {
+                        updateTransfer(id, TransferStatus.FAILED, "Not connected to SFTP server")
+                        _uiState.value = _uiState.value.copy(error = "Not connected to SFTP server")
+                    }
+                    return@launch
                 }
 
-            Timber.d("$operationName ${clipboardData.files.size} files to $targetPath")
+                var successCount = 0
+                var failCount = 0
+                var lastError: String? = null
 
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val client = activeClients[hostId]
-                    if (client == null || !client.isConnected) {
-                        _uiState.value =
-                            _uiState.value.copy(
-                                error = "Not connected to SFTP server",
-                            )
-                        return@launch
-                    }
+                for ((index, entry) in clipboardData.files.withIndex()) {
+                    if (!isActive) break
 
-                    _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                    val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
+                    val destPath = "$targetPath/${entry.name}"
 
-                    var successCount = 0
-                    var failCount = 0
+                    // Actualizar progreso: N/total completados
+                    val label = if (isMove) "Moviendo ${index + 1}/$total" else "Copiando ${index + 1}/$total"
+                    updateTransferProgress(id, TransferProgress(
+                        transferred = index.toLong(),
+                        total = total.toLong(),
+                        filePath = entry.name,
+                        startTime = System.currentTimeMillis(),
+                    ))
 
-                    for (entry in clipboardData.files) {
-                        val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
-                        val destPath = "$targetPath/${entry.name}"
+                    try {
+                        val result = when (clipboardData.operation) {
+                            SftpClipboard.Operation.COPY ->
+                                client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory, overwrite = true)
+                            SftpClipboard.Operation.CUT ->
+                                client.moveFile(sourcePath, destPath)
+                        }
 
-                        try {
-                            when (clipboardData.operation) {
-                                SftpClipboard.Operation.COPY -> {
-                                    // Copy file/directory via SSH (much faster than SFTP streaming)
-                                    val result = client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory, overwrite = true)
-                                    if (result.isSuccess) {
-                                        Timber.d("Copied: $sourcePath -> $destPath")
-                                        successCount++
-                                    } else {
-                                        Timber.e("Failed to copy: ${entry.name} - ${result.exceptionOrNull()?.message}")
-                                        failCount++
-                                    }
-                                }
-
-                                SftpClipboard.Operation.CUT -> {
-                                    // Move (rename) file/directory
-                                    val result = client.moveFile(sourcePath, destPath)
-                                    if (result.isSuccess) {
-                                        Timber.d("Moved: $sourcePath -> $destPath")
-                                        successCount++
-                                    } else {
-                                        Timber.e("Failed to move: ${entry.name} - ${result.exceptionOrNull()?.message}")
-                                        failCount++
-                                    }
-                                }
-                            }
-                        } catch (e: Exception) {
-                            Timber.e(e, "Failed to paste ${entry.name}")
+                        if (result.isSuccess) {
+                            successCount++
+                        } else {
+                            lastError = result.exceptionOrNull()?.message
+                            Timber.e("Failed to paste ${entry.name}: $lastError")
                             failCount++
                         }
+                    } catch (e: Exception) {
+                        lastError = e.message
+                        Timber.e(e, "Exception pasting ${entry.name}")
+                        failCount++
                     }
+                }
 
-                    // Clear clipboard after paste (only if all succeeded)
+                withContext(Dispatchers.Main) {
                     if (failCount == 0) {
                         SftpClipboard.clear()
+                        updateTransfer(id, TransferStatus.COMPLETED)
+                        _uiState.value = _uiState.value.copy(
+                            message = if (isMove) "Movido: $successCount archivo(s)"
+                                      else "Copiado: $successCount archivo(s)"
+                        )
+                    } else if (successCount == 0) {
+                        updateTransfer(id, TransferStatus.FAILED, lastError ?: "Operación fallida")
+                        _uiState.value = _uiState.value.copy(error = lastError ?: "Failed to paste files")
+                    } else {
+                        updateTransfer(id, TransferStatus.FAILED,
+                            "$successCount ok, $failCount fallaron")
+                        _uiState.value = _uiState.value.copy(
+                            error = "$successCount ok, $failCount fallaron: $lastError"
+                        )
                     }
-
-                    // Show result message
-                    val message =
-                        when {
-                            failCount == 0 -> "$operationName completed: $successCount file(s)"
-                            successCount == 0 -> "Failed to paste files"
-                            else -> "$operationName completed: $successCount succeeded, $failCount failed"
-                        }
-
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isLoading = false,
-                            error = if (failCount > 0) message else null,
-                        )
-
-                    // Refresh current directory
                     listDirectory(_uiState.value.currentPath)
-                } catch (e: Exception) {
-                    Timber.e(e, "Paste operation failed")
-                    _uiState.value =
-                        _uiState.value.copy(
-                            isLoading = false,
-                            error = e.message ?: "Failed to paste files",
-                        )
                 }
             }
+            transferJobs[id] = job
         }
 
         fun hasClipboardData(): Boolean = SftpClipboard.hasData()
