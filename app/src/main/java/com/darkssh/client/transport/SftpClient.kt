@@ -876,6 +876,38 @@ class SftpClient(
                 Result.failure(e)
             }
         }
+
+    /**
+     * Recursively delete a directory via SSH rm -rf.
+     * SFTP rmdir only works on empty directories — this handles non-empty ones.
+     */
+    suspend fun deleteDirectoryViaSsh(
+        remotePath: String,
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val client = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
+
+                val command = "rm -rf ${escapePath(remotePath)}"
+                DebugLogger.i("SftpClient", "Deleting via SSH: $command")
+                Timber.d("Executing: $command")
+
+                val result = executeCommand(command)
+                result.fold(
+                    onSuccess = {
+                        Timber.d("Directory deleted: $remotePath")
+                        Result.success(Unit)
+                    },
+                    onFailure = { error ->
+                        Timber.e(error, "Failed to delete directory: $remotePath")
+                        Result.failure(error)
+                    },
+                )
+            } catch (e: Exception) {
+                Timber.e(e, "Exception deleting directory: $remotePath")
+                Result.failure(e)
+            }
+        }
 }
 
 class OutputStreamDestFile(

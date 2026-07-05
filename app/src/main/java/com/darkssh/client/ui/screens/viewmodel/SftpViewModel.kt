@@ -1014,17 +1014,30 @@ class SftpViewModel
         }
 
         fun deleteEntry(entry: SftpEntry) {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
+                val client = sftpClient
                 val result =
                     if (entry.isDirectory) {
-                        sftpClient?.rmdir(entry.path)
+                        // SFTP rmdir only works on empty dirs. Use rm -rf via SSH for folders.
+                        val sshResult = client?.deleteDirectoryViaSsh(entry.path)
+                        if (sshResult != null) {
+                            sshResult
+                        } else {
+                            // Fallback to SFTP rmdir (may fail if not empty)
+                            client?.rmdir(entry.path) ?: Result.failure(Exception("SFTP not connected"))
+                        }
                     } else {
-                        sftpClient?.rm(entry.path)
+                        client?.rm(entry.path) ?: Result.failure(Exception("SFTP not connected"))
                     }
-                if (result?.isSuccess == true) {
-                    listDirectory(_uiState.value.currentPath)
+                if (result.isSuccess) {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(message = "Deleted: ${entry.name}")
+                        listDirectory(_uiState.value.currentPath)
+                    }
                 } else {
-                    _uiState.value = _uiState.value.copy(error = result?.exceptionOrNull()?.message)
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message)
+                    }
                 }
             }
         }
