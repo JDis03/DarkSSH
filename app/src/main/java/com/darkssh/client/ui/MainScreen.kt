@@ -58,6 +58,11 @@ fun MainScreen(
     
     // Get tabs state to conditionally hide bottom bar
     val tabs by tabManager.tabs.collectAsState()
+
+    // Collect connected host IDs from TerminalService (null-safe: empty set when service not bound)
+    val connectedHostIds by (terminalService?.connectedHostIds
+        ?: kotlinx.coroutines.flow.MutableStateFlow(emptySet()))
+        .collectAsState()
     
     // Handle back gesture
     BackHandler {
@@ -127,6 +132,7 @@ fun MainScreen(
                 } else {
                     HostListScreen(
                         modifier = Modifier.padding(paddingValues),
+                        connectedHostIds = connectedHostIds,
                         onHostClick = { host ->
                             tabManager.createOrSwitchToTab(TabType.SSH_TERMINAL, host.id, host.nickname)
                             selectedTab = 1 // Switch to Tabs view

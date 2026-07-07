@@ -21,7 +21,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
@@ -46,6 +51,29 @@ class TerminalService : Service() {
 
     private val _bridges = MutableStateFlow<List<TerminalBridge>>(emptyList())
     val bridges: StateFlow<List<TerminalBridge>> = _bridges
+
+    /**
+     * Set of hostIds that currently have at least one active SSH connection.
+     * Derived reactively from bridges + their isConnected states.
+     * Used by HostListScreen to show online/offline indicators without
+     * coupling the ViewModel to TerminalService.
+     */
+    val connectedHostIds: StateFlow<Set<Long>> = _bridges
+        .flatMapLatest { bridgeList ->
+            if (bridgeList.isEmpty()) {
+                kotlinx.coroutines.flow.flowOf(emptySet())
+            } else {
+                // Combine all bridge isConnected flows into a single Set<Long>
+                combine(bridgeList.map { bridge ->
+                    bridge.isConnected.map { connected ->
+                        bridge.host.id to connected
+                    }
+                }) { pairs ->
+                    pairs.filter { it.second }.map { it.first }.toSet()
+                }
+            }
+        }
+        .stateIn(serviceScope, SharingStarted.WhileSubscribed(), emptySet())
 
     private val _activeBridge = MutableStateFlow<TerminalBridge?>(null)
     val activeBridge: StateFlow<TerminalBridge?> = _activeBridge

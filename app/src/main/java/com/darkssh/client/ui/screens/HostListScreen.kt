@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,6 +69,7 @@ fun HostListScreen(
     onDeleteHostClick: (Host) -> Unit = {},
     onSftpClick: (Host) -> Unit = {},
     onCloneClick: (Host) -> Unit = {},
+    connectedHostIds: Set<Long> = emptySet(),
     modifier: Modifier = Modifier,
     viewModel: HostListViewModel = hiltViewModel(),
 ) {
@@ -136,6 +138,7 @@ fun HostListScreen(
                     val host = hosts[index]
                     HostCard(
                         host = host,
+                        isConnected = host.id in connectedHostIds,
                         onHostClick = { onHostClick(host) },
                         onEditClick = { onEditHostClick(host) },
                         onDeleteClick = { onDeleteHostClick(host) },
@@ -152,6 +155,7 @@ fun HostListScreen(
 @Composable
 private fun HostCard(
     host: Host,
+    isConnected: Boolean,
     onHostClick: () -> Unit,
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
@@ -269,12 +273,27 @@ private fun HostCard(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(
-                            Icons.Default.Computer,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(40.dp),
-                        )
+                        // OS icon with connection status dot
+                        Box {
+                            Icon(
+                                Icons.Default.Computer,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(40.dp),
+                            )
+                            // Status dot: green = connected, surface = offline
+                            val dotColor = if (isConnected)
+                                androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                            else
+                                MaterialTheme.colorScheme.outlineVariant
+                            Canvas(
+                                modifier = Modifier
+                                    .size(12.dp)
+                                    .align(Alignment.BottomEnd)
+                            ) {
+                                drawCircle(color = dotColor)
+                            }
+                        }
                         Spacer(modifier = Modifier.width(16.dp))
                         Column {
                             Text(
