@@ -153,7 +153,9 @@ fun DarkSSHNavHost(
             }
 
             composable(Screen.HostEditor.route) { backStackEntry ->
+                val hostId = backStackEntry.arguments?.getString("hostId")?.toLongOrNull() ?: -1L
                 HostEditorScreen(
+                    hostId = hostId,
                     onSave = { navController.popBackStack() },
                     onCancel = { navController.popBackStack() },
                 )
