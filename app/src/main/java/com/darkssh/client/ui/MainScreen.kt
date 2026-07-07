@@ -147,6 +147,12 @@ fun MainScreen(
                             tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
                             selectedTab = 1 // Switch to Tabs view
                         },
+                        onCloneClick = { host ->
+                            // Clone host: open editor with pre-filled data but new ID
+                            editingHostId = null // New host (will get new ID)
+                            showHostEditor = true
+                            // TODO: Pass host data to pre-fill the form
+                        },
                     )
                 }
             }

@@ -19,13 +19,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Computer
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -64,6 +67,7 @@ fun HostListScreen(
     onEditHostClick: (Host) -> Unit,
     onDeleteHostClick: (Host) -> Unit = {},
     onSftpClick: (Host) -> Unit = {},
+    onCloneClick: (Host) -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: HostListViewModel = hiltViewModel(),
 ) {
@@ -136,6 +140,7 @@ fun HostListScreen(
                         onEditClick = { onEditHostClick(host) },
                         onDeleteClick = { onDeleteHostClick(host) },
                         onSftpClick = { onSftpClick(host) },
+                        onCloneClick = { onCloneClick(host) },
                     )
                 }
             }
@@ -151,12 +156,20 @@ private fun HostCard(
     onEditClick: () -> Unit,
     onDeleteClick: () -> Unit,
     onSftpClick: () -> Unit,
+    onCloneClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var show by remember { mutableStateOf(true) }
+    var showMenu by remember { mutableStateOf(false) }
+    
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
             when (dismissValue) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    // Swipe right to edit
+                    onEditClick()
+                    false // Don't dismiss
+                }
                 SwipeToDismissBoxValue.EndToStart -> {
                     // Swipe left to delete
                     show = false
@@ -185,28 +198,52 @@ private fun HostCard(
         SwipeToDismissBox(
             state = dismissState,
             backgroundContent = {
-                // Red background when swiping to delete
-                val color = when (dismissState.dismissDirection) {
-                    SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.errorContainer
-                    else -> Color.Transparent
+                // Background colors for swipe actions
+                val alignment: Alignment
+                val icon: androidx.compose.ui.graphics.vector.ImageVector
+                val color: Color
+                val iconTint: Color
+                
+                when (dismissState.dismissDirection) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        // Swipe right → Edit (blue)
+                        alignment = Alignment.CenterStart
+                        icon = Icons.Default.Edit
+                        color = MaterialTheme.colorScheme.primaryContainer
+                        iconTint = MaterialTheme.colorScheme.onPrimaryContainer
+                    }
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        // Swipe left → Delete (red)
+                        alignment = Alignment.CenterEnd
+                        icon = Icons.Default.Delete
+                        color = MaterialTheme.colorScheme.errorContainer
+                        iconTint = MaterialTheme.colorScheme.onErrorContainer
+                    }
+                    else -> {
+                        alignment = Alignment.Center
+                        icon = Icons.Default.Computer
+                        color = Color.Transparent
+                        iconTint = Color.Transparent
+                    }
                 }
+                
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(color)
                         .padding(horizontal = 20.dp),
-                    contentAlignment = Alignment.CenterEnd
+                    contentAlignment = alignment
                 ) {
-                    if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                    if (dismissState.dismissDirection != SwipeToDismissBoxValue.Settled) {
                         Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
+                            icon,
+                            contentDescription = null,
+                            tint = iconTint,
                         )
                     }
                 }
             },
-            enableDismissFromStartToEnd = false,
+            enableDismissFromStartToEnd = true,
             enableDismissFromEndToStart = true,
         ) {
             Card(
@@ -220,63 +257,80 @@ private fun HostCard(
                     pressedElevation = 4.dp,
                 ),
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // Header: Icon + Title + Edit button
+                    // Icon + Info
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.weight(1f),
-                        ) {
-                            Icon(
-                                Icons.Default.Computer,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp),
+                        Icon(
+                            Icons.Default.Computer,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(40.dp),
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column {
+                            Text(
+                                text = host.nickname.ifBlank { host.hostname },
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
-                            Spacer(modifier = Modifier.width(12.dp))
-                            Column {
-                                Text(
-                                    text = host.nickname.ifBlank { host.hostname },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                )
-                                Text(
-                                    text = "${host.username}@${host.hostname}:${host.port}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        IconButton(onClick = onEditClick) {
-                            Icon(
-                                Icons.Default.Edit,
-                                contentDescription = "Edit",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            Text(
+                                text = "${host.username}@${host.hostname}:${host.port}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
-
-                    // SFTP Button (prominent)
-                    Spacer(modifier = Modifier.size(12.dp))
-                    FilledTonalButton(
-                        onClick = onSftpClick,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Icon(
-                            Icons.Default.Folder,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("SFTP File Manager")
+                    
+                    // Menu button
+                    Box {
+                        IconButton(onClick = { showMenu = true }) {
+                            Icon(
+                                Icons.Default.MoreVert,
+                                contentDescription = "More options",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("SFTP File Manager") },
+                                onClick = {
+                                    showMenu = false
+                                    onSftpClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.Folder,
+                                        contentDescription = null,
+                                    )
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Clone Host") },
+                                onClick = {
+                                    showMenu = false
+                                    onCloneClick()
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Default.ContentCopy,
+                                        contentDescription = null,
+                                    )
+                                }
+                            )
+                        }
                     }
                 }
             }
