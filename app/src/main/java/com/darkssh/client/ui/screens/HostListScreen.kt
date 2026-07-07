@@ -1,9 +1,5 @@
 package com.darkssh.client.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -43,7 +39,6 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.ui.screens.viewmodel.HostListViewModel
-import kotlinx.coroutines.delay
+
 
 @Suppress("ktlint:standard:function-naming")
 @OptIn(ExperimentalMaterial3Api::class)
@@ -137,6 +132,7 @@ fun HostListScreen(
                 ) { index ->
                     val host = hosts[index]
                     HostCard(
+                        modifier = Modifier.animateItem(),
                         host = host,
                         isConnected = host.id in connectedHostIds,
                         onHostClick = { onHostClick(host) },
@@ -163,42 +159,28 @@ private fun HostCard(
     onCloneClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var show by remember { mutableStateOf(true) }
     var showMenu by remember { mutableStateOf(false) }
-    
+
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { dismissValue ->
             when (dismissValue) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    // Swipe right to edit
+                    // Swipe right → edit: snap back, open editor
                     onEditClick()
-                    false // Don't dismiss
+                    false
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
-                    // Swipe left to delete
-                    show = false
-                    true
+                    // Swipe left → delete: snap back, show confirmation dialog
+                    // The item only disappears AFTER the user confirms in the dialog.
+                    // LazyColumn.animateItem() handles the removal animation from DB.
+                    onDeleteClick()
+                    false
                 }
                 else -> false
             }
         }
     )
 
-    // Trigger delete after animation
-    LaunchedEffect(show) {
-        if (!show) {
-            delay(300) // Wait for animation
-            onDeleteClick()
-        }
-    }
-
-    AnimatedVisibility(
-        visible = show,
-        exit = shrinkVertically(
-            animationSpec = tween(300),
-            shrinkTowards = Alignment.Top
-        ) + fadeOut()
-    ) {
         SwipeToDismissBox(
             state = dismissState,
             backgroundContent = {
@@ -354,5 +336,4 @@ private fun HostCard(
                 }
             }
         }
-    }
 }
