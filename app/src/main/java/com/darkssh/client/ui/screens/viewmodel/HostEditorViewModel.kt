@@ -83,9 +83,14 @@ class HostEditorViewModel
             }
         }
 
-        fun loadHost(hostId: Long) {
-            viewModelScope.launch {
+    fun loadHost(hostId: Long) {
+        viewModelScope.launch {
+            if (hostId > 0) {
                 _host.value = hostRepository.getHostById(hostId)
+            } else {
+                // Clear host when adding new (hostId = -1)
+                _host.value = null
             }
         }
+    }
     }

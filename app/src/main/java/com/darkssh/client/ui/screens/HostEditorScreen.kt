@@ -54,11 +54,9 @@ fun HostEditorScreen(
     modifier: Modifier = Modifier,
     viewModel: HostEditorViewModel = hiltViewModel(),
 ) {
-    // Load host if editing an existing one (needed when not using NavHost navigation)
+    // Load host if editing, or clear if adding new (needed when not using NavHost navigation)
     LaunchedEffect(hostId) {
-        if (hostId > 0) {
-            viewModel.loadHost(hostId)
-        }
+        viewModel.loadHost(hostId)
     }
     val host by viewModel.host.collectAsState()
     val pubkeys by viewModel.pubkeys.collectAsState()
