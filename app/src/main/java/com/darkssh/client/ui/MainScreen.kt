@@ -61,16 +61,21 @@ fun MainScreen(
     
     // Handle back gesture
     BackHandler {
-        when (selectedTab) {
-            1 -> {
+        when {
+            showHostEditor -> {
+                // Close host editor dialog first
+                showHostEditor = false
+                editingHostId = null
+            }
+            selectedTab == 1 -> {
                 // In Tabs: go to Hosts
                 selectedTab = 0
             }
-            2 -> {
+            selectedTab == 2 -> {
                 // In Settings: go to Hosts
                 selectedTab = 0
             }
-            0 -> {
+            else -> {
                 // In Hosts: ask for confirmation to exit
                 showExitDialog = true
             }
