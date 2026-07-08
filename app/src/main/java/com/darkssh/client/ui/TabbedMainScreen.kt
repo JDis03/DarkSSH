@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Tab
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -140,7 +142,13 @@ fun TabbedMainScreen(
                     tabs = tabs,
                     pagerState = pagerState,
                     terminalService = terminalService,
-                    onAddTab = { onBack() }, // Go to Hosts tab to add new tab
+                    onAddTab = { onBack() },
+                    onCloseOthers = { keepId ->
+                        tabManager.closeOtherTabs(keepId)
+                    },
+                    onCloseAll = {
+                        tabManager.closeAllTabs()
+                    },
                     onCloseTab = { tabId ->
                         val tab = tabs.find { it.id == tabId }
                         
@@ -181,31 +189,34 @@ fun TabbedMainScreen(
 
             // Horizontal pager for tab content
             if (tabs.isEmpty()) {
-                // Show empty state when no tabs
+                // Empty state
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = androidx.compose.ui.Alignment.Center,
                 ) {
                     Column(
                         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Icon(
                             Icons.Default.Tab,
                             contentDescription = null,
-                            modifier = Modifier.size(64.dp),
+                            modifier = Modifier.size(56.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
-                            "No tabs open",
+                            "No open sessions",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text(
-                            "Go to Hosts tab to open a connection",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                        Button(onClick = { onBack() }) {
+                            Icon(
+                                Icons.Default.Add,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Text("  New connection")
+                        }
                     }
                 }
             } else {

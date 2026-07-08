@@ -8,17 +8,23 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -33,9 +39,12 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
@@ -192,6 +201,54 @@ private fun OsIcon(osType: OsType, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * Small dot indicating SSH connection state:
+ *   green  = connected
+ *   red    = disconnected
+ *   pulsing gray = connecting / unknown
+ */
+@Composable
+private fun ConnectionDot(
+    isConnected: Boolean,
+    isDisconnected: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val color: Color
+    val alpha: Float
+
+    when {
+        isConnected -> {
+            color = Color(0xFF4CAF50) // green
+            alpha = 1f
+        }
+        isDisconnected -> {
+            color = MaterialTheme.colorScheme.error // red
+            alpha = 1f
+        }
+        else -> {
+            // Connecting: pulsing gray
+            color = Color.Gray
+            val transition = rememberInfiniteTransition(label = "connecting")
+            alpha = transition.animateFloat(
+                initialValue = 0.3f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(700, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "pulse",
+            ).value
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .size(8.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = alpha)),
+    )
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TabBar(
@@ -200,6 +257,8 @@ fun TabBar(
     terminalService: TerminalService?,
     onAddTab: () -> Unit,
     onCloseTab: (String) -> Unit,
+    onCloseOthers: (String) -> Unit = {},
+    onCloseAll: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -207,9 +266,9 @@ fun TabBar(
 
     Row(
         modifier = modifier
-            .height(48.dp)
+            .height(52.dp)
             .background(MaterialTheme.colorScheme.surfaceContainer),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         ScrollableTabRow(
             selectedTabIndex = pagerState.currentPage.coerceIn(0, tabs.size - 1).takeIf { tabs.isNotEmpty() } ?: 0,
@@ -219,89 +278,129 @@ fun TabBar(
             divider = {},
         ) {
             tabs.forEachIndexed { index, tab ->
-                // key{} ensures Compose can safely call Hooks per stable tab.id
-                // (fixes: collectAsState inside forEach violates Hook ordering rules)
                 key(tab.id) {
-                val bridge = bridges.find { it.tabId == tab.id }
-                val osType by bridge?.osType?.collectAsState() ?: remember { mutableStateOf(OsType.UNKNOWN) }
-                
-                Tab(
-                    selected = pagerState.currentPage == index,
-                    onClick = {
-                        scope.launch {
-                            pagerState.animateScrollToPage(index)
-                        }
-                    },
-                    text = {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.padding(horizontal = 8.dp)
-                        ) {
-                            // Show OS icon for SSH terminals, remote folder icon for SFTP
-                            when (tab.type) {
-                                TabType.SSH_TERMINAL -> OsIcon(
-                                    osType = osType,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                TabType.SFTP_BROWSER -> {
-                                    val context = LocalPlatformContext.current
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(context)
-                                            .data("file:///android_asset/icons/ic_folder_remote.svg")
-                                            .decoderFactory(SvgDecoder.Factory())
-                                            .build(),
-                                        contentDescription = "SFTP",
-                                        modifier = Modifier.size(18.dp)
+                    val bridge = bridges.find { it.tabId == tab.id }
+                    val osType by bridge?.osType?.collectAsState() ?: remember { mutableStateOf(OsType.UNKNOWN) }
+                    val isConnected by bridge?.isConnected?.collectAsState() ?: remember { mutableStateOf(false) }
+                    val isDisconnected by bridge?.isDisconnected?.collectAsState() ?: remember { mutableStateOf(false) }
+                    var showContextMenu by remember { mutableStateOf(false) }
+
+                    Tab(
+                        selected = pagerState.currentPage == index,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                        modifier = Modifier.combinedClickable(
+                            onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                            onLongClick = { showContextMenu = true },
+                        ),
+                        text = {
+                            Box {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 4.dp),
+                                ) {
+                                    // OS icon with connection dot overlay (SSH only)
+                                    Box {
+                                        when (tab.type) {
+                                            TabType.SSH_TERMINAL -> OsIcon(
+                                                osType = osType,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                            TabType.SFTP_BROWSER -> {
+                                                val context = LocalPlatformContext.current
+                                                AsyncImage(
+                                                    model = ImageRequest.Builder(context)
+                                                        .data("file:///android_asset/icons/ic_folder_remote.svg")
+                                                        .decoderFactory(SvgDecoder.Factory())
+                                                        .build(),
+                                                    contentDescription = "SFTP",
+                                                    modifier = Modifier.size(18.dp),
+                                                )
+                                            }
+                                        }
+                                        // Connection status dot (SSH only)
+                                        if (tab.type == TabType.SSH_TERMINAL) {
+                                            ConnectionDot(
+                                                isConnected = isConnected,
+                                                isDisconnected = isDisconnected,
+                                                modifier = Modifier
+                                                    .align(Alignment.BottomEnd)
+                                                    .offset(x = 2.dp, y = 2.dp),
+                                            )
+                                        }
+                                    }
+
+                                    Text(
+                                        text = tab.title.ifEmpty {
+                                            when (tab.type) {
+                                                TabType.SSH_TERMINAL -> "Terminal"
+                                                TabType.SFTP_BROWSER -> "SFTP"
+                                            }
+                                        },
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                    )
+
+                                    IconButton(
+                                        onClick = { onCloseTab(tab.id) },
+                                        modifier = Modifier.size(20.dp),
+                                        colors = IconButtonDefaults.iconButtonColors(
+                                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        ),
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Close",
+                                            modifier = Modifier.size(14.dp),
+                                        )
+                                    }
+                                }
+
+                                // Long-press context menu
+                                DropdownMenu(
+                                    expanded = showContextMenu,
+                                    onDismissRequest = { showContextMenu = false },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text("Close") },
+                                        onClick = {
+                                            showContextMenu = false
+                                            onCloseTab(tab.id)
+                                        },
+                                    )
+                                    if (tabs.size > 1) {
+                                        DropdownMenuItem(
+                                            text = { Text("Close others") },
+                                            onClick = {
+                                                showContextMenu = false
+                                                onCloseOthers(tab.id)
+                                            },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Close all") },
+                                        onClick = {
+                                            showContextMenu = false
+                                            onCloseAll()
+                                        },
                                     )
                                 }
                             }
-                            
-                            Text(
-                                text = tab.title.ifEmpty {
-                                    when (tab.type) {
-                                        TabType.SSH_TERMINAL -> "Terminal"
-                                        TabType.SFTP_BROWSER -> "SFTP"
-                                    }
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                            IconButton(
-                                onClick = { 
-                                    try {
-                                        onCloseTab(tab.id)
-                                    } catch (e: Exception) {
-                                        timber.log.Timber.e(e, "Error closing tab ${tab.id}")
-                                    }
-                                },
-                                modifier = Modifier.size(20.dp),
-                                colors = IconButtonDefaults.iconButtonColors(
-                                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            ) {
-                                Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Close",
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            }
-                        }
-                    },
-                )
-                } // end key(tab.id)
+                        },
+                    )
+                }
             }
         }
 
         IconButton(
             onClick = onAddTab,
-            modifier = Modifier.padding(horizontal = 4.dp)
+            modifier = Modifier.padding(horizontal = 4.dp),
         ) {
             Icon(
                 Icons.Default.Add,
                 contentDescription = "Add tab",
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }
