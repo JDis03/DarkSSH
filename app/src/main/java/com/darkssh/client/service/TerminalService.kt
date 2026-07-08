@@ -73,7 +73,7 @@ class TerminalService : Service() {
                 }
             }
         }
-        .stateIn(serviceScope, SharingStarted.WhileSubscribed(), emptySet())
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptySet())
 
     private val _activeBridge = MutableStateFlow<TerminalBridge?>(null)
     val activeBridge: StateFlow<TerminalBridge?> = _activeBridge

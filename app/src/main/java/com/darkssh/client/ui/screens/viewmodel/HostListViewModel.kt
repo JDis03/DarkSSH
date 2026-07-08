@@ -34,9 +34,10 @@ class HostListViewModel
                 val uniqueNickname = if (baseName !in existingNicknames) {
                     baseName
                 } else {
-                    (2..99).firstNotNullOf { n ->
-                        "$baseName ($n)".takeIf { it !in existingNicknames }
-                    }
+                    // Find first available suffix (2..Int.MAX) — never throws
+                    generateSequence(2) { it + 1 }
+                        .map { "$baseName ($it)" }
+                        .first { it !in existingNicknames }
                 }
 
                 val clone = host.copy(
