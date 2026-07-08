@@ -359,19 +359,7 @@ private fun SingleTab(
                     color = if (isSelected) selectedText else normalText,
                     modifier = Modifier.weight(1f),
                 )
-
-                // Close button — only when expanded
-                IconButton(
-                    onClick = onClose,
-                    modifier = Modifier.size(18.dp),
-                ) {
-                    Icon(
-                        Icons.Default.Close,
-                        contentDescription = "Close",
-                        modifier = Modifier.size(12.dp),
-                        tint = if (isSelected) selectedText else normalText,
-                    )
-                }
+                // No X button — close via long-press menu
             }
         }
 
