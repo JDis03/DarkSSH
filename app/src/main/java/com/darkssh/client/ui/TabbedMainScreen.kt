@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.runtime.rememberCoroutineScope
+import com.darkssh.client.data.entity.Tab
 import com.darkssh.client.data.entity.TabType
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.components.TabBar
@@ -37,6 +38,7 @@ import com.darkssh.client.ui.screens.ConsoleScreen
 import com.darkssh.client.ui.screens.SftpScreen
 import com.darkssh.client.ui.viewmodel.TabManager
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -143,46 +145,20 @@ fun TabbedMainScreen(
                     pagerState = pagerState,
                     terminalService = terminalService,
                     onAddTab = { onBack() },
+                    onCloseTab = { tabId ->
+                        closeTab(tabId, tabs, terminalService, coroutineScope, tabManager)
+                    },
                     onCloseOthers = { keepId ->
-                        tabManager.closeOtherTabs(keepId)
+                        // Close all tabs EXCEPT keepId — full cleanup per tab
+                        tabs.filter { it.id != keepId }.forEach { tab ->
+                            closeTab(tab.id, tabs, terminalService, coroutineScope, tabManager)
+                        }
                     },
                     onCloseAll = {
-                        tabManager.closeAllTabs()
-                    },
-                    onCloseTab = { tabId ->
-                        val tab = tabs.find { it.id == tabId }
-                        
-                        // Close TerminalBridge if SSH tab
-                        if (tab?.type == TabType.SSH_TERMINAL) {
-                            val bridgeToClose = terminalService?.bridges?.value?.find { it.tabId == tabId }
-                            if (bridgeToClose != null) {
-                                terminalService.onBridgeDisconnected(
-                                    bridgeToClose,
-                                    com.darkssh.client.service.DisconnectReason.USER_REQUESTED
-                                )
-                            }
+                        // Close every tab — full cleanup per tab
+                        tabs.toList().forEach { tab ->
+                            closeTab(tab.id, tabs, terminalService, coroutineScope, tabManager)
                         }
-                        
-                        // Close SftpClient if SFTP tab
-                        if (tab?.type == TabType.SFTP_BROWSER) {
-                            val hostId = tab.hostId
-                            SftpViewModel.activeClients[hostId]?.let { client ->
-                                coroutineScope.launch {
-                                    try {
-                                        withContext(Dispatchers.IO) {
-                                            client.disconnect()
-                                        }
-                                        Timber.d("TabbedMainScreen: disconnected SFTP client for tab $tabId (host $hostId)")
-                                    } catch (e: Exception) {
-                                        Timber.w(e, "TabbedMainScreen: failed to disconnect SFTP on tab close")
-                                    }
-                                }
-                                SftpViewModel.activeClients.remove(hostId)
-                            }
-                        }
-                        
-                        // Close the tab in database
-                        tabManager.closeTab(tabId)
                     },
                 )
             }
@@ -258,4 +234,47 @@ fun TabbedMainScreen(
             }
         }
     }
+}
+
+/**
+ * Full tab close: disconnects SSH bridge / SFTP client, then removes from DB.
+ * Single source of truth — used by close, close-others, close-all.
+ */
+private fun closeTab(
+    tabId: String,
+    tabs: List<Tab>,
+    terminalService: TerminalService?,
+    scope: CoroutineScope,
+    tabManager: com.darkssh.client.ui.viewmodel.TabManager,
+) {
+    val tab = tabs.find { it.id == tabId } ?: return
+
+    // SSH: disconnect bridge
+    if (tab.type == TabType.SSH_TERMINAL) {
+        val bridge = terminalService?.bridges?.value?.find { it.tabId == tabId }
+        if (bridge != null) {
+            terminalService.onBridgeDisconnected(
+                bridge,
+                com.darkssh.client.service.DisconnectReason.USER_REQUESTED,
+            )
+        }
+    }
+
+    // SFTP: disconnect client
+    if (tab.type == TabType.SFTP_BROWSER) {
+        com.darkssh.client.ui.screens.viewmodel.SftpViewModel.activeClients[tab.hostId]?.let { client ->
+            scope.launch {
+                try {
+                    withContext(Dispatchers.IO) { client.disconnect() }
+                    Timber.d("closeTab: SFTP disconnected for tab $tabId (host ${tab.hostId})")
+                } catch (e: Exception) {
+                    Timber.w(e, "closeTab: SFTP disconnect failed for tab $tabId")
+                }
+            }
+            com.darkssh.client.ui.screens.viewmodel.SftpViewModel.activeClients.remove(tab.hostId)
+        }
+    }
+
+    // DB: remove tab
+    tabManager.closeTab(tabId)
 }

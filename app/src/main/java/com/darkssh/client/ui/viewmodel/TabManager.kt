@@ -155,16 +155,6 @@ class TabManager
             }
         }
 
-        fun closeOtherTabs(keepTabId: String) {
-            val toClose = _tabs.value.filter { it.id != keepTabId }
-            toClose.forEach { tab -> closeTab(tab.id) }
-        }
-
-        fun closeAllTabs() {
-            val toClose = _tabs.value.toList()
-            toClose.forEach { tab -> closeTab(tab.id) }
-        }
-
         fun reorderTabs(
             fromIndex: Int,
             toIndex: Int,
