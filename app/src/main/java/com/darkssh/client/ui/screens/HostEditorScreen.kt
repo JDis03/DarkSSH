@@ -51,6 +51,7 @@ fun HostEditorScreen(
     hostId: Long = -1L,
     onSave: () -> Unit,
     onCancel: () -> Unit,
+    onHostSaved: (hostId: Long, newNickname: String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     viewModel: HostEditorViewModel = hiltViewModel(),
 ) {
@@ -60,6 +61,14 @@ fun HostEditorScreen(
     }
     val host by viewModel.host.collectAsState()
     val pubkeys by viewModel.pubkeys.collectAsState()
+
+    // When host is saved (edit only), notify parent so open tabs reflect the
+    // new nickname without restarting the connection.
+    LaunchedEffect(viewModel) {
+        viewModel.savedHost.collect { (savedHostId, newNickname) ->
+            onHostSaved(savedHostId, newNickname)
+        }
+    }
     
     // Use hostId as key to reset state when switching between add/edit
     var nickname by rememberSaveable(hostId) { mutableStateOf("") }

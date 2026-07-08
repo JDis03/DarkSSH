@@ -196,13 +196,17 @@ object DebugLogger {
         fun created(tabId: String, hostId: Long, type: String) {
             d("TabManager", "Tab created: id=$tabId, host=$hostId, type=$type")
         }
-        
+
         fun closed(tabId: String) {
             d("TabManager", "Tab closed: id=$tabId")
         }
-        
+
         fun switched(fromIndex: Int, toIndex: Int) {
             d("TabManager", "Tab switched: $fromIndex -> $toIndex")
+        }
+
+        fun updated(count: Int, hostId: Long) {
+            d("TabManager", "Updated $count tab(s) for host $hostId (host renamed)")
         }
     }
     

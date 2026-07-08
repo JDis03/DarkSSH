@@ -171,6 +171,26 @@ class TabManager
             }
         }
 
+        /**
+         * Updates the title of every open tab for a given host.
+         * Called when the host is renamed so open tabs reflect the new nickname live.
+         * No-op if no tabs exist for the host (or title is unchanged).
+         */
+        fun updateTabsForHost(
+            hostId: Long,
+            newTitle: String,
+        ) {
+            viewModelScope.launch {
+                val tabsForHost = _tabs.value.filter { it.hostId == hostId && it.title != newTitle }
+                if (tabsForHost.isEmpty()) return@launch
+                tabsForHost.forEach { tab ->
+                    tabRepository.updateTab(tab.copy(title = newTitle))
+                }
+                com.darkssh.client.util.DebugLogger.Tab
+                    .updated(tabsForHost.size, hostId)
+            }
+        }
+
         fun getCurrentTab(): Tab? {
             val index = _currentTabIndex.value
             return _tabs.value.getOrNull(index)

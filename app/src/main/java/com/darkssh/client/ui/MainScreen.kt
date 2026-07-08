@@ -128,6 +128,11 @@ fun MainScreen(
                             showHostEditor = false
                             editingHostId = null
                         },
+                        onHostSaved = { savedHostId, newNickname ->
+                            // Refresh open tabs (SSH + SFTP) for the renamed host
+                            // so titles reflect the new nickname live.
+                            tabManager.updateTabsForHost(savedHostId, newNickname)
+                        },
                     )
                 } else {
                     HostListScreen(
@@ -150,7 +155,9 @@ fun MainScreen(
                             showDeleteDialog = true
                         },
                         onSftpClick = { host ->
-                            tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, "SFTP: ${host.nickname}")
+                            // Tab title is just the nickname — the SFTP icon (folder-remote)
+                            // already differentiates tab type. No "SFTP:" prefix needed.
+                            tabManager.createOrSwitchToTab(TabType.SFTP_BROWSER, host.id, host.nickname)
                             selectedTab = 1 // Switch to Tabs view
                         },
                         onCloneClick = { host ->
