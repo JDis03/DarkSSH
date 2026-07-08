@@ -17,15 +17,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -54,68 +51,25 @@ fun TabbedMainScreen(
     val currentTabIndex by tabManager.currentTabIndex.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     
-    // Ensure currentTabIndex is always valid
+    // Safe index: clamp to valid range
     val safeTabIndex = if (tabs.isNotEmpty()) currentTabIndex.coerceIn(0, tabs.size - 1) else 0
-    
+
     val pagerState = rememberPagerState(
         initialPage = safeTabIndex,
-        pageCount = { tabs.size }
+        pageCount = { tabs.size },
     )
-    
-    // Create a state for current visible page that triggers recomposition
-    val currentVisiblePage by remember { 
-        derivedStateOf { pagerState.currentPage.coerceIn(0, tabs.size - 1).takeIf { tabs.isNotEmpty() } ?: 0 } 
+
+    // SOURCE OF TRUTH: TabManager.currentTabIndex drives the pager.
+    // One-directional: TabManager → pager. No feedback loop.
+    LaunchedEffect(safeTabIndex) {
+        if (tabs.isNotEmpty() && pagerState.currentPage != safeTabIndex) {
+            Timber.d("TabbedMainScreen: TabManager→pager: $safeTabIndex")
+            pagerState.scrollToPage(safeTabIndex)
+        }
     }
 
-    // Track if we're currently syncing to avoid loops
-    var isSyncing by remember { mutableStateOf(false) }
-    
-    // Sync pager with ViewModel (source of truth: TabManager)
-    LaunchedEffect(safeTabIndex, tabs.size) {
-        if (tabs.isNotEmpty() && pagerState.currentPage != safeTabIndex && !isSyncing) {
-            Timber.d("TabbedMainScreen: Syncing pager to TabManager: currentPage=${pagerState.currentPage} -> safeTabIndex=$safeTabIndex")
-            isSyncing = true
-            // Use scrollToPage (instant) to avoid race condition during recomposition
-            pagerState.scrollToPage(safeTabIndex)
-            isSyncing = false
-        }
-    }
-    
-    // Watch for pager page changes (including when app returns from background)
-    LaunchedEffect(Unit) {
-        snapshotFlow { pagerState.currentPage }
-            .collect { currentPage ->
-                // If pager page doesn't match TabManager and we're not syncing, force pager back
-                if (tabs.isNotEmpty() && currentPage != currentTabIndex && !isSyncing && !pagerState.isScrollInProgress) {
-                    Timber.d("TabbedMainScreen: Pager page mismatch detected: currentPage=$currentPage, TabManager=$currentTabIndex, forcing sync")
-                    isSyncing = true
-                    pagerState.scrollToPage(currentTabIndex)
-                    isSyncing = false
-                }
-            }
-    }
-    
-    // Force pager to correct page when app resumes from background
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
-                Timber.d("TabbedMainScreen: App resumed, checking pager state")
-                if (tabs.isNotEmpty() && pagerState.currentPage != currentTabIndex) {
-                    Timber.d("TabbedMainScreen: Pager mismatch on resume: currentPage=${pagerState.currentPage}, TabManager=$currentTabIndex, forcing sync")
-                    coroutineScope.launch {
-                        isSyncing = true
-                        pagerState.scrollToPage(currentTabIndex)
-                        isSyncing = false
-                    }
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
+    // USER SWIPE: pager → TabManager (only on settled, not during animation)
+    val currentTabIndexUpdated by rememberUpdatedState(currentTabIndex)
     
     // Update active bridge when tab changes (Termius pattern: centralized control)
     // This is the SINGLE source of truth for which bridge is active
@@ -162,11 +116,10 @@ fun TabbedMainScreen(
         }
     }
 
-    // Sync ViewModel when user manually swipes (but not when we're syncing programmatically)
+    // USER SWIPE: notify TabManager when swipe gesture completes
     LaunchedEffect(pagerState.settledPage) {
-        // Only sync when user gesture completes (settledPage changes) and we're not syncing
-        if (tabs.isNotEmpty() && pagerState.settledPage != currentTabIndex && !isSyncing) {
-            Timber.d("TabbedMainScreen: User swiped to page ${pagerState.settledPage}, syncing TabManager")
+        if (tabs.isNotEmpty() && pagerState.settledPage != currentTabIndexUpdated) {
+            Timber.d("TabbedMainScreen: User swiped to page ${pagerState.settledPage}")
             tabManager.switchTab(pagerState.settledPage)
         }
     }
@@ -261,8 +214,7 @@ fun TabbedMainScreen(
                     modifier = Modifier.fillMaxSize(),
                 ) { page ->
                     val tab = tabs.getOrNull(page) ?: return@HorizontalPager
-                    // Use the derived state to ensure recomposition when current page changes
-                    val isVisible = currentVisiblePage == page
+                    val isVisible = pagerState.currentPage == page
 
                     when (tab.type) {
                         TabType.SSH_TERMINAL -> {

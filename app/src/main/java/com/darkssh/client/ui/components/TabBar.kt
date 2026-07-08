@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -218,7 +219,9 @@ fun TabBar(
             divider = {},
         ) {
             tabs.forEachIndexed { index, tab ->
-                // Find corresponding bridge to get detected OS
+                // key{} ensures Compose can safely call Hooks per stable tab.id
+                // (fixes: collectAsState inside forEach violates Hook ordering rules)
+                key(tab.id) {
                 val bridge = bridges.find { it.tabId == tab.id }
                 val osType by bridge?.osType?.collectAsState() ?: remember { mutableStateOf(OsType.UNKNOWN) }
                 
@@ -287,6 +290,7 @@ fun TabBar(
                         }
                     },
                 )
+                } // end key(tab.id)
             }
         }
 
