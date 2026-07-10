@@ -26,25 +26,31 @@ class Relay(
             try {
                 while (isActive) {
                     val bytesRead = transport.read(buffer, 0, buffer.size)
-                    android.util.Log.d("Relay", "📥 Read $bytesRead bytes from transport")
 
                     if (bytesRead == -1) {
-                        android.util.Log.d("Relay", "🏁 EOF reached")
-                        bridge.dispatchDisconnect("EOF")
+                        // EOF: remote side closed the connection normally
+                        if (!bridge.isClosed) {
+                            android.util.Log.d("Relay", "🏁 EOF – remote closed connection")
+                            bridge.dispatchDisconnect("Connection closed by remote")
+                        }
                         break
                     }
                     if (bytesRead > 0) {
-                        val data = buffer.copyOf(bytesRead)
-                        android.util.Log.d("Relay", "📨 Forwarding ${data.size} bytes to bridge")
-                        bridge.onRelayData(data)
+                        bridge.onRelayData(buffer.copyOf(bytesRead))
                     }
                 }
-                android.util.Log.d("Relay", "🛑 Relay loop ended")
             } catch (e: CancellationException) {
-                android.util.Log.d("Relay", "🚫 Relay cancelled")
+                // Normal: bridge.close() cancelled relayScope
+                android.util.Log.d("Relay", "🚫 Relay cancelled (bridge closed)")
             } catch (e: Exception) {
-                android.util.Log.e("Relay", "💥 Error: ${e.message}", e)
-                bridge.dispatchDisconnect(e.message ?: "Relay error")
+                // IOException from closed transport: only dispatch if bridge is
+                // still alive (not already being closed by the user).
+                if (!bridge.isClosed) {
+                    android.util.Log.e("Relay", "💥 Relay error: ${e.message}", e)
+                    bridge.dispatchDisconnect(e.message ?: "Connection lost")
+                } else {
+                    android.util.Log.d("Relay", "Relay IO error ignored (bridge already closed): ${e.message}")
+                }
             }
         }
     }

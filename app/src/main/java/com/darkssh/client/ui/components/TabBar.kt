@@ -211,10 +211,14 @@ fun TabBar(
         ) {
             tabs.forEachIndexed { index, tab ->
                 key(tab.id) {
-                    val bridge       = bridges.find { it.tabId == tab.id }
-                    val osType       by bridge?.osType?.collectAsState()       ?: remember { mutableStateOf(OsType.UNKNOWN) }
-                    val isConnected  by bridge?.isConnected?.collectAsState()  ?: remember { mutableStateOf(false) }
-                    val isDisconn    by bridge?.isDisconnected?.collectAsState() ?: remember { mutableStateOf(false) }
+                    val bridge          = bridges.find { it.tabId == tab.id }
+                    val bridgeOsType    by bridge?.osType?.collectAsState() ?: remember { mutableStateOf(OsType.UNKNOWN) }
+                    // Use the bridge's live osType when known; fall back to the
+                    // Tab entity's cached osType (persisted from the previous
+                    // connection) so the icon is never UNKNOWN while connecting.
+                    val osType          = if (bridgeOsType != OsType.UNKNOWN) bridgeOsType else tab.osType
+                    val isConnected     by bridge?.isConnected?.collectAsState()    ?: remember { mutableStateOf(false) }
+                    val isDisconn       by bridge?.isDisconnected?.collectAsState() ?: remember { mutableStateOf(false) }
                     var showMenu     by remember { mutableStateOf(false) }
 
                     val isSelected  = index == selectedIndex

@@ -109,6 +109,16 @@ class TerminalBridge(
     private val _osType = MutableStateFlow(OsType.UNKNOWN)
     val osType: StateFlow<OsType> = _osType
 
+    /**
+     * Set to true the moment close() is called.
+     * Relay, SSH and dispatchDisconnect all check this to prevent
+     * double-close / double-onBridgeDisconnected (which caused the crash
+     * when closing a tab while the SSH connection was still in progress).
+     */
+    @Volatile
+    private var _isClosed = false
+    val isClosed: Boolean get() = _isClosed
+
     /** Called by Terminal composable to receive screen update notifications. */
     var onScreenUpdate: (() -> Unit)? = null
 
@@ -193,23 +203,30 @@ class TerminalBridge(
                 android.util.Log.d("TerminalBridge", "🟢 Relay started")
                 startTransportProcessor()
 
-                // Detect OS in background (don't block connection)
-                if (t is SSH) {
+                // Detect OS in background only when not already known.
+                // If we have a cached osType (from a previous connection persisted
+                // in Tab.osType), skip the 5-second detection script entirely.
+                if (t is SSH && _osType.value == OsType.UNKNOWN) {
                     bridgeScope.launch(Dispatchers.IO) {
-                        val connection = t.getConnection()
-                        if (connection != null) {
-                            val detectedOs = OsDetector.detectOs(connection)
+                        val connection = t.getConnection() ?: return@launch
+
+                        val detectedOs = OsDetector.detectOs(connection)
+
+                        // Bridge may have been closed during the 5s detection window
+                        if (_isClosed) return@launch
+
+                        if (detectedOs != OsType.UNKNOWN) {
                             _osType.value = detectedOs
                             Timber.d("Detected OS: ${detectedOs.displayName}")
 
-                            // Persist detected OS to database for future connections
+                            // Persist detected OS for future connections (skip if unchanged)
                             tabId?.let { id ->
                                 try {
                                     val tab = tabRepository.getTabById(id)
                                     tab?.let {
                                         if (it.osType != detectedOs) {
                                             tabRepository.updateTab(it.copy(osType = detectedOs))
-                                            Timber.d("Saved OS type to database: ${detectedOs.displayName}")
+                                            Timber.d("Saved OS type to DB: ${detectedOs.displayName}")
                                         }
                                     }
                                 } catch (e: Exception) {
@@ -218,6 +235,8 @@ class TerminalBridge(
                             }
                         }
                     }
+                } else if (_osType.value != OsType.UNKNOWN) {
+                    Timber.d("OS already known (${_osType.value.displayName}), skipping detection")
                 }
             } else {
                 android.util.Log.e("TerminalBridge", "❌ Transport is null!")
@@ -266,6 +285,13 @@ class TerminalBridge(
         message: String? = null,
         reason: DisconnectReason = DisconnectReason.UNKNOWN,
     ) {
+        // Guard: don't fire if close() was already called (e.g., user closed the
+        // tab while connecting, which causes Relay / SSH.connect() to throw and
+        // try to dispatchDisconnect a second time from the IO thread).
+        if (_isClosed) {
+            Timber.d("dispatchDisconnect() ignored – bridge already closed (${host.nickname})")
+            return
+        }
         _disconnectMessage.value = message
         _disconnectReason.value = reason
         _isConnected.value = false
@@ -283,6 +309,14 @@ class TerminalBridge(
     }
 
     fun close(reason: DisconnectReason = DisconnectReason.USER_REQUESTED) {
+        // Idempotent: safe to call multiple times (Relay, SSH.connect and
+        // dispatchDisconnect can all try to close concurrently when the user
+        // closes a tab while connecting).
+        if (_isClosed) {
+            Timber.d("close() ignored – bridge already closed (${host.nickname})")
+            return
+        }
+        _isClosed = true
         _disconnectReason.value = reason
 
         // Cancel all coroutines first
@@ -293,7 +327,7 @@ class TerminalBridge(
         relay?.stop()
         relay = null
 
-        // Close channels and transport
+        // Close channels and transport (Channel.close() is idempotent)
         transportOperations.close()
         transport?.close()
         transport = null

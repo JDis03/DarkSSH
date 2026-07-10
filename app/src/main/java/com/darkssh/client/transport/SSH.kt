@@ -135,7 +135,13 @@ class SSH(
             throw e
         } catch (e: Exception) {
             Timber.e(e, "$TAG: Connection failed to $hostname:$port")
-            bridge.dispatchDisconnect(e.message ?: "Connection failed")
+            // Only dispatch disconnect if bridge isn't already being closed.
+            // When the user closes a tab during connection, bridge.close() calls
+            // transport?.close() which interrupts conn.connect() with an IOException –
+            // we must NOT call dispatchDisconnect again in that case (double-close crash).
+            if (!bridge.isClosed) {
+                bridge.dispatchDisconnect(e.message ?: "Connection failed")
+            }
             throw e
         }
     }

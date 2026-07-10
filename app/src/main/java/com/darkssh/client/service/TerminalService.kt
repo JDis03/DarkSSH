@@ -196,26 +196,29 @@ class TerminalService : Service() {
         bridge: TerminalBridge,
         reason: DisconnectReason,
     ) {
-        // Close bridge FIRST to prevent race conditions
-        bridge.close(reason)
+        // This can be called from the IO thread (Relay / SSH exception handlers).
+        // Service operations (stopForeground, stopSelf) and StateFlow mutations must
+        // happen on the main thread – dispatch via serviceScope to serialize them.
+        serviceScope.launch(Dispatchers.Main) {
+            // bridge.close() is idempotent – safe if already called from closeTab()
+            bridge.close(reason)
 
-        // Then remove from list
-        val currentBridges = _bridges.value.toMutableList()
-        currentBridges.remove(bridge)
-        _bridges.value = currentBridges
+            val currentBridges = _bridges.value.toMutableList()
+            currentBridges.remove(bridge)
+            _bridges.value = currentBridges
 
-        // Clear active bridge if it was the one disconnected
-        if (_activeBridge.value == bridge) {
-            _activeBridge.value = currentBridges.firstOrNull()
-        }
+            if (_activeBridge.value == bridge) {
+                _activeBridge.value = currentBridges.firstOrNull()
+            }
 
-        if (currentBridges.isEmpty()) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            stopSelf()
-        } else {
-            val notification = createConnectionNotification(currentBridges.first().host)
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.notify(NOTIFICATION_ID, notification)
+            if (currentBridges.isEmpty()) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            } else {
+                val notification = createConnectionNotification(currentBridges.first().host)
+                getSystemService(NotificationManager::class.java)
+                    ?.notify(NOTIFICATION_ID, notification)
+            }
         }
     }
 
