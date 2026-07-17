@@ -65,15 +65,19 @@ class HostEditorViewModel
             stayConnected: Boolean,
             pubkeyId: Long?,
         ) {
-            // Strip leading/trailing whitespace and invisible Unicode characters
-            // (non-breaking space, zero-width space, BOM, ...) that mobile keyboard
+            // Strip whitespace/invisible Unicode junk that mobile keyboard
             // autocomplete/autocorrect or paste can silently insert. Left uncleaned,
             // these break exact-match parsers downstream - e.g. a hostname that is a
             // valid IPv4 literal plus one invisible character stops being recognized
             // as an IP by java.net.InetAddress, which then tries (and fails) to
-            // resolve it via DNS instead of connecting directly. See bug-012.
+            // resolve it via DNS instead of connecting directly. hostname gets the
+            // strict whitelist pass (sanitizeStrict) since it can never legitimately
+            // contain anything but the network-address charset; nickname/username
+            // keep the lighter pass that preserves genuine embedded spaces. See
+            // bug-012 (TextSanitizer.kt has the full rationale + why a hand-picked
+            // blacklist of "known" invisible characters wasn't enough).
             val cleanNickname = TextSanitizer.sanitize(nickname)
-            val cleanHostname = TextSanitizer.sanitize(hostname)
+            val cleanHostname = TextSanitizer.sanitizeStrict(hostname)
             val cleanUsername = TextSanitizer.sanitize(username)
             viewModelScope.launch {
                 val existingHost = _host.value

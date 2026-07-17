@@ -96,7 +96,7 @@ class SSH(
         // (import, future editors, etc). A hostname with a stray invisible character
         // stops matching InetAddress's strict IPv4-literal check and silently turns a
         // connect() to a valid IP into a doomed DNS lookup instead.
-        val hostname = TextSanitizer.sanitize(host.hostname)
+        val hostname = TextSanitizer.sanitizeStrict(host.hostname)
         val port = if (host.port <= 0) DEFAULT_PORT else host.port
 
         try {
