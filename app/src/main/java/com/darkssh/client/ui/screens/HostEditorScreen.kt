@@ -1,6 +1,5 @@
 package com.darkssh.client.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,11 +14,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Save
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -197,43 +197,67 @@ fun HostEditorScreen(
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(bottom = 4.dp),
             )
-            
-            OutlinedTextField(
-                value = if (selectedPubkeyId == -1L) {
-                    "No key selected"
-                } else {
-                    pubkeys.find { it.id == selectedPubkeyId }?.nickname ?: "Unknown key"
-                },
-                onValueChange = { },
-                label = { Text("SSH Key") },
-                readOnly = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showPubkeyDropdown = true },
-                trailingIcon = {
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = "Select key")
-                },
-            )
 
-            DropdownMenu(
+            // NOTE: A plain OutlinedTextField(readOnly=true) + Modifier.clickable does NOT
+            // reliably open on tap — the text field's own internal pointer input handling
+            // (for cursor/focus) tends to consume the touch before the outer clickable sees
+            // it. ExposedDropdownMenuBox is the Material3-blessed pattern for this exact
+            // "tap a field to pick from a list" use case and doesn't have that problem.
+            ExposedDropdownMenuBox(
                 expanded = showPubkeyDropdown,
-                onDismissRequest = { showPubkeyDropdown = false },
+                onExpandedChange = { showPubkeyDropdown = it },
             ) {
-                DropdownMenuItem(
-                    text = { Text("No key (password auth)") },
-                    onClick = {
-                        selectedPubkeyId = -1L
-                        showPubkeyDropdown = false
+                OutlinedTextField(
+                    value = if (selectedPubkeyId == -1L) {
+                        "No key (password auth)"
+                    } else {
+                        pubkeys.find { it.id == selectedPubkeyId }?.nickname ?: "Unknown key"
+                    },
+                    onValueChange = { },
+                    label = { Text("SSH Key") },
+                    readOnly = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        // PrimaryNotEditable (not the generic/deprecated menuAnchor()) is
+                        // what Material3 documents for readOnly=true fields specifically —
+                        // it opens the menu WITH focus, which the generic overload doesn't
+                        // guarantee, and that mismatch is a known cause of "tapping an item
+                        // does nothing" for readOnly ExposedDropdownMenuBox fields.
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = showPubkeyDropdown)
+                    },
+                    supportingText = if (pubkeys.isEmpty()) {
+                        { Text("No SSH keys yet — generate one in SSH Keys") }
+                    } else {
+                        null
                     },
                 )
-                pubkeys.forEach { pubkey ->
+
+                // Only "No key (password auth)" + real, selectable keys go in the menu.
+                // A disabled placeholder row here (when pubkeys is empty) reads as a
+                // second, dead "option" and is confusing — the empty-state hint above
+                // (supportingText) covers that instead.
+                ExposedDropdownMenu(
+                    expanded = showPubkeyDropdown,
+                    onDismissRequest = { showPubkeyDropdown = false },
+                ) {
                     DropdownMenuItem(
-                        text = { Text(pubkey.nickname) },
+                        text = { Text("No key (password auth)") },
                         onClick = {
-                            selectedPubkeyId = pubkey.id
+                            selectedPubkeyId = -1L
                             showPubkeyDropdown = false
                         },
                     )
+                    pubkeys.forEach { pubkey ->
+                        DropdownMenuItem(
+                            text = { Text(pubkey.nickname) },
+                            onClick = {
+                                selectedPubkeyId = pubkey.id
+                                showPubkeyDropdown = false
+                            },
+                        )
+                    }
                 }
             }
         }

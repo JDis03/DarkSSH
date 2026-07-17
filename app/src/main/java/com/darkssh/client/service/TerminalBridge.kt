@@ -476,7 +476,24 @@ class TerminalBridge(
     }
 
     override fun onPasteTextFromClipboard(session: com.darkssh.client.terminal.emulator.TerminalSession?) {
-        Timber.d("Paste from clipboard requested")
+        // Triggered by the long-press context menu "Paste" item
+        // (TextSelectionCursorController -> TerminalSession.onPasteTextFromClipboard()).
+        // This used to be a no-op stub, so long-press paste silently did nothing.
+        val clip = clipboardManager.primaryClip
+        if (clip == null || clip.itemCount == 0) {
+            Timber.d("Paste from clipboard requested but clipboard is empty")
+            return
+        }
+        val text = clip.getItemAt(0)?.text?.toString()
+        if (text.isNullOrEmpty()) {
+            Timber.d("Paste from clipboard requested but clip item has no text")
+            return
+        }
+        val preview = if (text.length > 50) text.take(50) + "..." else text
+        Timber.d("Paste from clipboard: ${text.length} chars ($preview)")
+        // Goes through TerminalEmulator#paste() so bracketed paste mode (DECSET 2004)
+        // wraps it correctly, same as the IME/mouse paste paths.
+        terminalEmulator?.paste(text)
     }
 
     override fun onBell(session: com.darkssh.client.terminal.emulator.TerminalSession) {

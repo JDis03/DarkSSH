@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.LockOpen
@@ -76,6 +77,7 @@ fun PubkeyListScreen(
     val pubkeys by viewModel.pubkeys.collectAsState()
     val loadedKeys by viewModel.loadedKeys.collectAsState()
     val passwordPrompt by viewModel.passwordPrompt.collectAsState()
+    val message by viewModel.message.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
     var showDeleteDialog by remember { mutableStateOf<Pubkey?>(null) }
@@ -83,6 +85,14 @@ fun PubkeyListScreen(
     // Set terminal service in ViewModel
     LaunchedEffect(terminalService) {
         viewModel.setTerminalService(terminalService)
+    }
+
+    // Show one-shot messages (e.g. "Public key copied to clipboard") as a snackbar
+    LaunchedEffect(message) {
+        message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
     }
 
     Scaffold(
@@ -141,6 +151,7 @@ fun PubkeyListScreen(
                         pubkey = pubkey,
                         isLoaded = loadedKeys.contains(pubkey.nickname),
                         onToggleLoad = { viewModel.toggleKeyLoaded(pubkey) },
+                        onCopyPublicKey = { viewModel.copyPublicKey(pubkey) },
                         onDelete = { showDeleteDialog = pubkey },
                     )
                 }
@@ -181,6 +192,7 @@ private fun PubkeyItem(
     pubkey: Pubkey,
     isLoaded: Boolean,
     onToggleLoad: () -> Unit,
+    onCopyPublicKey: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -279,6 +291,20 @@ private fun PubkeyItem(
                         },
                         modifier = Modifier.align(Alignment.CenterVertically),
                     )
+                    // Imported (raw PEM) keys don't carry a Java-decodable public key
+                    // in a format PublicKeyUtils can re-encode, so hide the copy action.
+                    if (pubkey.type != "IMPORTED") {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        IconButton(
+                            onClick = onCopyPublicKey,
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy public key",
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
                         onClick = onDelete,

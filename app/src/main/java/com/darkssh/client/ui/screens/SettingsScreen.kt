@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -41,6 +42,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onServerSettings: () -> Unit = {},
     onDebugLogs: () -> Unit = {},
+    onSshKeys: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -67,6 +69,21 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .padding(padding),
         ) {
+            // SSH Keys Section
+            ListItem(
+                headlineContent = { Text("SSH Keys") },
+                supportingContent = { Text("Generate and manage keys for key-based login") },
+                leadingContent = {
+                    Icon(Icons.Default.Key, contentDescription = null)
+                },
+                trailingContent = {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null)
+                },
+                modifier = Modifier.clickable { onSshKeys() },
+            )
+
+            HorizontalDivider()
+
             // Server Settings Section
             ListItem(
                 headlineContent = { Text("Server Settings") },

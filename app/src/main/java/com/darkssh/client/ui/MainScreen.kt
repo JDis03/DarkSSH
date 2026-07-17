@@ -35,6 +35,8 @@ import com.darkssh.client.ui.screens.HostEditorScreen
 import com.darkssh.client.ui.screens.SettingsScreen
 import com.darkssh.client.ui.screens.ServerSettingsScreen
 import com.darkssh.client.ui.screens.DebugLogsScreen
+import com.darkssh.client.ui.screens.PubkeyListScreen
+import com.darkssh.client.ui.screens.GeneratePubkeyScreen
 import com.darkssh.client.ui.viewmodel.TabManager
 import com.darkssh.client.ui.screens.viewmodel.HostListViewModel
 
@@ -47,6 +49,8 @@ fun MainScreen(
     var selectedTab by remember { mutableIntStateOf(0) }
     var showServerSettings by remember { mutableStateOf(false) }
     var showDebugLogs by remember { mutableStateOf(false) }
+    var showSshKeys by remember { mutableStateOf(false) }
+    var showGenerateKey by remember { mutableStateOf(false) }
     var showExitDialog by remember { mutableStateOf(false) }
     var showHostEditor by remember { mutableStateOf(false) }
     var editingHostId by remember { mutableStateOf<Long?>(null) }
@@ -67,6 +71,13 @@ fun MainScreen(
     // Handle back gesture
     BackHandler {
         when {
+            showGenerateKey -> {
+                // Close Generate Key first, back to the key list
+                showGenerateKey = false
+            }
+            showSshKeys -> {
+                showSshKeys = false
+            }
             showHostEditor -> {
                 // Close host editor dialog first
                 showHostEditor = false
@@ -177,6 +188,18 @@ fun MainScreen(
             2 -> {
                 // Tab 3: Settings
                 when {
+                    showGenerateKey -> {
+                        GeneratePubkeyScreen(
+                            onNavigateBack = { showGenerateKey = false },
+                        )
+                    }
+                    showSshKeys -> {
+                        PubkeyListScreen(
+                            onBack = { showSshKeys = false },
+                            onGenerateKey = { showGenerateKey = true },
+                            terminalService = terminalService,
+                        )
+                    }
                     showServerSettings -> {
                         ServerSettingsScreen(
                             onNavigateBack = { showServerSettings = false },
@@ -192,6 +215,7 @@ fun MainScreen(
                             onBack = { selectedTab = 0 }, // Go back to Hosts
                             onServerSettings = { showServerSettings = true },
                             onDebugLogs = { showDebugLogs = true },
+                            onSshKeys = { showSshKeys = true },
                         )
                     }
                 }

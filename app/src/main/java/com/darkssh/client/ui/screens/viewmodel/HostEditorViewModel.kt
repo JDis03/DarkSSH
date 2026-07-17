@@ -7,6 +7,7 @@ import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.Pubkey
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.data.repository.PubkeyRepository
+import com.darkssh.client.util.TextSanitizer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -64,15 +65,25 @@ class HostEditorViewModel
             stayConnected: Boolean,
             pubkeyId: Long?,
         ) {
+            // Strip leading/trailing whitespace and invisible Unicode characters
+            // (non-breaking space, zero-width space, BOM, ...) that mobile keyboard
+            // autocomplete/autocorrect or paste can silently insert. Left uncleaned,
+            // these break exact-match parsers downstream - e.g. a hostname that is a
+            // valid IPv4 literal plus one invisible character stops being recognized
+            // as an IP by java.net.InetAddress, which then tries (and fails) to
+            // resolve it via DNS instead of connecting directly. See bug-012.
+            val cleanNickname = TextSanitizer.sanitize(nickname)
+            val cleanHostname = TextSanitizer.sanitize(hostname)
+            val cleanUsername = TextSanitizer.sanitize(username)
             viewModelScope.launch {
                 val existingHost = _host.value
                 if (existingHost != null) {
                     val previousNickname = existingHost.nickname
                     hostRepository.updateHost(
                         existingHost.copy(
-                            nickname = nickname,
-                            hostname = hostname,
-                            username = username,
+                            nickname = cleanNickname,
+                            hostname = cleanHostname,
+                            username = cleanUsername,
                             port = port,
                             compression = compression,
                             stayConnected = stayConnected,
@@ -82,13 +93,13 @@ class HostEditorViewModel
                     // Emit saved event so the UI layer can refresh tabs for this host
                     // when the nickname changed. Avoids injecting one @HiltViewModel
                     // into another (Hilt prohibits that).
-                    _savedHost.emit(existingHost.id to nickname)
+                    _savedHost.emit(existingHost.id to cleanNickname)
                 } else {
                     hostRepository.insertHost(
                         Host(
-                            nickname = nickname,
-                            hostname = hostname,
-                            username = username,
+                            nickname = cleanNickname,
+                            hostname = cleanHostname,
+                            username = cleanUsername,
                             port = port,
                             compression = compression,
                             stayConnected = stayConnected,

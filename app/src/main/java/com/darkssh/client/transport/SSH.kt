@@ -7,6 +7,8 @@ import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
+import com.darkssh.client.util.PubkeyUtils
+import com.darkssh.client.util.TextSanitizer
 import com.trilead.ssh2.Connection
 import com.trilead.ssh2.ConnectionMonitor
 import com.trilead.ssh2.InteractiveCallback
@@ -88,7 +90,13 @@ class SSH(
     }
 
     override fun connect() {
-        val hostname = host.hostname
+        // Sanitize even though HostEditorViewModel already does on save (bug-012):
+        // this unblocks hosts saved *before* that fix without requiring the user to
+        // retype them, and guards against any other path that could write a Host
+        // (import, future editors, etc). A hostname with a stray invisible character
+        // stops matching InetAddress's strict IPv4-literal check and silently turns a
+        // connect() to a valid IP into a doomed DNS lookup instead.
+        val hostname = TextSanitizer.sanitize(host.hostname)
         val port = if (host.port <= 0) DEFAULT_PORT else host.port
 
         try {
@@ -147,7 +155,10 @@ class SSH(
     }
 
     private fun authenticate(conn: Connection): Boolean {
-        val username = host.username
+        // Same rationale as connect(): strip stray invisible characters a stored
+        // username might carry (bug-012), which would otherwise make every auth
+        // attempt fail against a username the server has genuinely never heard of.
+        val username = TextSanitizer.sanitize(host.username)
 
         val initial =
             conn.getRemainingAuthMethods(username)
@@ -159,6 +170,11 @@ class SSH(
         var canTryKeyboardInteractive = "keyboard-interactive" in initial
         var canTryPassword = "password" in initial
 
+        // A host with a specific key assigned (Host.pubkeyId) should only ever be tried with
+        // THAT key, not any other loaded key. Guard so we don't re-prompt for its password on
+        // every AUTH_TRIES iteration if the server keeps listing "publickey" as available.
+        var hostPubkeyAttempted = false
+
         for (attempt in 0 until AUTH_TRIES) {
             if (conn.isAuthMethodAvailable(username, "none")) {
                 try {
@@ -169,7 +185,15 @@ class SSH(
             }
 
             if (canTryPubkey && conn.isAuthMethodAvailable(username, "publickey")) {
-                if (tryPublicKeyAuth(conn, username)) return true
+                val hostPubkeyId = host.pubkeyId
+                if (hostPubkeyId != null) {
+                    if (!hostPubkeyAttempted) {
+                        hostPubkeyAttempted = true
+                        if (tryHostPubkeyAuth(conn, username, hostPubkeyId)) return true
+                    }
+                } else if (tryPublicKeyAuth(conn, username)) {
+                    return true
+                }
             }
 
             if (canTryKeyboardInteractive && conn.isAuthMethodAvailable(username, "keyboard-interactive")) {
@@ -237,6 +261,53 @@ class SSH(
             }
         }
         return false
+    }
+
+    /**
+     * Try the specific pubkey assigned to this host (Host.pubkeyId), unlocking it
+     * (prompting for its password if encrypted) when it isn't already loaded.
+     * Unlike [tryPublicKeyAuth], this does NOT fall back to any other loaded key —
+     * a host with an explicitly assigned key should only ever authenticate with it.
+     */
+    private fun tryHostPubkeyAuth(
+        conn: Connection,
+        username: String,
+        pubkeyId: Long,
+    ): Boolean {
+        val pubkey =
+            runBlocking { service.pubkeyRepository.getPubkeyById(pubkeyId) } ?: run {
+                Timber.w("$TAG: Host has pubkeyId=$pubkeyId but no matching key was found (deleted?)")
+                return false
+            }
+
+        val keyPair =
+            service.loadedKeypairs[pubkey.nickname] ?: run {
+                var password: String? = null
+                if (pubkey.encrypted) {
+                    password = bridge.promptForInputBlocking("Password for key \"${pubkey.nickname}\":", false)
+                    if (password == null) {
+                        Timber.d("$TAG: Key unlock prompt cancelled for ${pubkey.nickname}")
+                        return false
+                    }
+                }
+                val unlocked =
+                    PubkeyUtils.convertToKeyPair(pubkey, password) ?: run {
+                        Timber.w("$TAG: Failed to unlock key ${pubkey.nickname}")
+                        return false
+                    }
+                // Cache it in-memory so reconnects don't need to re-prompt for the password.
+                service.loadedKeypairs[pubkey.nickname] = unlocked
+                unlocked
+            }
+
+        return try {
+            val success = conn.authenticateWithPublicKey(username, keyPair)
+            if (!success) Timber.d("$TAG: Public key auth failed for host-assigned key ${pubkey.nickname}")
+            success
+        } catch (e: IOException) {
+            Timber.d(e, "$TAG: Public key auth failed for host-assigned key ${pubkey.nickname}")
+            false
+        }
     }
 
     private fun finishConnection(conn: Connection) {

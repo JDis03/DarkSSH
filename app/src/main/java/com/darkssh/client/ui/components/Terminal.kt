@@ -33,6 +33,7 @@ fun Terminal(
     showSoftKeyboard: Boolean = true,
     isActive: Boolean = true, // Whether this terminal is the active/visible tab
     focusTrigger: Int = 0, // External trigger to force focus transfer
+    forceShowKeyboardTrigger: Int = 0, // Increment to force-show the keyboard (explicit user action)
 ) {
     val context = LocalContext.current
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -40,6 +41,23 @@ fun Terminal(
     var prevTypeface by remember { mutableStateOf<Typeface?>(null) }
 
     val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
+
+    // Explicit "Show Keyboard" button press: SHOW_FORCED, not SHOW_IMPLICIT.
+    // Android silently ignores SHOW_IMPLICIT (used below and in the update{} block) if the
+    // user just explicitly dismissed the keyboard (back button, swipe-down, etc) — that's an
+    // intentional anti-annoyance behavior. But when the user deliberately taps our own
+    // "Show Keyboard" affordance (ConsoleKeyBar), that IS an explicit request and must always
+    // work, so it needs SHOW_FORCED. Skip the initial trigger=0 (no button press yet).
+    LaunchedEffect(forceShowKeyboardTrigger) {
+        if (forceShowKeyboardTrigger > 0) {
+            val view = terminalViewRef.value
+            if (view != null) {
+                view.requestFocus()
+                imm.showSoftInput(view, InputMethodManager.SHOW_FORCED)
+                Timber.d("Terminal: Force-showed keyboard (explicit request, trigger=$forceShowKeyboardTrigger)")
+            }
+        }
+    }
 
     // Explicit focus transfer when this terminal becomes active OR focus trigger changes
     LaunchedEffect(isActive, showSoftKeyboard, focusTrigger) {
@@ -77,7 +95,17 @@ fun Terminal(
 
                     override fun onSingleTapUp(e: MotionEvent) {
                         terminalView.requestFocus()
-                        imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+                        // Mirrors Termux's own TermuxTerminalViewClient#onSingleTapUp(): only pop
+                        // the soft keyboard when the remote app hasn't enabled mouse reporting
+                        // (DECSET 1000/1002/1003 etc). When mouse tracking IS active, the tap is
+                        // already forwarded as a mouse click to the TUI (see TerminalView's
+                        // GestureAndScaleRecognizer#onUp) — popping the keyboard on top of that is
+                        // just an annoyance that eats half the screen while using a mouse-driven
+                        // TUI (htop, ranger, darkred, etc), not something the user asked for.
+                        val mouseTrackingActive = terminalView.mEmulator?.isMouseTrackingActive() == true
+                        if (!mouseTrackingActive && !e.isFromSource(android.view.InputDevice.SOURCE_MOUSE)) {
+                            imm.showSoftInput(terminalView, InputMethodManager.SHOW_IMPLICIT)
+                        }
                     }
 
                     override fun shouldBackButtonBeMappedToEscape(): Boolean = false

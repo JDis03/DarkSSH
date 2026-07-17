@@ -94,6 +94,7 @@ fun ConsoleScreen(
     var promptInput by remember { mutableStateOf("") }
     var showSoftwareKeyboard by remember { mutableStateOf(true) }
     var focusTrigger by remember { mutableStateOf(0) }
+    var forceShowKeyboardTrigger by remember { mutableStateOf(0) }
     var prevIsActive by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -105,10 +106,18 @@ fun ConsoleScreen(
     val imeHeight = with(density) { WindowInsets.ime.getBottom(density).toDp() }
     val imeVisible = imeHeight > 0.dp
 
-    // Termius pattern: force keyboard on when THIS terminal becomes active
+    // Termius pattern: force keyboard on when THIS terminal becomes active.
+    // BUT respect a TUI's mouse-reporting mode (htop, ranger, darkred, etc): if the
+    // session in this tab has enabled mouse tracking, don't force the keyboard back
+    // open just because the user swiped/switched to this tab — that was popping the
+    // keyboard on top of mouse-driven TUIs on every tab switch. If we can't tell yet
+    // (bridge/emulator not ready), fall back to the previous always-show behavior.
     LaunchedEffect(isActive) {
         if (isActive && !prevIsActive) {
-            showSoftwareKeyboard = true
+            val mouseTrackingActive = bridge?.terminalEmulator?.isMouseTrackingActive() == true
+            if (!mouseTrackingActive) {
+                showSoftwareKeyboard = true
+            }
         }
         prevIsActive = isActive
     }
@@ -165,6 +174,9 @@ fun ConsoleScreen(
                             onClick = {
                                 showMenu = false
                                 showSoftwareKeyboard = !showSoftwareKeyboard
+                                // Explicit user action turning it back on must bypass Android's
+                                // "ignore SHOW_IMPLICIT right after an explicit dismiss" behavior.
+                                if (showSoftwareKeyboard) forceShowKeyboardTrigger++
                             },
                             leadingIcon = {
                                 Icon(Icons.Default.Keyboard, contentDescription = null)
@@ -225,6 +237,7 @@ fun ConsoleScreen(
                     modifier = Modifier.fillMaxSize(),
                     showSoftKeyboard = showSoftwareKeyboard,
                     focusTrigger = focusTrigger,
+                    forceShowKeyboardTrigger = forceShowKeyboardTrigger,
                     fontSize = fontSize,
                     typeface = terminalTypeface,
                     isActive = isActive, // Control focus based on tab visibility
@@ -243,7 +256,10 @@ fun ConsoleScreen(
             if (!imeVisible) {
                 ConsoleKeyBar(
                     bridge = currentBridge,
-                    onShowKeyboard = { showSoftwareKeyboard = true },
+                    onShowKeyboard = {
+                        showSoftwareKeyboard = true
+                        forceShowKeyboardTrigger++
+                    },
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }

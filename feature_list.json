@@ -116,7 +116,9 @@
       "id": "openspec-002",
       "name": "OpenSpec: TabManager ViewModel",
       "description": "Create TabManager with StateFlow<List<Tab>>, createTab, closeTab, reorderTabs, switchTab (tasks 2.1-2.10)",
-      "dependencies": ["openspec-001"],
+      "dependencies": [
+        "openspec-001"
+      ],
       "status": "done",
       "evidence": "TabManager.kt fully implemented with all required functions: createTab, createTabAndSwitch, createOrSwitchToTab, closeTab, switchTab, reorderTabs, getCurrentTab. Hilt @Singleton. See IMPLEMENTATION_STATUS.md section 2."
     },
@@ -124,7 +126,9 @@
       "id": "openspec-003",
       "name": "OpenSpec: HorizontalPager Tab Navigation",
       "description": "Add HorizontalPager below TabBar, bind to TabManager, render ConsoleScreen/SftpScreen per tab (tasks 9.1-9.9)",
-      "dependencies": ["openspec-002"],
+      "dependencies": [
+        "openspec-002"
+      ],
       "status": "done",
       "evidence": "TabbedMainScreen.kt implements HorizontalPager with pagerState bound to TabManager, renders ConsoleScreen/SftpScreen based on Tab.type, swipe navigation works. See IMPLEMENTATION_STATUS.md section 3."
     },
@@ -140,7 +144,9 @@
       "id": "refactor-001",
       "name": "Refactor: SFTP activeClients to use tabId",
       "description": "Change SftpViewModel.activeClients key from Long (hostId) to String (tabId) to support multiple SFTP tabs per host",
-      "dependencies": ["openspec-001"],
+      "dependencies": [
+        "openspec-001"
+      ],
       "status": "not-started",
       "evidence": "See MEMORY_LEAK_ANALYSIS.md - Current Implementation Gap. Required for proper tab isolation"
     },
@@ -215,6 +221,30 @@
       "dependencies": [],
       "status": "done",
       "evidence": "HostListViewModel now injects TabRepository and closes all tabs for deleted host before deleting the host. Finds tabs by hostId and calls tabRepository.deleteTab() for each. TabManager automatically updates via Flow observation. Orphaned tabs are now properly cleaned up."
+    },
+    {
+      "id": "bug-010",
+      "name": "Bracketed Paste Not Wrapped / Context Menu Paste Broken",
+      "description": "TUI apps relying on bracketed paste (crossterm Event::Paste, e.g. darkred) never received it: IME commitText() sent pastes as raw keystrokes instead of wrapping with \\e[200~/\\e[201~, and the long-press 'Paste' context menu item was a no-op stub.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "TerminalView.java sendTextToTerminal(): detects real IME pastes via Character.codePointCount(text,0,len) > 1 (codepoints, not UTF-16 chars, so a single emoji surrogate pair is not misclassified as paste) and routes them through TerminalEmulator#paste() instead of char-by-char inputCodePoint(). TerminalBridge.kt onPasteTextFromClipboard() was a stub that only logged; now reads clipboardManager.primaryClip and calls terminalEmulator.paste(text), fixing long-press context-menu Paste. Middle-mouse-button paste was already correct (unchanged). See BRACKETED_PASTE.md for full diagnosis. ./init.sh BUILD SUCCESSFUL after changes."
+    },
+    {
+      "id": "bug-011",
+      "name": "Key-Based SSH Login Not Usable End-to-End From The App",
+      "description": "User wanted to switch from password to SSH key auth, fully managed from the app. Found and fixed 4 compounding issues, using ConnectBot (connectbot/ dir in repo) as reference implementation throughout: (1) Host Editor's SSH Key dropdown used OutlinedTextField(readOnly)+.clickable, a known-broken Compose pattern; (2) Host.pubkeyId was saved but never read during auth - SSH.kt tried any loaded key regardless of the host's assigned key; (3) no way to export a generated public key to paste into the server's authorized_keys; (4) the whole SSH Keys / Generate Key screens (PubkeyListScreen, GeneratePubkeyScreen) were unreachable from the real app UI - they only existed wired into DarkSSHNavHost, which MainActivity imports but never calls (MainActivity actually renders MainScreen.kt, a separate hand-rolled 3-tab Hosts/Tabs/Settings UI with zero pubkey entry point).",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "(1) HostEditorScreen.kt: replaced broken dropdown with ExposedDropdownMenuBox + Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable) (the type Material3 docs specify for readOnly fields - the untyped/deprecated menuAnchor() doesn't guarantee correct focus/dismiss for readOnly fields); removed a disabled empty-state DropdownMenuItem that looked like a dead second option and confused users, moved that hint to supportingText instead. (2) SSH.kt: added tryHostPubkeyAuth() - when host.pubkeyId is set, fetches that specific Pubkey via the newly-injected TerminalService.pubkeyRepository, unlocks it (prompting for its password via bridge.promptForInputBlocking if encrypted and not already loaded, caching the result in service.loadedKeypairs), and tries ONLY that key (no fallback to other loaded keys), guarded by hostPubkeyAttempted so it isn't re-prompted on every AUTH_TRIES loop iteration; unset pubkeyId keeps prior any-loaded-key behavior. Mirrors connectbot/app SSH.kt's PUBKEYID_ANY/specific-key split. (3) PubkeyListViewModel.copyPublicKey() + a copy IconButton per key in PubkeyListScreen: uses PubkeyUtils.decodePublic() + com.trilead.ssh2.crypto.PublicKeyUtils.toAuthorizedKeysFormat() (sshlib, already a project dependency) to produce the 'ssh-ed25519 AAAA... nickname' line and copies it via ClipboardManager - identical approach to connectbot/app PubkeyListViewModel.copyPublicKey(). (4) Added a real 'SSH Keys' entry in SettingsScreen.kt (ListItem, matches Server Settings/Debug Logs style) and wired showSshKeys/showGenerateKey state + PubkeyListScreen/GeneratePubkeyScreen rendering + BackHandler cases in MainScreen.kt (the screen MainActivity actually renders). DarkSSHNavHost/NavGraph.kt left as-is (pre-existing dead code, out of scope to remove now). User confirmed: entry point via Settings is sufficient for now, no inline 'generate key' shortcut needed inside Host Editor (matches ConnectBot's own HostEditorScreen, which also has no such shortcut). Verified: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 tasks fresh) + ./init.sh BUILD SUCCESSFUL. DB inspected live via adb on connected device (127.0.0.1:15555) throughout to confirm pubkeys table state at each step."
+    },
+    {
+      "id": "bug-012",
+      "name": "Host Connection Fails With DNS Error On Valid IP (Invisible Characters In Hostname)",
+      "description": "User on Xiaomi Redmi Note 8 Pro (Android 15) reports SSH connection to host 'arch' (192.168.50.45) fails immediately with a DNS resolution error, even though 192.168.50.45 is a syntactically valid IPv4 literal that should never trigger DNS. Log (darkssh_20260716_233139.log) shows: 'SSH: Connecting to 192.168.50.45:22' followed by 'java.net.UnknownHostException: Unable to resolve host \"192.168.50.45\": No address associated with hostname' caused by 'android.system.GaiException: EAI_NODATA'. Root cause: java.net.InetAddress.getAllByName() only skips DNS when its strict IPv4-literal parser (IPAddressUtil.textToNumericFormatV4, exact match against digits+dots) recognizes the string; ANY extra character - a trailing/leading space, a non-breaking space, a zero-width space/BOM inserted by mobile keyboard autocomplete/autocorrect or paste - makes it fall through to a real DNS lookup, which then fails because the corrupted string isn't a resolvable hostname either. Confirmed nowhere in the Host save path (HostEditorScreen.kt hostname OutlinedTextField -> HostEditorViewModel.saveHost() -> Host entity) or in SSH.kt connect() does any .trim() or sanitization happen on nickname/hostname/username.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Root cause confirmed by log analysis (darkssh_20260716_233139.log, provided by user from their Xiaomi Redmi Note 8 Pro / Android 15 device): SSH.connect() logged 'Connecting to 192.168.50.45:22' then immediately threw java.net.UnknownHostException: 'Unable to resolve host \"192.168.50.45\": No address associated with hostname' caused by android.system.GaiException EAI_NODATA - i.e. Android tried a real DNS lookup on a syntactically valid IPv4 literal, which only happens when java.net.InetAddress's strict IPv4-literal parser fails to match the string exactly (any extra invisible character defeats it). Confirmed no .trim()/sanitization existed anywhere in the Host save path (HostEditorScreen.kt -> HostEditorViewModel.saveHost() -> Host entity) or in SSH.kt connect()/authenticate(). Fix: (1) new util/TextSanitizer.kt - trims regular whitespace then strips a set of invisible Unicode chars (BOM \\uFEFF, zero-width space \\u200B, ZWNJ \\u200C, ZWJ \\u200D, word joiner \\u2060, non-breaking space \\u00A0) by scanning the WHOLE string, not just the edges, since java.lang.Character.isWhitespace() (used by Kotlin's String.trim()) deliberately does NOT treat \\u00A0/\\u2007/\\u202F as whitespace - a plain .trim() alone would miss a trailing NBSP. (2) HostEditorViewModel.saveHost() now sanitizes nickname/hostname/username before persisting (both insert and update paths), keeping the DB clean going forward. (3) SSH.kt connect() and authenticate() also sanitize host.hostname/host.username at use-time, independently of save-time, so the user's ALREADY-BROKEN 'arch' host (hostId=1, saved before this fix) is unblocked immediately once the new APK is installed - no need to re-open Host Editor and retype the hostname. Verified: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh tasks) + ./init.sh BUILD SUCCESSFUL. Not yet verified against the actual corrupted DB row on the user's Xiaomi device (no adb access to that device in this session, only the log file was provided) - user should reinstall the new APK and retry connecting to 'arch' without editing the host, then report back."
     }
   ]
 }

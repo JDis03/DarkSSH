@@ -385,6 +385,25 @@ public final class TerminalView extends View {
             void sendTextToTerminal(CharSequence text) {
                 stopTextSelectionMode();
                 final int textLengthInChars = text.length();
+
+                // A commitText() carrying more than one codepoint is virtually always an
+                // IME-driven paste (long-press "Paste", Gboard/SwiftKey clipboard suggestion,
+                // autocomplete word insertion, dictation, etc.) rather than a single keystroke.
+                // Route it through TerminalEmulator#paste() so bracketed paste mode (DECSET 2004)
+                // wraps it in \033[200~ / \033[201~ for apps that rely on it (vim, tmux,
+                // crossterm-based TUIs). Without this, IME pastes were sent as raw keystrokes
+                // and apps waiting on Event::Paste (crossterm) never saw it.
+                //
+                // We deliberately count codepoints (Character.codePointCount), not UTF-16 chars
+                // (text.length()): a single emoji outside the BMP is 2 chars but 1 codepoint, so
+                // tapping one emoji on the keyboard is still ordinary typing, not a paste. Wrapping
+                // genuinely multi-codepoint autocomplete/composing text in bracketed-paste markers
+                // is harmless — the wrapped bytes are literal either way. See BRACKETED_PASTE.md.
+                if (mEmulator != null && Character.codePointCount(text, 0, textLengthInChars) > 1) {
+                    mEmulator.paste(text.toString());
+                    return;
+                }
+
                 for (int i = 0; i < textLengthInChars; i++) {
                     char firstChar = text.charAt(i);
                     int codePoint;

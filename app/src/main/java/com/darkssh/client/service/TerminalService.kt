@@ -14,6 +14,7 @@ import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.data.repository.PubkeyRepository
 import com.darkssh.client.transport.SftpClient
 import com.darkssh.client.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
@@ -87,6 +88,8 @@ class TerminalService : Service() {
     @Inject lateinit var knownHostRepository: KnownHostRepository
 
     @Inject lateinit var tabRepository: com.darkssh.client.data.repository.TabRepository
+
+    @Inject lateinit var pubkeyRepository: PubkeyRepository
 
     @Inject lateinit var clipboardManager: ClipboardManager
 
