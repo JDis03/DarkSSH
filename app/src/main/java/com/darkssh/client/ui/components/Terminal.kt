@@ -5,8 +5,9 @@ import android.graphics.Typeface
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.inputmethod.InputMethodManager
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -14,6 +15,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.darkssh.client.service.TerminalBridge
@@ -22,6 +27,7 @@ import com.darkssh.client.terminal.emulator.TerminalSession
 import com.darkssh.client.terminal.view.TerminalView
 import com.darkssh.client.terminal.view.TerminalViewClient
 import timber.log.Timber
+import kotlin.math.abs
 
 @Composable
 fun Terminal(
@@ -41,6 +47,28 @@ fun Terminal(
     var prevTypeface by remember { mutableStateOf<Typeface?>(null) }
 
     val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
+
+    // NestedScrollConnection to resolve gesture conflict between terminal scroll and HorizontalPager swipe.
+    // Problem: When scrolling vertically in the terminal history, the finger naturally has a small
+    // horizontal component. HorizontalPager intercepts this and triggers tab switching mid-scroll.
+    // Solution: When the gesture is predominantly vertical (Y > X * threshold), consume it entirely
+    // so HorizontalPager never sees it. Horizontal swipes still work for intentional tab changes.
+    val terminalNestedScroll = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                // Threshold: if vertical component is > 1.2x horizontal, it's a vertical scroll
+                // (lower ratio = more aggressive blocking of pager swipe during scroll)
+                val dominated = abs(available.y) > abs(available.x) * 1.2f
+                return if (dominated && abs(available.y) > 0.5f) {
+                    // Consume the horizontal component to prevent pager from swiping
+                    // Let vertical pass through (terminal's GestureRecognizer handles it)
+                    Offset(available.x, 0f)
+                } else {
+                    Offset.Zero
+                }
+            }
+        }
+    }
 
     // Explicit "Show Keyboard" button press: SHOW_FORCED, not SHOW_IMPLICIT.
     // Android silently ignores SHOW_IMPLICIT (used below and in the update{} block) if the
@@ -82,15 +110,17 @@ fun Terminal(
         }
     }
 
-    AndroidView(
-        factory = { ctx ->
-            TerminalView(ctx, null).apply {
-                val terminalView = this
-                isFocusable = true
-                isFocusableInTouchMode = true
-                terminalViewRef.value = this
+    // Wrap AndroidView in Box with nestedScroll to intercept gestures before HorizontalPager
+    Box(modifier = modifier.nestedScroll(terminalNestedScroll)) {
+        AndroidView(
+            factory = { ctx ->
+                TerminalView(ctx, null).apply {
+                    val terminalView = this
+                    isFocusable = true
+                    isFocusableInTouchMode = true
+                    terminalViewRef.value = this
 
-                setTerminalViewClient(object : TerminalViewClient {
+                    setTerminalViewClient(object : TerminalViewClient {
                     override fun onScale(scale: Float): Float = scale
 
                     override fun onSingleTapUp(e: MotionEvent) {
@@ -146,7 +176,7 @@ fun Terminal(
                 }
             }
         },
-        modifier = modifier,
+        modifier = Modifier.fillMaxSize(),
         update = { view ->
             // CRITICAL: Control focusability and focus IMMEDIATELY to prevent inactive tabs from receiving input
             // This must happen in update block, not DisposableEffect, for immediate effect
@@ -182,4 +212,5 @@ fun Terminal(
             }
         },
     )
+    } // End Box wrapper
 }
