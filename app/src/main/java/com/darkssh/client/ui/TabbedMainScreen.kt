@@ -21,23 +21,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.compose.runtime.rememberCoroutineScope
 import com.darkssh.client.data.entity.Tab
 import com.darkssh.client.data.entity.TabType
+import com.darkssh.client.service.DisconnectReason
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.ui.components.TabBar
 import com.darkssh.client.ui.screens.ConsoleScreen
 import com.darkssh.client.ui.screens.SftpScreen
-import com.darkssh.client.ui.viewmodel.TabManager
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
+import com.darkssh.client.ui.viewmodel.TabManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -53,10 +54,17 @@ fun TabbedMainScreen(
 ) {
     val tabs by tabManager.tabs.collectAsState()
     val currentTabIndex by tabManager.currentTabIndex.collectAsState()
+    val bridges by terminalService?.bridges?.collectAsState() ?: remember { 
+        androidx.compose.runtime.mutableStateOf(emptyList()) 
+    }
     val coroutineScope = rememberCoroutineScope()
     
-    // Safe index: clamp to valid range
-    val safeTabIndex = if (tabs.isNotEmpty()) currentTabIndex.coerceIn(0, tabs.size - 1) else 0
+    // Safe index: use derivedStateOf for efficient recomposition
+    val safeTabIndex by remember(tabs, currentTabIndex) {
+        derivedStateOf {
+            if (tabs.isNotEmpty()) currentTabIndex.coerceIn(0, tabs.size - 1) else 0
+        }
+    }
 
     val pagerState = rememberPagerState(
         initialPage = safeTabIndex,
@@ -74,57 +82,38 @@ fun TabbedMainScreen(
 
     // USER SWIPE: pager → TabManager (only on settled, not during animation)
     val currentTabIndexUpdated by rememberUpdatedState(currentTabIndex)
-    
-    // Update active bridge when tab changes (Termius pattern: centralized control)
-    // This is the SINGLE source of truth for which bridge is active
-    LaunchedEffect(currentTabIndex, tabs.size) {
-        val currentTab = tabs.getOrNull(currentTabIndex)
-        Timber.d("TabbedMainScreen: Tab changed to index $currentTabIndex (${currentTab?.type})")
-        
-        if (currentTab != null) {
-            when (currentTab.type) {
-                TabType.SSH_TERMINAL -> {
-                    // Find the bridge for this SSH tab
-                    val bridges = terminalService?.bridges?.value ?: emptyList()
-                    val bridge = bridges.firstOrNull { it.tabId == currentTab.id }
-                    if (bridge != null) {
-                        Timber.d("TabbedMainScreen: Setting active bridge for SSH tab ${currentTab.id}")
-                        terminalService?.setActiveBridge(bridge)
-                    } else {
-                        Timber.d("TabbedMainScreen: No bridge found for SSH tab ${currentTab.id}")
-                    }
-                }
-                TabType.SFTP_BROWSER -> {
-                    // SFTP doesn't need active bridge for notifications
-                    Timber.d("TabbedMainScreen: Clearing active bridge for SFTP tab")
-                    terminalService?.setActiveBridge(null)
-                }
-            }
-        } else {
-            Timber.d("TabbedMainScreen: No current tab, clearing active bridge")
-            terminalService?.setActiveBridge(null)
-        }
-    }
-
-    // Reactive: when a new bridge is added, check if it should be active for the current tab
-    // This handles the case where the bridge is created AFTER the tab change effect runs
-    val bridges by terminalService?.bridges?.collectAsState() ?: remember { mutableStateOf(emptyList()) }
-    LaunchedEffect(bridges.size, currentTabIndex) {
-        val currentTab = tabs.getOrNull(currentTabIndex)
-        if (currentTab?.type == TabType.SSH_TERMINAL) {
-            val bridge = bridges.firstOrNull { it.tabId == currentTab.id }
-            if (bridge != null && terminalService?.activeBridge?.value != bridge) {
-                Timber.d("TabbedMainScreen: New bridge detected for current tab ${currentTab.id}, updating active bridge")
-                terminalService?.setActiveBridge(bridge)
-            }
-        }
-    }
-
-    // USER SWIPE: notify TabManager when swipe gesture completes
     LaunchedEffect(pagerState.settledPage) {
         if (tabs.isNotEmpty() && pagerState.settledPage != currentTabIndexUpdated) {
             Timber.d("TabbedMainScreen: User swiped to page ${pagerState.settledPage}")
             tabManager.switchTab(pagerState.settledPage)
+        }
+    }
+
+    // CONSOLIDATED BRIDGE MANAGEMENT: Single effect handles all bridge activation scenarios
+    // Triggers on: tab index change, tabs list change, bridges list change
+    LaunchedEffect(currentTabIndex, tabs, bridges) {
+        val currentTab = tabs.getOrNull(currentTabIndex)
+        
+        when {
+            currentTab == null -> {
+                Timber.d("TabbedMainScreen: No current tab, clearing active bridge")
+                terminalService?.setActiveBridge(null)
+            }
+            currentTab.type == TabType.SSH_TERMINAL -> {
+                val bridge = bridges.firstOrNull { it.tabId == currentTab.id }
+                val currentActive = terminalService?.activeBridge?.value
+                if (bridge != null && currentActive != bridge) {
+                    Timber.d("TabbedMainScreen: Setting active bridge for SSH tab ${currentTab.id}")
+                    terminalService?.setActiveBridge(bridge)
+                } else if (bridge == null && currentActive != null) {
+                    // Tab exists but bridge not yet created (connecting) - don't clear
+                    Timber.d("TabbedMainScreen: SSH tab ${currentTab.id} waiting for bridge")
+                }
+            }
+            currentTab.type == TabType.SFTP_BROWSER -> {
+                Timber.d("TabbedMainScreen: Clearing active bridge for SFTP tab")
+                terminalService?.setActiveBridge(null)
+            }
         }
     }
 
@@ -239,42 +228,48 @@ fun TabbedMainScreen(
 /**
  * Full tab close: disconnects SSH bridge / SFTP client, then removes from DB.
  * Single source of truth — used by close, close-others, close-all.
+ * 
+ * Note: Cleanup is performed synchronously for SSH (bridge disconnect is fast)
+ * and asynchronously for SFTP (network I/O). Tab is removed from DB after cleanup
+ * to ensure proper resource release.
  */
 private fun closeTab(
     tabId: String,
     tabs: List<Tab>,
     terminalService: TerminalService?,
     scope: CoroutineScope,
-    tabManager: com.darkssh.client.ui.viewmodel.TabManager,
+    tabManager: TabManager,
 ) {
     val tab = tabs.find { it.id == tabId } ?: return
 
-    // SSH: disconnect bridge
-    if (tab.type == TabType.SSH_TERMINAL) {
-        val bridge = terminalService?.bridges?.value?.find { it.tabId == tabId }
-        if (bridge != null) {
-            terminalService.onBridgeDisconnected(
-                bridge,
-                com.darkssh.client.service.DisconnectReason.USER_REQUESTED,
-            )
-        }
-    }
-
-    // SFTP: disconnect client
-    if (tab.type == TabType.SFTP_BROWSER) {
-        com.darkssh.client.ui.screens.viewmodel.SftpViewModel.activeClients[tab.hostId]?.let { client ->
-            scope.launch {
-                try {
-                    withContext(Dispatchers.IO) { client.disconnect() }
-                    Timber.d("closeTab: SFTP disconnected for tab $tabId (host ${tab.hostId})")
-                } catch (e: Exception) {
-                    Timber.w(e, "closeTab: SFTP disconnect failed for tab $tabId")
+    scope.launch {
+        try {
+            when (tab.type) {
+                TabType.SSH_TERMINAL -> {
+                    // SSH: disconnect bridge (synchronous, fast)
+                    val bridge = terminalService?.bridges?.value?.find { it.tabId == tabId }
+                    if (bridge != null) {
+                        terminalService.onBridgeDisconnected(bridge, DisconnectReason.USER_REQUESTED)
+                        Timber.d("closeTab: SSH bridge disconnected for tab $tabId")
+                    }
+                }
+                TabType.SFTP_BROWSER -> {
+                    // SFTP: disconnect client (async, may involve network I/O)
+                    // TODO: Change key from hostId to tabId when refactor-001 is implemented
+                    SftpViewModel.activeClients[tab.hostId]?.let { client ->
+                        try {
+                            withContext(Dispatchers.IO) { client.disconnect() }
+                            Timber.d("closeTab: SFTP disconnected for tab $tabId (host ${tab.hostId})")
+                        } catch (e: Exception) {
+                            Timber.w(e, "closeTab: SFTP disconnect failed for tab $tabId")
+                        }
+                        SftpViewModel.activeClients.remove(tab.hostId)
+                    }
                 }
             }
-            com.darkssh.client.ui.screens.viewmodel.SftpViewModel.activeClients.remove(tab.hostId)
+        } finally {
+            // Always remove tab from DB, even if cleanup failed
+            tabManager.closeTab(tabId)
         }
     }
-
-    // DB: remove tab
-    tabManager.closeTab(tabId)
 }

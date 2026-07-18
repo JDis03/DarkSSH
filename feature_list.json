@@ -253,6 +253,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Added NestedScrollConnection in Terminal.kt that intercepts gestures before HorizontalPager. When vertical component > 1.2x horizontal component, consumes the horizontal delta so pager never sees it. Vertical scrolls now work cleanly; intentional horizontal swipes still switch tabs. Box wrapper with nestedScroll modifier around AndroidView."
+    },
+    {
+      "id": "refactor-002",
+      "name": "Tab Management Code Refactor",
+      "description": "Comprehensive refactor of tab management code to fix race conditions, improve thread safety, consolidate bridge management, and clean up dead code.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "TabManager.kt: (1) Added Mutex for thread-safe tab operations, (2) Fixed race condition in closeTab() by using snapshot of tabs list before modifications, (3) Made pendingSwitchToNewTab flag thread-safe with mutex protection, (4) Fixed reorderTabs() to properly adjust currentTabIndex when affected by reorder, (5) Cleaned up FQN imports. TabbedMainScreen.kt: (1) Consolidated two bridge management LaunchedEffects into single effect triggered by currentTabIndex+tabs+bridges, (2) Used derivedStateOf for safeTabIndex calculation, (3) Improved closeTab() to await cleanup before removing tab from DB. TabBar.kt: (1) Extracted magic numbers to TabBarDefaults object, (2) Removed unused widthFraction parameter and animation, (3) Fixed auto-scroll calculation to use actual tab widths from constants."
     }
   ]
 }

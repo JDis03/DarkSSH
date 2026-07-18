@@ -3,7 +3,6 @@ package com.darkssh.client.ui.components
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -164,9 +163,32 @@ fun OsIcon(osType: OsType, modifier: Modifier = Modifier) {
     }
 }
 
-// ─── TabBar ───────────────────────────────────────────────────────────────────
+// ─── TabBar Constants ─────────────────────────────────────────────────────────
 
-private const val VIVALDI_THRESHOLD = 3  // collapse when tabs > this
+private object TabBarDefaults {
+    /** Number of tabs before switching to collapsed (icon-only) mode */
+    const val COLLAPSE_THRESHOLD = 3
+    
+    /** Height of the tab bar */
+    val BAR_HEIGHT = 52.dp
+    
+    /** Width of a collapsed (icon-only) tab */
+    val COLLAPSED_TAB_WIDTH = 44.dp
+    
+    /** Min/max width of an expanded selected tab in collapsed mode */
+    val SELECTED_TAB_MIN_WIDTH = 120.dp
+    val SELECTED_TAB_MAX_WIDTH = 180.dp
+    
+    /** Min/max width of tabs in normal (non-collapsed) mode */
+    val NORMAL_TAB_MIN_WIDTH = 80.dp
+    val NORMAL_TAB_MAX_WIDTH = 160.dp
+    
+    /** Size of the OS/connection icons */
+    val ICON_SIZE = 18.dp
+    
+    /** Size of the connection status dot */
+    val DOT_SIZE = 8.dp
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -182,22 +204,29 @@ fun TabBar(
 ) {
     val scope = rememberCoroutineScope()
     val bridges = terminalService?.bridges?.collectAsState()?.value ?: emptyList()
-    val collapsed = tabs.size > VIVALDI_THRESHOLD
+    val collapsed = tabs.size > TabBarDefaults.COLLAPSE_THRESHOLD
     val scrollState = rememberScrollState()
     val selectedIndex = pagerState.currentPage.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))
 
     // Auto-scroll so the selected tab is always visible when collapsed
     LaunchedEffect(selectedIndex, collapsed) {
-        if (collapsed) {
-            // Approximate scroll: each collapsed tab ~44dp, selected tab ~160dp
-            val collapsedPx = 44 * scrollState.maxValue / (tabs.size * 44 + 160).coerceAtLeast(1)
-            scrollState.animateScrollTo((selectedIndex * collapsedPx).toInt())
+        if (collapsed && tabs.isNotEmpty()) {
+            // Calculate approximate position based on tab widths
+            val collapsedWidth = TabBarDefaults.COLLAPSED_TAB_WIDTH.value.toInt()
+            val selectedWidth = TabBarDefaults.SELECTED_TAB_MAX_WIDTH.value.toInt()
+            val totalWidth = (tabs.size - 1) * collapsedWidth + selectedWidth
+            
+            if (scrollState.maxValue > 0 && totalWidth > 0) {
+                val targetScroll = (selectedIndex * collapsedWidth * scrollState.maxValue / totalWidth)
+                    .coerceIn(0, scrollState.maxValue)
+                scrollState.animateScrollTo(targetScroll)
+            }
         }
     }
 
     Row(
         modifier = modifier
-            .height(52.dp)
+            .height(TabBarDefaults.BAR_HEIGHT)
             .background(MaterialTheme.colorScheme.surfaceContainer),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -211,43 +240,39 @@ fun TabBar(
         ) {
             tabs.forEachIndexed { index, tab ->
                 key(tab.id) {
-                    val bridge          = bridges.find { it.tabId == tab.id }
-                    val bridgeOsType    by bridge?.osType?.collectAsState() ?: remember { mutableStateOf(OsType.UNKNOWN) }
+                    val bridge = bridges.find { it.tabId == tab.id }
+                    val bridgeOsType by bridge?.osType?.collectAsState() 
+                        ?: remember { mutableStateOf(OsType.UNKNOWN) }
                     // Use the bridge's live osType when known; fall back to the
                     // Tab entity's cached osType (persisted from the previous
                     // connection) so the icon is never UNKNOWN while connecting.
-                    val osType          = if (bridgeOsType != OsType.UNKNOWN) bridgeOsType else tab.osType
-                    val isConnected     by bridge?.isConnected?.collectAsState()    ?: remember { mutableStateOf(false) }
-                    val isDisconn       by bridge?.isDisconnected?.collectAsState() ?: remember { mutableStateOf(false) }
-                    var showMenu     by remember { mutableStateOf(false) }
+                    val osType = if (bridgeOsType != OsType.UNKNOWN) bridgeOsType else tab.osType
+                    val isConnected by bridge?.isConnected?.collectAsState() 
+                        ?: remember { mutableStateOf(false) }
+                    val isDisconn by bridge?.isDisconnected?.collectAsState() 
+                        ?: remember { mutableStateOf(false) }
+                    var showMenu by remember { mutableStateOf(false) }
 
-                    val isSelected  = index == selectedIndex
+                    val isSelected = index == selectedIndex
                     // Vivaldi: selected = expanded (text visible), others = icon-only
-                    val showText    = !collapsed || isSelected
-                    // Animate tab width fraction: 1f=full, 0f=icon-only
-                    val widthFraction by animateFloatAsState(
-                        targetValue = if (showText) 1f else 0f,
-                        animationSpec = tween(200),
-                        label = "tabWidth",
-                    )
+                    val showText = !collapsed || isSelected
 
                     SingleTab(
-                        tab         = tab,
-                        isSelected  = isSelected,
-                        showText    = showText,
-                        widthFraction = widthFraction,
-                        collapsed   = collapsed,
-                        osType      = osType,
+                        tab = tab,
+                        isSelected = isSelected,
+                        showText = showText,
+                        collapsed = collapsed,
+                        osType = osType,
                         isConnected = isConnected,
-                        isDisconn   = isDisconn,
-                        showMenu    = showMenu,
-                        tabCount    = tabs.size,
-                        onClick     = { scope.launch { pagerState.animateScrollToPage(index) } },
+                        isDisconn = isDisconn,
+                        showMenu = showMenu,
+                        tabCount = tabs.size,
+                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
                         onLongClick = { showMenu = true },
                         onDismissMenu = { showMenu = false },
-                        onClose     = { onCloseTab(tab.id) },
+                        onClose = { onCloseTab(tab.id) },
                         onCloseOthers = { onCloseOthers(tab.id) },
-                        onCloseAll  = onCloseAll,
+                        onCloseAll = onCloseAll,
                     )
                 }
             }
@@ -275,7 +300,6 @@ private fun SingleTab(
     tab: TabEntity,
     isSelected: Boolean,
     showText: Boolean,
-    widthFraction: Float,
     collapsed: Boolean,
     osType: OsType,
     isConnected: Boolean,
@@ -289,20 +313,29 @@ private fun SingleTab(
     onCloseOthers: () -> Unit,
     onCloseAll: () -> Unit,
 ) {
-    val selectedBg  = MaterialTheme.colorScheme.secondaryContainer
-    val normalBg    = Color.Transparent
+    val selectedBg = MaterialTheme.colorScheme.secondaryContainer
+    val normalBg = Color.Transparent
     val selectedText = MaterialTheme.colorScheme.onSecondaryContainer
-    val normalText   = MaterialTheme.colorScheme.onSurfaceVariant
+    val normalText = MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(
         modifier = Modifier
-            // collapsed: icon-only ~44dp, selected: at least 120dp; normal mode: unconstrained
+            // collapsed: icon-only, selected: expanded; normal mode: flexible width
             .then(
                 if (collapsed) {
-                    if (isSelected) Modifier.widthIn(min = 120.dp, max = 180.dp)
-                    else Modifier.width(44.dp)
+                    if (isSelected) {
+                        Modifier.widthIn(
+                            min = TabBarDefaults.SELECTED_TAB_MIN_WIDTH,
+                            max = TabBarDefaults.SELECTED_TAB_MAX_WIDTH
+                        )
+                    } else {
+                        Modifier.width(TabBarDefaults.COLLAPSED_TAB_WIDTH)
+                    }
                 } else {
-                    Modifier.widthIn(min = 80.dp, max = 160.dp)
+                    Modifier.widthIn(
+                        min = TabBarDefaults.NORMAL_TAB_MIN_WIDTH,
+                        max = TabBarDefaults.NORMAL_TAB_MAX_WIDTH
+                    )
                 }
             )
             .fillMaxHeight()
@@ -324,7 +357,7 @@ private fun SingleTab(
                 when (tab.type) {
                     TabType.SSH_TERMINAL -> OsIcon(
                         osType = osType,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(TabBarDefaults.ICON_SIZE),
                     )
                     TabType.SFTP_BROWSER -> {
                         val context = LocalPlatformContext.current
@@ -333,7 +366,7 @@ private fun SingleTab(
                                 .data("file:///android_asset/icons/ic_folder_remote.svg")
                                 .decoderFactory(SvgDecoder.Factory()).build(),
                             contentDescription = "SFTP",
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(TabBarDefaults.ICON_SIZE),
                         )
                     }
                 }
@@ -363,7 +396,6 @@ private fun SingleTab(
                     color = if (isSelected) selectedText else normalText,
                     modifier = Modifier.weight(1f),
                 )
-                // No X button — close via long-press menu
             }
         }
 
