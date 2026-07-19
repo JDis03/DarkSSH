@@ -677,6 +677,59 @@ class TransferEngine(
         val deferred: kotlinx.coroutines.Deferred<SftpResult<ByteArray?>>,
         val dispatchTime: Long,
     )
+    // === CbsshTransfer-compatible API ===
+    // These methods return SftpResult for drop-in replacement of CbsshTransfer
+
+    /**
+     * Download to file, returning SftpResult for CbsshTransfer compatibility.
+     */
+    suspend fun downloadCompat(
+        remotePath: String,
+        localFile: File,
+        onProgress: ((TransferProgress) -> Unit)? = null,
+    ): SftpResult<Unit> {
+        return when (val result = download(remotePath, localFile, 0, onProgress)) {
+            is TransferResult.Success -> SftpResult.Success(Unit)
+            is TransferResult.Failed -> SftpResult.IoError(result.error)
+            is TransferResult.Cancelled -> SftpResult.IoError(
+                kotlinx.coroutines.CancellationException("Transfer cancelled")
+            )
+        }
+    }
+
+    /**
+     * Download to stream, returning SftpResult for CbsshTransfer compatibility.
+     */
+    suspend fun downloadToStreamCompat(
+        remotePath: String,
+        outputStream: OutputStream,
+        onProgress: ((TransferProgress) -> Unit)? = null,
+    ): SftpResult<Unit> {
+        return when (val result = downloadToStream(remotePath, outputStream, onProgress)) {
+            is TransferResult.Success -> SftpResult.Success(Unit)
+            is TransferResult.Failed -> SftpResult.IoError(result.error)
+            is TransferResult.Cancelled -> SftpResult.IoError(
+                kotlinx.coroutines.CancellationException("Transfer cancelled")
+            )
+        }
+    }
+
+    /**
+     * Upload file, returning SftpResult for CbsshTransfer compatibility.
+     */
+    suspend fun uploadCompat(
+        localFile: File,
+        remotePath: String,
+        onProgress: ((TransferProgress) -> Unit)? = null,
+    ): SftpResult<Unit> {
+        return when (val result = upload(localFile, remotePath, 0, onProgress)) {
+            is TransferResult.Success -> SftpResult.Success(Unit)
+            is TransferResult.Failed -> SftpResult.IoError(result.error)
+            is TransferResult.Cancelled -> SftpResult.IoError(
+                kotlinx.coroutines.CancellationException("Transfer cancelled")
+            )
+        }
+    }
 }
 
 // === Extensions ===

@@ -275,8 +275,8 @@
       "name": "TransferEngine - Kotlin-first SFTP Transfer Engine",
       "description": "New transfer engine with adaptive pipeline, retry, timeouts, resume support. Replacement for CbsshTransfer.",
       "dependencies": [],
-      "status": "in-progress",
-      "evidence": "TransferEngine.kt created with: (1) Adaptive pipeline depth 2-32 based on measured RTT, (2) Retry with exponential backoff for IoErrors (max 3, 1s→2s→4s), (3) Timeouts per operation (60s read/write, 30s stat/open), (4) Resumable transfers via resumeFrom parameter, (5) Flow-based progress with backpressure, (6) TransferResult sealed class (Success/Failed/Cancelled). NOT YET INTEGRATED into SftpClient2 - next step."
+      "status": "done",
+      "evidence": "TransferEngine.kt created and INTEGRATED into SftpClient2. Features: (1) Adaptive pipeline depth 2-32 based on measured RTT, (2) Retry with exponential backoff for IoErrors (max 3, 1s→2s→4s), (3) Timeouts per operation (60s read/write, 30s stat/open), (4) Resumable transfers via resumeFrom parameter, (5) Flow-based progress with backpressure, (6) TransferResult sealed class (Success/Failed/Cancelled). SftpClient2 now has useTransferEngine flag (default=true) to switch between TransferEngine and CbsshTransfer. Added downloadCompat/uploadCompat methods for SftpResult compatibility."
     }
   ]
 }

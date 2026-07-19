@@ -55,7 +55,17 @@ class SftpClient2(
     private var sshClient: SshClient? = null
     private var sftpClient: SftpClient? = null
     private var transfer: CbsshTransfer? = null
+    private var transferEngine: TransferEngine? = null
     private var keepAliveJob: kotlinx.coroutines.Job? = null
+
+    companion object {
+        /**
+         * Feature flag: use new TransferEngine instead of CbsshTransfer.
+         * TransferEngine has adaptive pipeline, retry, timeouts, resume support.
+         * Set to true once testing confirms it's stable.
+         */
+        var useTransferEngine: Boolean = true
+    }
 
     override val isConnected: Boolean
         get() = sftpClient != null && sshClient?.isAuthenticated == true
@@ -71,6 +81,7 @@ class SftpClient2(
         keepAliveJob = null
         sftpClient = null
         transfer = null
+        transferEngine = null
         // Don't null sshClient — let isAuthenticated reflect the real state
     }
 
@@ -147,6 +158,7 @@ class SftpClient2(
                     is SftpResult.Success -> {
                         sftpClient = sftpResult.value
                         transfer = CbsshTransfer(sftpResult.value)
+                        transferEngine = TransferEngine(sftpResult.value)
                     }
 
                     else -> {
@@ -155,8 +167,9 @@ class SftpClient2(
                     }
                 }
 
-                Timber.d("cbssh SFTP session opened for ${host.hostname}")
-                DebugLogger.i("SftpClient2", "✅ Conectado (password) a ${host.hostname}:${host.port} como ${host.username}")
+                val engineInfo = if (useTransferEngine) "TransferEngine" else "CbsshTransfer"
+                Timber.d("cbssh SFTP session opened for ${host.hostname} (using $engineInfo)")
+                DebugLogger.i("SftpClient2", "✅ Conectado (password) a ${host.hostname}:${host.port} como ${host.username} [$engineInfo]")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP connect+auth failed")
@@ -252,6 +265,7 @@ class SftpClient2(
                     is SftpResult.Success -> {
                         sftpClient = sftpResult.value
                         transfer = CbsshTransfer(sftpResult.value)
+                        transferEngine = TransferEngine(sftpResult.value)
                     }
 
                     else -> {
@@ -260,8 +274,9 @@ class SftpClient2(
                     }
                 }
 
-                Timber.d("cbssh SFTP session opened (pubkey auth) for ${host.hostname}")
-                DebugLogger.i("SftpClient2", "✅ Conectado (pubkey) a ${host.hostname}:${host.port} como ${host.username}")
+                val engineInfo = if (useTransferEngine) "TransferEngine" else "CbsshTransfer"
+                Timber.d("cbssh SFTP session opened (pubkey auth) for ${host.hostname} (using $engineInfo)")
+                DebugLogger.i("SftpClient2", "✅ Conectado (pubkey) a ${host.hostname}:${host.port} como ${host.username} [$engineInfo]")
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP pubkey auth failed")
@@ -281,6 +296,7 @@ class SftpClient2(
                 sshClient?.disconnect()
                 sshClient = null
                 transfer = null
+                transferEngine = null
                 Timber.d("cbssh SFTP session closed for ${host.hostname}")
             } catch (e: Exception) {
                 Timber.e(e, "Error closing cbssh SFTP session")
@@ -294,6 +310,7 @@ class SftpClient2(
         sftpClient = null
         sshClient = null
         transfer = null
+        transferEngine = null
         Timber.w("cbssh SFTP marked as disconnected for ${host.hostname}")
     }
 
@@ -389,12 +406,19 @@ class SftpClient2(
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val transfer =
-                transfer ?: return@withContext Result.failure(
+            DebugLogger.d("SftpClient2", "downloadToStream: $remotePath [engine=${useTransferEngine}]")
+            
+            if (useTransferEngine) {
+                val engine = transferEngine ?: return@withContext Result.failure(
                     Exception("SFTP not connected"),
                 )
-            DebugLogger.d("SftpClient2", "downloadToStream: $remotePath")
-            mapResult(transfer.downloadToStream(remotePath, outputStream, onProgress))
+                mapResult(engine.downloadToStreamCompat(remotePath, outputStream, onProgress))
+            } else {
+                val transfer = transfer ?: return@withContext Result.failure(
+                    Exception("SFTP not connected"),
+                )
+                mapResult(transfer.downloadToStream(remotePath, outputStream, onProgress))
+            }
         }
 
     /**
@@ -406,12 +430,19 @@ class SftpClient2(
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            val transfer =
-                transfer ?: return@withContext Result.failure(
+            DebugLogger.d("SftpClient2", "downloadFile: $remotePath → ${localFile.name} [engine=${useTransferEngine}]")
+            
+            if (useTransferEngine) {
+                val engine = transferEngine ?: return@withContext Result.failure(
                     Exception("SFTP not connected"),
                 )
-            DebugLogger.d("SftpClient2", "downloadFile: $remotePath → ${localFile.name}")
-            mapResult(transfer.download(remotePath, localFile, onProgress))
+                mapResult(engine.downloadCompat(remotePath, localFile, onProgress))
+            } else {
+                val transfer = transfer ?: return@withContext Result.failure(
+                    Exception("SFTP not connected"),
+                )
+                mapResult(transfer.download(remotePath, localFile, onProgress))
+            }
         }
 
     /**
@@ -423,10 +454,16 @@ class SftpClient2(
         remotePath: String,
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> {
-        val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
-
-        DebugLogger.d("SftpClient2", "uploadFile: ${localFile.name} (${localFile.length()} bytes) → $remotePath")
-        val sftpResult = transfer.upload(localFile, remotePath, onProgress)
+        DebugLogger.d("SftpClient2", "uploadFile: ${localFile.name} (${localFile.length()} bytes) → $remotePath [engine=${useTransferEngine}]")
+        
+        val sftpResult = if (useTransferEngine) {
+            val engine = transferEngine ?: return Result.failure(Exception("SFTP not connected"))
+            engine.uploadCompat(localFile, remotePath, onProgress)
+        } else {
+            val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
+            transfer.upload(localFile, remotePath, onProgress)
+        }
+        
         if (sftpResult is SftpResult.Success) {
             DebugLogger.i("SftpClient2", "✅ Upload OK (SFTP): ${localFile.name}")
             return Result.success(Unit)
