@@ -132,17 +132,16 @@ class MainActivity : ComponentActivity() {
         }
 
         if (event.action == KeyEvent.ACTION_DOWN) {
-            // Ctrl+Shift+V = Paste from clipboard
+            // Ctrl+Shift+V = Paste from clipboard (to active tab only)
             if (event.isCtrlPressed && event.isShiftPressed && event.keyCode == KeyEvent.KEYCODE_V) {
-                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                val clip = clipboard.primaryClip
-                if (clip != null && clip.itemCount > 0) {
-                    val text = clip.getItemAt(0).text?.toString() ?: ""
-                    if (text.isNotEmpty()) {
-                        terminalService?.bridges?.value?.forEach { bridge ->
-                            if (bridge.isConnected.value) {
-                                bridge.write(text.encodeToByteArray())
-                            }
+                val bridge = terminalService?.activeBridge?.value
+                if (bridge != null && bridge.isConnected.value) {
+                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    val clip = clipboard.primaryClip
+                    if (clip != null && clip.itemCount > 0) {
+                        val text = clip.getItemAt(0).text?.toString() ?: ""
+                        if (text.isNotEmpty()) {
+                            bridge.write(text.encodeToByteArray())
                         }
                     }
                 }
