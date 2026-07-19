@@ -58,6 +58,16 @@ class TerminalBridge(
             .volumeZoom("DOWN", _fontSize.value)
     }
 
+    /**
+     * Paste text into the terminal with proper bracketed paste mode support.
+     * Uses TerminalEmulator.paste() which handles:
+     * - Newline conversion (\n -> \r)
+     * - Bracketed paste wrapping (\e[200~...\e[201~) when DECSET 2004 is active
+     */
+    fun pasteText(text: String) {
+        terminalEmulator?.paste(text)
+    }
+
     private val bridgeJob = SupervisorJob()
     private val bridgeScope = CoroutineScope(bridgeJob + Dispatchers.Main)
 

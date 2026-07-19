@@ -60,7 +60,10 @@ object TextSanitizer {
                         continue
                     }
                     when (Character.getType(c)) {
-                        Character.SPACE_SEPARATOR.toInt() -> append(' ')
+                        Character.SPACE_SEPARATOR.toInt() -> {
+                            append(' ')
+                        }
+
                         Character.CONTROL.toInt(),
                         Character.FORMAT.toInt(),
                         Character.LINE_SEPARATOR.toInt(),
@@ -68,7 +71,10 @@ object TextSanitizer {
                         -> {
                             // dropped: never legitimate in a single-line field
                         }
-                        else -> append(c)
+
+                        else -> {
+                            append(c)
+                        }
                     }
                 }
             }

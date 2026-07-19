@@ -25,26 +25,28 @@ class HostListViewModel
             hostRepository
                 .getAllHosts()
                 .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-        
+
         fun cloneHost(host: Host) {
             viewModelScope.launch {
                 // Generate a unique nickname: "Copy of X", "Copy of X (2)", etc.
                 val existingNicknames = hosts.value.map { it.nickname }.toSet()
                 val baseName = "Copy of ${host.nickname.ifBlank { host.hostname }}"
-                val uniqueNickname = if (baseName !in existingNicknames) {
-                    baseName
-                } else {
-                    // Find first available suffix (2..Int.MAX) — never throws
-                    generateSequence(2) { it + 1 }
-                        .map { "$baseName ($it)" }
-                        .first { it !in existingNicknames }
-                }
+                val uniqueNickname =
+                    if (baseName !in existingNicknames) {
+                        baseName
+                    } else {
+                        // Find first available suffix (2..Int.MAX) — never throws
+                        generateSequence(2) { it + 1 }
+                            .map { "$baseName ($it)" }
+                            .first { it !in existingNicknames }
+                    }
 
-                val clone = host.copy(
-                    id = 0L,           // new row
-                    nickname = uniqueNickname,
-                    lastConnected = null,
-                )
+                val clone =
+                    host.copy(
+                        id = 0L, // new row
+                        nickname = uniqueNickname,
+                        lastConnected = null,
+                    )
                 hostRepository.insertHost(clone)
                 Timber.d("Cloned host '${host.nickname}' → '$uniqueNickname'")
             }

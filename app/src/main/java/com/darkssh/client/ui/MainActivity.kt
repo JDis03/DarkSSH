@@ -141,7 +141,9 @@ class MainActivity : ComponentActivity() {
                     if (clip != null && clip.itemCount > 0) {
                         val text = clip.getItemAt(0).text?.toString() ?: ""
                         if (text.isNotEmpty()) {
-                            bridge.write(text.encodeToByteArray())
+                            // Use pasteText() instead of write() to get proper bracketed paste
+                            // mode support and newline handling (\n -> \r conversion)
+                            bridge.pasteText(text)
                         }
                     }
                 }

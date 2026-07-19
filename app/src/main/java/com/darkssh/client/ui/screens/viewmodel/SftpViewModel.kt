@@ -201,13 +201,15 @@ class SftpViewModel
                                 // Work is still running, resume observing it
                                 val fileName = "file"
                                 val resumedTransferId = ++transferIdCounter
-                                addTransfer(TransferInfo(
-                                    id = resumedTransferId,
-                                    fileName = fileName,
-                                    remotePath = "",
-                                    localPath = "",
-                                    isDownload = false,
-                                ))
+                                addTransfer(
+                                    TransferInfo(
+                                        id = resumedTransferId,
+                                        fileName = fileName,
+                                        remotePath = "",
+                                        localPath = "",
+                                        isDownload = false,
+                                    ),
+                                )
                                 observeUploadWork(workManager, workId, fileName, hostId, resumedTransferId)
                                 Timber.d("Resumed observing upload work: $workId")
                             } else {
@@ -250,8 +252,6 @@ class SftpViewModel
                         sortAscending = savedSortAscending,
                         showHiddenFiles = savedShowHidden,
                     )
-
-
 
                 // Check if there's an existing connection from previous session
                 val existing = activeClients[hostId]
@@ -523,54 +523,62 @@ class SftpViewModel
 
             Timber.d("[DL] startDownload: ${target.fileName} remotePath=$remotePath target=${target::class.simpleName}")
             val id = ++transferIdCounter
-            val job = viewModelScope.launch(Dispatchers.IO) {
-                addTransfer(TransferInfo(
-                    id = id,
-                    fileName = target.fileName,
-                    remotePath = remotePath,
-                    localPath = target.displayPath,
-                    isDownload = true,
-                ))
+            val job =
+                viewModelScope.launch(Dispatchers.IO) {
+                    addTransfer(
+                        TransferInfo(
+                            id = id,
+                            fileName = target.fileName,
+                            remotePath = remotePath,
+                            localPath = target.displayPath,
+                            isDownload = true,
+                        ),
+                    )
 
-                val result = try {
-                    when (target) {
-                        is DownloadTarget.MediaStore ->
-                            downloadViaMediaStore(remotePath, target, app, notifId) { progress ->
-                                updateTransferProgress(id, progress)
-                                showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
+                    val result =
+                        try {
+                            when (target) {
+                                is DownloadTarget.MediaStore -> {
+                                    downloadViaMediaStore(remotePath, target, app, notifId) { progress ->
+                                        updateTransferProgress(id, progress)
+                                        showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
+                                    }
+                                }
+
+                                is DownloadTarget.FileTarget -> {
+                                    sftpClient?.downloadFile(remotePath, target.file) { progress ->
+                                        updateTransferProgress(id, progress)
+                                        showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
+                                    } ?: Result.failure(Exception("SFTP not connected"))
+                                }
                             }
-                        is DownloadTarget.FileTarget ->
-                            sftpClient?.downloadFile(remotePath, target.file) { progress ->
-                                updateTransferProgress(id, progress)
-                                showDownloadNotification(app, notifId, target.fileName, progress.transferred, progress.total)
-                            } ?: Result.failure(Exception("SFTP not connected"))
-                    }
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    Timber.d("Download cancelled: ${target.fileName}")
-                    // Clear notification on cancel
-                    val notificationManager = app.getSystemService(
-                        android.content.Context.NOTIFICATION_SERVICE
-                    ) as android.app.NotificationManager
-                    notificationManager.cancel(notifId)
-                    Result.failure(e)
-                }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            Timber.d("Download cancelled: ${target.fileName}")
+                            // Clear notification on cancel
+                            val notificationManager =
+                                app.getSystemService(
+                                    android.content.Context.NOTIFICATION_SERVICE,
+                                ) as android.app.NotificationManager
+                            notificationManager.cancel(notifId)
+                            Result.failure(e)
+                        }
 
-                val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
-                withContext(Dispatchers.Main) {
-                    transferJobs.remove(id)
-                    if (cancelled) {
-                        updateTransfer(id, TransferStatus.CANCELLED)
-                    } else if (result.isSuccess) {
-                        updateTransfer(id, TransferStatus.COMPLETED)
-                        _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
-                        showDownloadCompleteNotification(app, notifId, target.fileName)
-                    } else {
-                        updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
-                        _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
-                        showDownloadFailedNotification(app, notifId, target.fileName)
+                    val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
+                    withContext(Dispatchers.Main) {
+                        transferJobs.remove(id)
+                        if (cancelled) {
+                            updateTransfer(id, TransferStatus.CANCELLED)
+                        } else if (result.isSuccess) {
+                            updateTransfer(id, TransferStatus.COMPLETED)
+                            _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                            showDownloadCompleteNotification(app, notifId, target.fileName)
+                        } else {
+                            updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
+                            _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
+                            showDownloadFailedNotification(app, notifId, target.fileName)
+                        }
                     }
                 }
-            }
             transferJobs[id] = job
         }
 
@@ -632,7 +640,9 @@ class SftpViewModel
                     try {
                         outputStream.use { stream ->
                             val result = sftpClient?.downloadToStream(remotePath, stream, onProgress)
-                            Timber.d("[DL] downloadToStream returned: success=${result?.isSuccess} failure=${result?.exceptionOrNull()?.message}")
+                            Timber.d(
+                                "[DL] downloadToStream returned: success=${result?.isSuccess} failure=${result?.exceptionOrNull()?.message}",
+                            )
                             if (result?.isFailure == true) {
                                 if (existingUri == null) {
                                     app.contentResolver.delete(uri, null, null)
@@ -894,14 +904,16 @@ class SftpViewModel
 
                     // Agregar al queue de la UI
                     val transferId = ++transferIdCounter
-                    addTransfer(TransferInfo(
-                        id = transferId,
-                        fileName = originalName,
-                        remotePath = remotePath,
-                        localPath = localFile.absolutePath,
-                        isDownload = false,
-                        progress = TransferProgress(0, localFile.length(), originalName),
-                    ))
+                    addTransfer(
+                        TransferInfo(
+                            id = transferId,
+                            fileName = originalName,
+                            remotePath = remotePath,
+                            localPath = localFile.absolutePath,
+                            isDownload = false,
+                            progress = TransferProgress(0, localFile.length(), originalName),
+                        ),
+                    )
 
                     observeUploadWork(workManager, uploadWorkRequest.id, originalName, hostId, transferId)
                     Timber.d("Upload work enqueued with ID: ${uploadWorkRequest.id}")
@@ -927,49 +939,57 @@ class SftpViewModel
             val notifId = 3000 + originalName.hashCode() % 1000
 
             val id = ++transferIdCounter
-            val job = viewModelScope.launch(Dispatchers.IO) {
-                addTransfer(TransferInfo(
-                    id = id,
-                    fileName = originalName,
-                    remotePath = remotePath,
-                    localPath = localFile.absolutePath,
-                    isDownload = false,
-                    progress = TransferProgress(0, localFile.length(), originalName),
-                ))
-                showUploadNotification(app, notifId, originalName, 0, localFile.length())
+            val job =
+                viewModelScope.launch(Dispatchers.IO) {
+                    addTransfer(
+                        TransferInfo(
+                            id = id,
+                            fileName = originalName,
+                            remotePath = remotePath,
+                            localPath = localFile.absolutePath,
+                            isDownload = false,
+                            progress = TransferProgress(0, localFile.length(), originalName),
+                        ),
+                    )
+                    showUploadNotification(app, notifId, originalName, 0, localFile.length())
 
-                val result = try {
-                    sftpClient?.uploadFile(localFile, remotePath) { progress ->
-                        updateTransferProgress(id, progress)
-                        showUploadNotification(app, notifId, originalName, progress.transferred, progress.total)
-                    } ?: Result.failure(Exception("SFTP not connected"))
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    Result.failure(e)
-                }
+                    val result =
+                        try {
+                            sftpClient?.uploadFile(localFile, remotePath) { progress ->
+                                updateTransferProgress(id, progress)
+                                showUploadNotification(app, notifId, originalName, progress.transferred, progress.total)
+                            } ?: Result.failure(Exception("SFTP not connected"))
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            Result.failure(e)
+                        }
 
-                val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
-                withContext(Dispatchers.Main) {
-                    if (!cancelled) {
-                        result.fold(
-                            onSuccess = {
-                                updateTransfer(id, TransferStatus.COMPLETED)
-                                _uiState.value = _uiState.value.copy(message = "Upload complete: $originalName")
-                                showUploadCompleteNotification(app, notifId, originalName)
-                                if (localFile.name.startsWith("upload_") && localFile.extension == "tmp") {
-                                    try { localFile.delete() } catch (e: Exception) { Timber.w("Failed to delete temp: ${e.message}") }
-                                }
-                                listDirectory(_uiState.value.currentPath)
-                            },
-                            onFailure = { error ->
-                                updateTransfer(id, TransferStatus.FAILED, error.message)
-                                _uiState.value = _uiState.value.copy(error = "Upload failed: ${error.message}")
-                                showUploadFailedNotification(app, notifId, originalName)
-                                Timber.e(error, "Upload failed")
-                            },
-                        )
+                    val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
+                    withContext(Dispatchers.Main) {
+                        if (!cancelled) {
+                            result.fold(
+                                onSuccess = {
+                                    updateTransfer(id, TransferStatus.COMPLETED)
+                                    _uiState.value = _uiState.value.copy(message = "Upload complete: $originalName")
+                                    showUploadCompleteNotification(app, notifId, originalName)
+                                    if (localFile.name.startsWith("upload_") && localFile.extension == "tmp") {
+                                        try {
+                                            localFile.delete()
+                                        } catch (e: Exception) {
+                                            Timber.w("Failed to delete temp: ${e.message}")
+                                        }
+                                    }
+                                    listDirectory(_uiState.value.currentPath)
+                                },
+                                onFailure = { error ->
+                                    updateTransfer(id, TransferStatus.FAILED, error.message)
+                                    _uiState.value = _uiState.value.copy(error = "Upload failed: ${error.message}")
+                                    showUploadFailedNotification(app, notifId, originalName)
+                                    Timber.e(error, "Upload failed")
+                                },
+                            )
+                        }
                     }
                 }
-            }
             transferJobs[id] = job
         }
 
@@ -988,13 +1008,16 @@ class SftpViewModel
                             val total = workInfo.progress.getLong(UploadWorker.PROGRESS_TOTAL, 0L)
                             val startTime = workInfo.progress.getLong(UploadWorker.PROGRESS_START_TIME, System.currentTimeMillis())
                             if (total > 0) {
-                                updateTransferProgress(transferId, TransferProgress(
-                                    transferred = transferred,
-                                    total = total,
-                                    filePath = fileName,
-                                    startTime = startTime,
-                                    currentTime = System.currentTimeMillis(),
-                                ))
+                                updateTransferProgress(
+                                    transferId,
+                                    TransferProgress(
+                                        transferred = transferred,
+                                        total = total,
+                                        filePath = fileName,
+                                        startTime = startTime,
+                                        currentTime = System.currentTimeMillis(),
+                                    ),
+                                )
                             }
                         }
 
@@ -1153,21 +1176,32 @@ class SftpViewModel
             _uiState.value = _uiState.value.copy(transfers = _uiState.value.transfers + transfer)
         }
 
-        private fun updateTransferProgress(id: Long, progress: TransferProgress) {
-            _uiState.value = _uiState.value.copy(
-                transfers = _uiState.value.transfers.map {
-                    if (it.id == id) it.copy(progress = progress) else it
-                },
-            )
+        private fun updateTransferProgress(
+            id: Long,
+            progress: TransferProgress,
+        ) {
+            _uiState.value =
+                _uiState.value.copy(
+                    transfers =
+                        _uiState.value.transfers.map {
+                            if (it.id == id) it.copy(progress = progress) else it
+                        },
+                )
         }
 
-        private fun updateTransfer(id: Long, status: TransferStatus, error: String? = null) {
+        private fun updateTransfer(
+            id: Long,
+            status: TransferStatus,
+            error: String? = null,
+        ) {
             transferJobs.remove(id)
-            _uiState.value = _uiState.value.copy(
-                transfers = _uiState.value.transfers.map {
-                    if (it.id == id) it.copy(status = status, error = error) else it
-                },
-            )
+            _uiState.value =
+                _uiState.value.copy(
+                    transfers =
+                        _uiState.value.transfers.map {
+                            if (it.id == id) it.copy(status = status, error = error) else it
+                        },
+                )
         }
 
         // Copy/Cut/Paste operations (like File Manager+)
@@ -1187,15 +1221,17 @@ class SftpViewModel
         }
 
         fun pasteFiles() {
-            val clipboardData = SftpClipboard.paste() ?: run {
-                Timber.w("pasteFiles: clipboard is empty")
-                _uiState.value = _uiState.value.copy(error = "Clipboard is empty")
-                return
-            }
-            val hostId = _uiState.value.host?.id ?: run {
-                Timber.w("pasteFiles: no host in state")
-                return
-            }
+            val clipboardData =
+                SftpClipboard.paste() ?: run {
+                    Timber.w("pasteFiles: clipboard is empty")
+                    _uiState.value = _uiState.value.copy(error = "Clipboard is empty")
+                    return
+                }
+            val hostId =
+                _uiState.value.host?.id ?: run {
+                    Timber.w("pasteFiles: no host in state")
+                    return
+                }
             val targetPath = _uiState.value.currentPath.trimEnd('/')
 
             if (clipboardData.hostId != hostId) {
@@ -1209,89 +1245,112 @@ class SftpViewModel
             Timber.d("pasteFiles: op=${clipboardData.operation} files=$total src=${clipboardData.sourcePath} dst=$targetPath")
 
             val id = ++transferIdCounter
-            val job = viewModelScope.launch(Dispatchers.IO) {
-                // Añadir al queue con progreso 0/total
-                addTransfer(TransferInfo(
-                    id = id,
-                    fileName = if (total == 1) clipboardData.files[0].name
-                               else "$total archivos",
-                    remotePath = targetPath,
-                    localPath = clipboardData.sourcePath,
-                    isDownload = false,
-                    progress = TransferProgress(0, total.toLong(), if (isMove) "Moviendo…" else "Copiando…"),
-                ))
+            val job =
+                viewModelScope.launch(Dispatchers.IO) {
+                    // Añadir al queue con progreso 0/total
+                    addTransfer(
+                        TransferInfo(
+                            id = id,
+                            fileName =
+                                if (total == 1) {
+                                    clipboardData.files[0].name
+                                } else {
+                                    "$total archivos"
+                                },
+                            remotePath = targetPath,
+                            localPath = clipboardData.sourcePath,
+                            isDownload = false,
+                            progress = TransferProgress(0, total.toLong(), if (isMove) "Moviendo…" else "Copiando…"),
+                        ),
+                    )
 
-                val client = activeClients[hostId]
-                if (client == null || !client.isConnected) {
-                    withContext(Dispatchers.Main) {
-                        updateTransfer(id, TransferStatus.FAILED, "Not connected to SFTP server")
-                        _uiState.value = _uiState.value.copy(error = "Not connected to SFTP server")
-                    }
-                    return@launch
-                }
-
-                var successCount = 0
-                var failCount = 0
-                var lastError: String? = null
-
-                for ((index, entry) in clipboardData.files.withIndex()) {
-                    if (!isActive) break
-
-                    val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
-                    val destPath = "$targetPath/${entry.name}"
-
-                    // Actualizar progreso: N/total completados
-                    val label = if (isMove) "Moviendo ${index + 1}/$total" else "Copiando ${index + 1}/$total"
-                    updateTransferProgress(id, TransferProgress(
-                        transferred = index.toLong(),
-                        total = total.toLong(),
-                        filePath = entry.name,
-                        startTime = System.currentTimeMillis(),
-                    ))
-
-                    try {
-                        val result = when (clipboardData.operation) {
-                            SftpClipboard.Operation.COPY ->
-                                client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory, overwrite = true)
-                            SftpClipboard.Operation.CUT ->
-                                client.moveFile(sourcePath, destPath)
+                    val client = activeClients[hostId]
+                    if (client == null || !client.isConnected) {
+                        withContext(Dispatchers.Main) {
+                            updateTransfer(id, TransferStatus.FAILED, "Not connected to SFTP server")
+                            _uiState.value = _uiState.value.copy(error = "Not connected to SFTP server")
                         }
+                        return@launch
+                    }
 
-                        if (result.isSuccess) {
-                            successCount++
-                        } else {
-                            lastError = result.exceptionOrNull()?.message
-                            Timber.e("Failed to paste ${entry.name}: $lastError")
+                    var successCount = 0
+                    var failCount = 0
+                    var lastError: String? = null
+
+                    for ((index, entry) in clipboardData.files.withIndex()) {
+                        if (!isActive) break
+
+                        val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
+                        val destPath = "$targetPath/${entry.name}"
+
+                        // Actualizar progreso: N/total completados
+                        val label = if (isMove) "Moviendo ${index + 1}/$total" else "Copiando ${index + 1}/$total"
+                        updateTransferProgress(
+                            id,
+                            TransferProgress(
+                                transferred = index.toLong(),
+                                total = total.toLong(),
+                                filePath = entry.name,
+                                startTime = System.currentTimeMillis(),
+                            ),
+                        )
+
+                        try {
+                            val result =
+                                when (clipboardData.operation) {
+                                    SftpClipboard.Operation.COPY -> {
+                                        client.copyFileViaSsh(sourcePath, destPath, entry.isDirectory, overwrite = true)
+                                    }
+
+                                    SftpClipboard.Operation.CUT -> {
+                                        client.moveFile(sourcePath, destPath)
+                                    }
+                                }
+
+                            if (result.isSuccess) {
+                                successCount++
+                            } else {
+                                lastError = result.exceptionOrNull()?.message
+                                Timber.e("Failed to paste ${entry.name}: $lastError")
+                                failCount++
+                            }
+                        } catch (e: Exception) {
+                            lastError = e.message
+                            Timber.e(e, "Exception pasting ${entry.name}")
                             failCount++
                         }
-                    } catch (e: Exception) {
-                        lastError = e.message
-                        Timber.e(e, "Exception pasting ${entry.name}")
-                        failCount++
                     }
-                }
 
-                withContext(Dispatchers.Main) {
-                    if (failCount == 0) {
-                        SftpClipboard.clear()
-                        updateTransfer(id, TransferStatus.COMPLETED)
-                        _uiState.value = _uiState.value.copy(
-                            message = if (isMove) "Movido: $successCount archivo(s)"
-                                      else "Copiado: $successCount archivo(s)"
-                        )
-                    } else if (successCount == 0) {
-                        updateTransfer(id, TransferStatus.FAILED, lastError ?: "Operación fallida")
-                        _uiState.value = _uiState.value.copy(error = lastError ?: "Failed to paste files")
-                    } else {
-                        updateTransfer(id, TransferStatus.FAILED,
-                            "$successCount ok, $failCount fallaron")
-                        _uiState.value = _uiState.value.copy(
-                            error = "$successCount ok, $failCount fallaron: $lastError"
-                        )
+                    withContext(Dispatchers.Main) {
+                        if (failCount == 0) {
+                            SftpClipboard.clear()
+                            updateTransfer(id, TransferStatus.COMPLETED)
+                            _uiState.value =
+                                _uiState.value.copy(
+                                    message =
+                                        if (isMove) {
+                                            "Movido: $successCount archivo(s)"
+                                        } else {
+                                            "Copiado: $successCount archivo(s)"
+                                        },
+                                )
+                        } else if (successCount == 0) {
+                            updateTransfer(id, TransferStatus.FAILED, lastError ?: "Operación fallida")
+                            _uiState.value = _uiState.value.copy(error = lastError ?: "Failed to paste files")
+                        } else {
+                            updateTransfer(
+                                id,
+                                TransferStatus.FAILED,
+                                "$successCount ok, $failCount fallaron",
+                            )
+                            _uiState.value =
+                                _uiState.value.copy(
+                                    error = "$successCount ok, $failCount fallaron: $lastError",
+                                )
+                        }
+                        listDirectory(_uiState.value.currentPath)
                     }
-                    listDirectory(_uiState.value.currentPath)
                 }
-            }
             transferJobs[id] = job
         }
 
@@ -1317,15 +1376,17 @@ class SftpViewModel
         }
 
         fun dismissTransfer(id: Long) {
-            _uiState.value = _uiState.value.copy(
-                transfers = _uiState.value.transfers.filter { it.id != id },
-            )
+            _uiState.value =
+                _uiState.value.copy(
+                    transfers = _uiState.value.transfers.filter { it.id != id },
+                )
         }
 
         fun dismissAllCompleted() {
-            _uiState.value = _uiState.value.copy(
-                transfers = _uiState.value.transfers.filter { it.status == TransferStatus.ACTIVE },
-            )
+            _uiState.value =
+                _uiState.value.copy(
+                    transfers = _uiState.value.transfers.filter { it.status == TransferStatus.ACTIVE },
+                )
         }
 
         override fun onCleared() {

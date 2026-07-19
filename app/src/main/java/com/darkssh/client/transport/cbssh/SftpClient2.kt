@@ -98,14 +98,15 @@ class SftpClient2(
 
                 val client =
                     SshClient(
-                        config = org.connectbot.sshlib.SshClientConfig {
-                            host = this@SftpClient2.host.hostname
-                            port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
-                            this.hostKeyVerifier = verifier
-                            // Keep alive cada 15s — evita que VPN/NAT/firewalls
-                            // maten la conexión durante idle (envía SSH_MSG_IGNORE).
-                            keepAliveIntervalMs = 15_000L
-                        },
+                        config =
+                            org.connectbot.sshlib.SshClientConfig {
+                                host = this@SftpClient2.host.hostname
+                                port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
+                                this.hostKeyVerifier = verifier
+                                // Keep alive cada 15s — evita que VPN/NAT/firewalls
+                                // maten la conexión durante idle (envía SSH_MSG_IGNORE).
+                                keepAliveIntervalMs = 15_000L
+                            },
                     )
 
                 when (val connectResult = client.connect()) {
@@ -194,14 +195,15 @@ class SftpClient2(
 
                 val client =
                     SshClient(
-                        config = org.connectbot.sshlib.SshClientConfig {
-                            host = this@SftpClient2.host.hostname
-                            port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
-                            this.hostKeyVerifier = verifier
-                            // Keep alive cada 15s — evita que VPN/NAT/firewalls
-                            // maten la conexión durante idle (envía SSH_MSG_IGNORE).
-                            keepAliveIntervalMs = 15_000L
-                        },
+                        config =
+                            org.connectbot.sshlib.SshClientConfig {
+                                host = this@SftpClient2.host.hostname
+                                port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
+                                this.hostKeyVerifier = verifier
+                                // Keep alive cada 15s — evita que VPN/NAT/firewalls
+                                // maten la conexión durante idle (envía SSH_MSG_IGNORE).
+                                keepAliveIntervalMs = 15_000L
+                            },
                     )
 
                 when (val connectResult = client.connect()) {
@@ -406,17 +408,19 @@ class SftpClient2(
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            DebugLogger.d("SftpClient2", "downloadToStream: $remotePath [engine=${useTransferEngine}]")
-            
+            DebugLogger.d("SftpClient2", "downloadToStream: $remotePath [engine=$useTransferEngine]")
+
             if (useTransferEngine) {
-                val engine = transferEngine ?: return@withContext Result.failure(
-                    Exception("SFTP not connected"),
-                )
+                val engine =
+                    transferEngine ?: return@withContext Result.failure(
+                        Exception("SFTP not connected"),
+                    )
                 mapResult(engine.downloadToStreamCompat(remotePath, outputStream, onProgress))
             } else {
-                val transfer = transfer ?: return@withContext Result.failure(
-                    Exception("SFTP not connected"),
-                )
+                val transfer =
+                    transfer ?: return@withContext Result.failure(
+                        Exception("SFTP not connected"),
+                    )
                 mapResult(transfer.downloadToStream(remotePath, outputStream, onProgress))
             }
         }
@@ -430,17 +434,19 @@ class SftpClient2(
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            DebugLogger.d("SftpClient2", "downloadFile: $remotePath → ${localFile.name} [engine=${useTransferEngine}]")
-            
+            DebugLogger.d("SftpClient2", "downloadFile: $remotePath → ${localFile.name} [engine=$useTransferEngine]")
+
             if (useTransferEngine) {
-                val engine = transferEngine ?: return@withContext Result.failure(
-                    Exception("SFTP not connected"),
-                )
+                val engine =
+                    transferEngine ?: return@withContext Result.failure(
+                        Exception("SFTP not connected"),
+                    )
                 mapResult(engine.downloadCompat(remotePath, localFile, onProgress))
             } else {
-                val transfer = transfer ?: return@withContext Result.failure(
-                    Exception("SFTP not connected"),
-                )
+                val transfer =
+                    transfer ?: return@withContext Result.failure(
+                        Exception("SFTP not connected"),
+                    )
                 mapResult(transfer.download(remotePath, localFile, onProgress))
             }
         }
@@ -454,16 +460,20 @@ class SftpClient2(
         remotePath: String,
         onProgress: ((TransferProgress) -> Unit)?,
     ): Result<Unit> {
-        DebugLogger.d("SftpClient2", "uploadFile: ${localFile.name} (${localFile.length()} bytes) → $remotePath [engine=${useTransferEngine}]")
-        
-        val sftpResult = if (useTransferEngine) {
-            val engine = transferEngine ?: return Result.failure(Exception("SFTP not connected"))
-            engine.uploadCompat(localFile, remotePath, onProgress)
-        } else {
-            val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
-            transfer.upload(localFile, remotePath, onProgress)
-        }
-        
+        DebugLogger.d(
+            "SftpClient2",
+            "uploadFile: ${localFile.name} (${localFile.length()} bytes) → $remotePath [engine=$useTransferEngine]",
+        )
+
+        val sftpResult =
+            if (useTransferEngine) {
+                val engine = transferEngine ?: return Result.failure(Exception("SFTP not connected"))
+                engine.uploadCompat(localFile, remotePath, onProgress)
+            } else {
+                val transfer = transfer ?: return Result.failure(Exception("SFTP not connected"))
+                transfer.upload(localFile, remotePath, onProgress)
+            }
+
         if (sftpResult is SftpResult.Success) {
             DebugLogger.i("SftpClient2", "✅ Upload OK (SFTP): ${localFile.name}")
             return Result.success(Unit)
@@ -729,10 +739,11 @@ class SftpClient2(
                         ?: return@withContext Result.failure(Exception("Failed to open session"))
 
                 session.use { s ->
-                    val flags = buildString {
-                        if (isDirectory) append("-r ")
-                        if (overwrite) append("-f ")
-                    }.trim()
+                    val flags =
+                        buildString {
+                            if (isDirectory) append("-r ")
+                            if (overwrite) append("-f ")
+                        }.trim()
                     val command = "cp $flags '$sourcePath' '$destPath'"
                     DebugLogger.d("SftpClient2", "copyFileViaSsh: $command")
                     if (!s.requestExec(command)) {
@@ -782,8 +793,9 @@ class SftpClient2(
         withContext(Dispatchers.IO) {
             try {
                 val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
-                val session = ssh.openSession()
-                    ?: return@withContext Result.failure(Exception("Failed to open session"))
+                val session =
+                    ssh.openSession()
+                        ?: return@withContext Result.failure(Exception("Failed to open session"))
 
                 session.use { s ->
                     val command = "rm -rf '$remotePath'"

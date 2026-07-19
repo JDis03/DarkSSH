@@ -748,10 +748,11 @@ class SftpClient(
                 }
 
                 // Build cp command with proper escaping
-                val flags = buildString {
-                    if (isDirectory) append("-r ")
-                    if (overwrite) append("-f ")
-                }.trim()
+                val flags =
+                    buildString {
+                        if (isDirectory) append("-r ")
+                        if (overwrite) append("-f ")
+                    }.trim()
                 val command = "cp $flags ${escapePath(sourcePath)} ${escapePath(destPath)}"
 
                 DebugLogger.i("SftpClient", "Copying via SSH: $command")
@@ -881,9 +882,7 @@ class SftpClient(
      * Recursively delete a directory via SSH rm -rf.
      * SFTP rmdir only works on empty directories — this handles non-empty ones.
      */
-    override suspend fun deleteDirectoryViaSsh(
-        remotePath: String,
-    ): Result<Unit> =
+    override suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
                 val client = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))

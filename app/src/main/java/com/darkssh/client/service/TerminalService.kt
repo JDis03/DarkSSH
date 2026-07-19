@@ -59,22 +59,24 @@ class TerminalService : Service() {
      * Used by HostListScreen to show online/offline indicators without
      * coupling the ViewModel to TerminalService.
      */
-    val connectedHostIds: StateFlow<Set<Long>> = _bridges
-        .flatMapLatest { bridgeList ->
-            if (bridgeList.isEmpty()) {
-                kotlinx.coroutines.flow.flowOf(emptySet())
-            } else {
-                // Combine all bridge isConnected flows into a single Set<Long>
-                combine(bridgeList.map { bridge ->
-                    bridge.isConnected.map { connected ->
-                        bridge.host.id to connected
+    val connectedHostIds: StateFlow<Set<Long>> =
+        _bridges
+            .flatMapLatest { bridgeList ->
+                if (bridgeList.isEmpty()) {
+                    kotlinx.coroutines.flow.flowOf(emptySet())
+                } else {
+                    // Combine all bridge isConnected flows into a single Set<Long>
+                    combine(
+                        bridgeList.map { bridge ->
+                            bridge.isConnected.map { connected ->
+                                bridge.host.id to connected
+                            }
+                        },
+                    ) { pairs ->
+                        pairs.filter { it.second }.map { it.first }.toSet()
                     }
-                }) { pairs ->
-                    pairs.filter { it.second }.map { it.first }.toSet()
                 }
-            }
-        }
-        .stateIn(serviceScope, SharingStarted.Eagerly, emptySet())
+            }.stateIn(serviceScope, SharingStarted.Eagerly, emptySet())
 
     private val _activeBridge = MutableStateFlow<TerminalBridge?>(null)
     val activeBridge: StateFlow<TerminalBridge?> = _activeBridge

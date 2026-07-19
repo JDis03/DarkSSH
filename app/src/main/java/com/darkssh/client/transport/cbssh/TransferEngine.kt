@@ -128,27 +128,29 @@ class TransferEngine(
         remotePath: String,
         localFile: File,
         resumeFrom: Long = 0,
-    ): Flow<TransferProgress> = flow {
-        val channel = kotlinx.coroutines.channels.Channel<TransferProgress>(kotlinx.coroutines.channels.Channel.BUFFERED)
-        
-        coroutineScope {
-            // Launch download in background, sending progress to channel
-            val job = async {
-                downloadInternal(remotePath, localFile, resumeFrom) { progress ->
-                    channel.trySend(progress)
+    ): Flow<TransferProgress> =
+        flow {
+            val channel = kotlinx.coroutines.channels.Channel<TransferProgress>(kotlinx.coroutines.channels.Channel.BUFFERED)
+
+            coroutineScope {
+                // Launch download in background, sending progress to channel
+                val job =
+                    async {
+                        downloadInternal(remotePath, localFile, resumeFrom) { progress ->
+                            channel.trySend(progress)
+                        }
+                    }
+
+                // Emit from channel until download completes
+                try {
+                    for (progress in channel) {
+                        emit(progress)
+                    }
+                } finally {
+                    job.await()
                 }
             }
-            
-            // Emit from channel until download completes
-            try {
-                for (progress in channel) {
-                    emit(progress)
-                }
-            } finally {
-                job.await()
-            }
-        }
-    }.flowOn(Dispatchers.IO)
+        }.flowOn(Dispatchers.IO)
 
     /**
      * Download to file with callback progress.
@@ -158,9 +160,10 @@ class TransferEngine(
         localFile: File,
         resumeFrom: Long = 0,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): TransferResult = withContext(Dispatchers.IO) {
-        downloadInternal(remotePath, localFile, resumeFrom, onProgress)
-    }
+    ): TransferResult =
+        withContext(Dispatchers.IO) {
+            downloadInternal(remotePath, localFile, resumeFrom, onProgress)
+        }
 
     /**
      * Download to OutputStream.
@@ -169,9 +172,10 @@ class TransferEngine(
         remotePath: String,
         outputStream: OutputStream,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): TransferResult = withContext(Dispatchers.IO) {
-        downloadToStreamInternal(remotePath, outputStream, 0, onProgress)
-    }
+    ): TransferResult =
+        withContext(Dispatchers.IO) {
+            downloadToStreamInternal(remotePath, outputStream, 0, onProgress)
+        }
 
     /**
      * Upload with Flow-based progress.
@@ -181,25 +185,27 @@ class TransferEngine(
         localFile: File,
         remotePath: String,
         resumeFrom: Long = 0,
-    ): Flow<TransferProgress> = flow {
-        val channel = kotlinx.coroutines.channels.Channel<TransferProgress>(kotlinx.coroutines.channels.Channel.BUFFERED)
-        
-        coroutineScope {
-            val job = async {
-                uploadInternal(localFile, remotePath, resumeFrom) { progress ->
-                    channel.trySend(progress)
+    ): Flow<TransferProgress> =
+        flow {
+            val channel = kotlinx.coroutines.channels.Channel<TransferProgress>(kotlinx.coroutines.channels.Channel.BUFFERED)
+
+            coroutineScope {
+                val job =
+                    async {
+                        uploadInternal(localFile, remotePath, resumeFrom) { progress ->
+                            channel.trySend(progress)
+                        }
+                    }
+
+                try {
+                    for (progress in channel) {
+                        emit(progress)
+                    }
+                } finally {
+                    job.await()
                 }
             }
-            
-            try {
-                for (progress in channel) {
-                    emit(progress)
-                }
-            } finally {
-                job.await()
-            }
-        }
-    }.flowOn(Dispatchers.IO)
+        }.flowOn(Dispatchers.IO)
 
     /**
      * Upload file with callback progress.
@@ -209,9 +215,10 @@ class TransferEngine(
         remotePath: String,
         resumeFrom: Long = 0,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): TransferResult = withContext(Dispatchers.IO) {
-        uploadInternal(localFile, remotePath, resumeFrom, onProgress)
-    }
+    ): TransferResult =
+        withContext(Dispatchers.IO) {
+            uploadInternal(localFile, remotePath, resumeFrom, onProgress)
+        }
 
     // === Internal Implementation ===
 
@@ -222,11 +229,12 @@ class TransferEngine(
         onProgress: ((TransferProgress) -> Unit)?,
     ): TransferResult {
         // If resuming, append mode; otherwise truncate
-        val outputStream = if (resumeFrom > 0) {
-            localFile.outputStream()  // Will seek in downloadToStreamInternal
-        } else {
-            localFile.outputStream()
-        }
+        val outputStream =
+            if (resumeFrom > 0) {
+                localFile.outputStream() // Will seek in downloadToStreamInternal
+            } else {
+                localFile.outputStream()
+            }
 
         return try {
             downloadToStreamInternal(remotePath, outputStream, resumeFrom, onProgress)
@@ -247,14 +255,16 @@ class TransferEngine(
         var totalRetries = 0
 
         // Get file size with retry
-        val totalBytes = when (val result = withRetry("stat") { sftp.stat(remotePath) }) {
-            is SftpResult.Success -> result.value.size ?: 0L
-            else -> return TransferResult.Failed(
-                result.toException(),
-                bytesWritten,
-                canResume = false,
-            )
-        }
+        val totalBytes =
+            when (val result = withRetry("stat") { sftp.stat(remotePath) }) {
+                is SftpResult.Success -> result.value.size ?: 0L
+
+                else -> return TransferResult.Failed(
+                    result.toException(),
+                    bytesWritten,
+                    canResume = false,
+                )
+            }
 
         if (resumeFrom >= totalBytes) {
             return TransferResult.Success(0, 0, 0, 0, 0)
@@ -263,16 +273,21 @@ class TransferEngine(
         Timber.d("[DL] Starting: $remotePath, total=$totalBytes, resume=$resumeFrom, pipeline=$currentPipelineDepth")
 
         // Open file with retry
-        val handle = when (val result = withRetry("open") {
-            sftp.open(remotePath, setOf(SftpOpenFlag.READ))
-        }) {
-            is SftpResult.Success -> result.value
-            else -> return TransferResult.Failed(
-                result.toException(),
-                bytesWritten,
-                canResume = false,
-            )
-        }
+        val handle =
+            when (
+                val result =
+                    withRetry("open") {
+                        sftp.open(remotePath, setOf(SftpOpenFlag.READ))
+                    }
+            ) {
+                is SftpResult.Success -> result.value
+
+                else -> return TransferResult.Failed(
+                    result.toException(),
+                    bytesWritten,
+                    canResume = false,
+                )
+            }
 
         try {
             var readOffset = resumeFrom
@@ -287,11 +302,13 @@ class TransferEngine(
                 while (window.size < currentPipelineDepth && readOffset < totalBytes) {
                     val offset = readOffset
                     readOffset += chunkSize
-                    window.addLast(PipelineRequest(
-                        offset = offset,
-                        deferred = async { sftp.read(handle, offset, chunkSize) },
-                        dispatchTime = System.nanoTime(),
-                    ))
+                    window.addLast(
+                        PipelineRequest(
+                            offset = offset,
+                            deferred = async { sftp.read(handle, offset, chunkSize) },
+                            dispatchTime = System.nanoTime(),
+                        ),
+                    )
                 }
 
                 while (window.isNotEmpty()) {
@@ -301,57 +318,61 @@ class TransferEngine(
                     val chunkStart = System.nanoTime()
 
                     // Await with timeout and retry
-                    val chunk = try {
-                        val result = withTimeout(config.operationTimeoutMs) {
-                            request.deferred.await()
-                        }
+                    val chunk =
+                        try {
+                            val result =
+                                withTimeout(config.operationTimeoutMs) {
+                                    request.deferred.await()
+                                }
 
-                        // Measure RTT and adapt pipeline
-                        val rttMs = (System.nanoTime() - request.dispatchTime) / 1_000_000
-                        updateRtt(rttMs)
+                            // Measure RTT and adapt pipeline
+                            val rttMs = (System.nanoTime() - request.dispatchTime) / 1_000_000
+                            updateRtt(rttMs)
 
-                        when (result) {
-                            is SftpResult.Success -> {
-                                result.value ?: break // EOF
-                            }
-                            is SftpResult.IoError -> {
-                                // Retry this chunk
-                                val retryResult = retryChunk(handle, request.offset, chunkSize)
-                                if (retryResult != null) {
-                                    totalRetries++
-                                    retryResult
-                                } else {
+                            when (result) {
+                                is SftpResult.Success -> {
+                                    result.value ?: break // EOF
+                                }
+
+                                is SftpResult.IoError -> {
+                                    // Retry this chunk
+                                    val retryResult = retryChunk(handle, request.offset, chunkSize)
+                                    if (retryResult != null) {
+                                        totalRetries++
+                                        retryResult
+                                    } else {
+                                        return@coroutineScope TransferResult.Failed(
+                                            result.cause,
+                                            bytesWritten,
+                                            canResume = true,
+                                        )
+                                    }
+                                }
+
+                                else -> {
                                     return@coroutineScope TransferResult.Failed(
-                                        result.cause,
+                                        result.toException(),
                                         bytesWritten,
-                                        canResume = true,
+                                        canResume = result is SftpResult.IoError,
                                     )
                                 }
                             }
-                            else -> {
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // Timeout or other error - try to retry
+                            val retryResult = retryChunk(handle, request.offset, chunkSize)
+                            if (retryResult != null) {
+                                totalRetries++
+                                retryResult
+                            } else {
                                 return@coroutineScope TransferResult.Failed(
-                                    result.toException(),
+                                    e,
                                     bytesWritten,
-                                    canResume = result is SftpResult.IoError,
+                                    canResume = true,
                                 )
                             }
                         }
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        // Timeout or other error - try to retry
-                        val retryResult = retryChunk(handle, request.offset, chunkSize)
-                        if (retryResult != null) {
-                            totalRetries++
-                            retryResult
-                        } else {
-                            return@coroutineScope TransferResult.Failed(
-                                e,
-                                bytesWritten,
-                                canResume = true,
-                            )
-                        }
-                    }
 
                     // Write chunk
                     outputStream.write(chunk)
@@ -369,7 +390,7 @@ class TransferEngine(
                                 filePath = remotePath.substringAfterLast('/'),
                                 startTime = startTime,
                                 currentTime = System.currentTimeMillis(),
-                            )
+                            ),
                         )
                         lastProgressBytes = bytesWritten
                     }
@@ -378,11 +399,13 @@ class TransferEngine(
                     while (window.size < currentPipelineDepth && readOffset < totalBytes) {
                         val offset = readOffset
                         readOffset += chunkSize
-                        window.addLast(PipelineRequest(
-                            offset = offset,
-                            deferred = async { sftp.read(handle, offset, chunkSize) },
-                            dispatchTime = System.nanoTime(),
-                        ))
+                        window.addLast(
+                            PipelineRequest(
+                                offset = offset,
+                                deferred = async { sftp.read(handle, offset, chunkSize) },
+                                dispatchTime = System.nanoTime(),
+                            ),
+                        )
                     }
                 }
 
@@ -391,7 +414,9 @@ class TransferEngine(
                 val elapsed = System.currentTimeMillis() - startTime
                 val speedKBps = if (elapsed > 0) (bytesWritten - resumeFrom) * 1000 / elapsed / 1024 else 0
 
-                Timber.d("[DL] Complete: ${bytesWritten - resumeFrom}B in ${elapsed}ms = ${speedKBps}KB/s, retries=$totalRetries, finalDepth=$currentPipelineDepth")
+                Timber.d(
+                    "[DL] Complete: ${bytesWritten - resumeFrom}B in ${elapsed}ms = ${speedKBps}KB/s, retries=$totalRetries, finalDepth=$currentPipelineDepth",
+                )
 
                 TransferResult.Success(
                     bytesTransferred = bytesWritten - resumeFrom,
@@ -439,20 +464,23 @@ class TransferEngine(
         Timber.d("[UL] Starting: ${localFile.name} -> $remotePath, total=$totalBytes, resume=$resumeFrom")
 
         // Open remote file
-        val flags = if (resumeFrom > 0) {
-            setOf(SftpOpenFlag.WRITE) // Append mode
-        } else {
-            setOf(SftpOpenFlag.WRITE, SftpOpenFlag.CREATE, SftpOpenFlag.TRUNCATE)
-        }
+        val flags =
+            if (resumeFrom > 0) {
+                setOf(SftpOpenFlag.WRITE) // Append mode
+            } else {
+                setOf(SftpOpenFlag.WRITE, SftpOpenFlag.CREATE, SftpOpenFlag.TRUNCATE)
+            }
 
-        val handle = when (val result = withRetry("open") { sftp.open(remotePath, flags) }) {
-            is SftpResult.Success -> result.value
-            else -> return TransferResult.Failed(
-                result.toException(),
-                bytesWritten,
-                canResume = false,
-            )
-        }
+        val handle =
+            when (val result = withRetry("open") { sftp.open(remotePath, flags) }) {
+                is SftpResult.Success -> result.value
+
+                else -> return TransferResult.Failed(
+                    result.toException(),
+                    bytesWritten,
+                    canResume = false,
+                )
+            }
 
         try {
             val buffer = ByteArray(config.chunkSize)
@@ -481,12 +509,16 @@ class TransferEngine(
                         coroutineContext.ensureActive()
 
                         try {
-                            val result = withTimeout(config.operationTimeoutMs) {
-                                sftp.write(handle, bytesWritten, data)
-                            }
+                            val result =
+                                withTimeout(config.operationTimeoutMs) {
+                                    sftp.write(handle, bytesWritten, data)
+                                }
 
                             when (result) {
-                                is SftpResult.Success -> written = true
+                                is SftpResult.Success -> {
+                                    written = true
+                                }
+
                                 is SftpResult.IoError -> {
                                     lastError = result.cause
                                     retries++
@@ -495,6 +527,7 @@ class TransferEngine(
                                         delay(config.retryDelayMs * (1 shl (retries - 1)))
                                     }
                                 }
+
                                 else -> {
                                     return TransferResult.Failed(
                                         result.toException(),
@@ -537,7 +570,7 @@ class TransferEngine(
                                 filePath = localFile.name,
                                 startTime = startTime,
                                 currentTime = System.currentTimeMillis(),
-                            )
+                            ),
                         )
                         lastProgressBytes = bytesWritten
                     }
@@ -571,29 +604,37 @@ class TransferEngine(
 
     private fun updateRtt(rttMs: Long) {
         // Exponential moving average
-        avgRttMs = if (rttSamples == 0) {
-            rttMs
-        } else {
-            (avgRttMs * 7 + rttMs) / 8
-        }
+        avgRttMs =
+            if (rttSamples == 0) {
+                rttMs
+            } else {
+                (avgRttMs * 7 + rttMs) / 8
+            }
         rttSamples++
 
         // Adapt pipeline depth based on RTT
         // High latency = deeper pipeline, low latency = shallower
-        val targetDepth = when {
-            avgRttMs < 20 -> config.minPipelineDepth  // LAN - shallow is fine
-            avgRttMs < 50 -> 4
-            avgRttMs < 100 -> 8
-            avgRttMs < 200 -> 16
-            else -> config.maxPipelineDepth  // High latency - max pipeline
-        }
+        val targetDepth =
+            when {
+                avgRttMs < 20 -> config.minPipelineDepth
+
+                // LAN - shallow is fine
+                avgRttMs < 50 -> 4
+
+                avgRttMs < 100 -> 8
+
+                avgRttMs < 200 -> 16
+
+                else -> config.maxPipelineDepth // High latency - max pipeline
+            }
 
         // Gradual adjustment
-        currentPipelineDepth = when {
-            targetDepth > currentPipelineDepth -> min(currentPipelineDepth + 1, targetDepth)
-            targetDepth < currentPipelineDepth -> max(currentPipelineDepth - 1, targetDepth)
-            else -> currentPipelineDepth
-        }
+        currentPipelineDepth =
+            when {
+                targetDepth > currentPipelineDepth -> min(currentPipelineDepth + 1, targetDepth)
+                targetDepth < currentPipelineDepth -> max(currentPipelineDepth - 1, targetDepth)
+                else -> currentPipelineDepth
+            }
 
         if (rttSamples % 50 == 0) {
             Timber.d("[ADAPTIVE] avgRtt=${avgRttMs}ms, depth=$currentPipelineDepth")
@@ -616,9 +657,20 @@ class TransferEngine(
                 val result = withTimeout(config.operationTimeoutMs) { operation() }
 
                 when (result) {
-                    is SftpResult.Success -> return result
-                    is SftpResult.ServerError -> return result // Not retryable
-                    is SftpResult.ProtocolError -> return result // Not retryable
+                    is SftpResult.Success -> {
+                        return result
+                    }
+
+                    is SftpResult.ServerError -> {
+                        return result
+                    }
+
+                    // Not retryable
+                    is SftpResult.ProtocolError -> {
+                        return result
+                    }
+
+                    // Not retryable
                     is SftpResult.IoError -> {
                         lastError = result
                         if (attempt < config.maxRetries - 1) {
@@ -656,9 +708,10 @@ class TransferEngine(
             delayMs *= 2
 
             try {
-                val result = withTimeout(config.operationTimeoutMs) {
-                    sftp.read(handle, offset, size)
-                }
+                val result =
+                    withTimeout(config.operationTimeoutMs) {
+                        sftp.read(handle, offset, size)
+                    }
                 if (result is SftpResult.Success && result.value != null) {
                     Timber.d("[RETRY] Chunk at $offset succeeded on attempt ${attempt + 2}")
                     return result.value
@@ -687,15 +740,22 @@ class TransferEngine(
         remotePath: String,
         localFile: File,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> {
-        return when (val result = download(remotePath, localFile, 0, onProgress)) {
-            is TransferResult.Success -> SftpResult.Success(Unit)
-            is TransferResult.Failed -> SftpResult.IoError(result.error)
-            is TransferResult.Cancelled -> SftpResult.IoError(
-                kotlinx.coroutines.CancellationException("Transfer cancelled")
-            )
+    ): SftpResult<Unit> =
+        when (val result = download(remotePath, localFile, 0, onProgress)) {
+            is TransferResult.Success -> {
+                SftpResult.Success(Unit)
+            }
+
+            is TransferResult.Failed -> {
+                SftpResult.IoError(result.error)
+            }
+
+            is TransferResult.Cancelled -> {
+                SftpResult.IoError(
+                    kotlinx.coroutines.CancellationException("Transfer cancelled"),
+                )
+            }
         }
-    }
 
     /**
      * Download to stream, returning SftpResult for CbsshTransfer compatibility.
@@ -704,15 +764,22 @@ class TransferEngine(
         remotePath: String,
         outputStream: OutputStream,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> {
-        return when (val result = downloadToStream(remotePath, outputStream, onProgress)) {
-            is TransferResult.Success -> SftpResult.Success(Unit)
-            is TransferResult.Failed -> SftpResult.IoError(result.error)
-            is TransferResult.Cancelled -> SftpResult.IoError(
-                kotlinx.coroutines.CancellationException("Transfer cancelled")
-            )
+    ): SftpResult<Unit> =
+        when (val result = downloadToStream(remotePath, outputStream, onProgress)) {
+            is TransferResult.Success -> {
+                SftpResult.Success(Unit)
+            }
+
+            is TransferResult.Failed -> {
+                SftpResult.IoError(result.error)
+            }
+
+            is TransferResult.Cancelled -> {
+                SftpResult.IoError(
+                    kotlinx.coroutines.CancellationException("Transfer cancelled"),
+                )
+            }
         }
-    }
 
     /**
      * Upload file, returning SftpResult for CbsshTransfer compatibility.
@@ -721,22 +788,30 @@ class TransferEngine(
         localFile: File,
         remotePath: String,
         onProgress: ((TransferProgress) -> Unit)? = null,
-    ): SftpResult<Unit> {
-        return when (val result = upload(localFile, remotePath, 0, onProgress)) {
-            is TransferResult.Success -> SftpResult.Success(Unit)
-            is TransferResult.Failed -> SftpResult.IoError(result.error)
-            is TransferResult.Cancelled -> SftpResult.IoError(
-                kotlinx.coroutines.CancellationException("Transfer cancelled")
-            )
+    ): SftpResult<Unit> =
+        when (val result = upload(localFile, remotePath, 0, onProgress)) {
+            is TransferResult.Success -> {
+                SftpResult.Success(Unit)
+            }
+
+            is TransferResult.Failed -> {
+                SftpResult.IoError(result.error)
+            }
+
+            is TransferResult.Cancelled -> {
+                SftpResult.IoError(
+                    kotlinx.coroutines.CancellationException("Transfer cancelled"),
+                )
+            }
         }
-    }
 }
 
 // === Extensions ===
 
-private fun SftpResult<*>.toException(): Throwable = when (this) {
-    is SftpResult.Success -> IllegalStateException("Success is not an exception")
-    is SftpResult.ServerError -> IOException("SFTP error $statusCode: $message")
-    is SftpResult.ProtocolError -> IOException("Protocol error: $message")
-    is SftpResult.IoError -> cause
-}
+private fun SftpResult<*>.toException(): Throwable =
+    when (this) {
+        is SftpResult.Success -> IllegalStateException("Success is not an exception")
+        is SftpResult.ServerError -> IOException("SFTP error $statusCode: $message")
+        is SftpResult.ProtocolError -> IOException("Protocol error: $message")
+        is SftpResult.IoError -> cause
+    }

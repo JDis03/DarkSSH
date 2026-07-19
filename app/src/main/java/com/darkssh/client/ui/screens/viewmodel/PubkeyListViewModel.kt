@@ -133,7 +133,8 @@ class PubkeyListViewModel
                     val authorizedKeysLine =
                         withContext(Dispatchers.Default) {
                             val publicKey = PubkeyUtils.decodePublic(pubkey.publicKey, pubkey.type)
-                            com.trilead.ssh2.crypto.PublicKeyUtils.toAuthorizedKeysFormat(publicKey, pubkey.nickname)
+                            com.trilead.ssh2.crypto.PublicKeyUtils
+                                .toAuthorizedKeysFormat(publicKey, pubkey.nickname)
                         }
 
                     val clip = ClipData.newPlainText("Public Key", authorizedKeysLine)

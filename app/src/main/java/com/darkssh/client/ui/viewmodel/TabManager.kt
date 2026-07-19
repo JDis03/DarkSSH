@@ -74,13 +74,14 @@ class TabManager
                     val previousTab = currentTabs.find { it.hostId == hostId && it.type == type }
                     val cachedOsType = previousTab?.osType ?: OsType.UNKNOWN
 
-                    val tab = Tab(
-                        type = type,
-                        hostId = hostId,
-                        position = position,
-                        title = title,
-                        osType = cachedOsType,
-                    )
+                    val tab =
+                        Tab(
+                            type = type,
+                            hostId = hostId,
+                            position = position,
+                            title = title,
+                            osType = cachedOsType,
+                        )
                     DebugLogger.Tab.created(tab.id, hostId, type.name)
                     tabRepository.insertTab(tab)
                 }
@@ -113,9 +114,10 @@ class TabManager
             viewModelScope.launch {
                 tabMutex.withLock {
                     val currentTabs = _tabs.value
-                    val existingTabIndex = currentTabs.indexOfFirst {
-                        it.type == type && it.hostId == hostId
-                    }
+                    val existingTabIndex =
+                        currentTabs.indexOfFirst {
+                            it.type == type && it.hostId == hostId
+                        }
 
                     if (existingTabIndex >= 0) {
                         // Tab already exists, switch to it
@@ -141,7 +143,7 @@ class TabManager
             viewModelScope.launch {
                 tabMutex.withLock {
                     val tab = tabRepository.getTabById(tabId) ?: return@withLock
-                    
+
                     // Take a snapshot of current state BEFORE any modifications
                     val currentTabs = _tabs.value.toList()
                     val closedTabIndex = currentTabs.indexOfFirst { it.id == tabId }
@@ -151,7 +153,7 @@ class TabManager
 
                     // Calculate remaining tabs from our snapshot
                     val remainingTabs = currentTabs.filter { it.id != tabId }
-                    
+
                     // Reorder remaining tabs based on snapshot
                     remainingTabs.forEachIndexed { index, t ->
                         if (t.position != index) {
@@ -190,12 +192,15 @@ class TabManager
             }
         }
 
-        fun reorderTabs(fromIndex: Int, toIndex: Int) {
+        fun reorderTabs(
+            fromIndex: Int,
+            toIndex: Int,
+        ) {
             viewModelScope.launch {
                 tabMutex.withLock {
                     val currentTabs = _tabs.value.toMutableList()
                     if (fromIndex !in currentTabs.indices || toIndex !in currentTabs.indices) return@withLock
-                    
+
                     val tab = currentTabs.removeAt(fromIndex)
                     currentTabs.add(toIndex, tab)
 
@@ -220,7 +225,10 @@ class TabManager
          * Called when the host is renamed so open tabs reflect the new nickname live.
          * No-op if no tabs exist for the host (or title is unchanged).
          */
-        fun updateTabsForHost(hostId: Long, newTitle: String) {
+        fun updateTabsForHost(
+            hostId: Long,
+            newTitle: String,
+        ) {
             viewModelScope.launch {
                 tabMutex.withLock {
                     val tabsForHost = _tabs.value.filter { it.hostId == hostId && it.title != newTitle }
