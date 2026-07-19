@@ -734,8 +734,8 @@ class SftpClient(
     override suspend fun copyFileViaSsh(
         sourcePath: String,
         destPath: String,
-        isDirectory: Boolean = false,
-        overwrite: Boolean = false,
+        isDirectory: Boolean,
+        overwrite: Boolean,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
@@ -881,7 +881,7 @@ class SftpClient(
      * Recursively delete a directory via SSH rm -rf.
      * SFTP rmdir only works on empty directories — this handles non-empty ones.
      */
-    suspend fun deleteDirectoryViaSsh(
+    override suspend fun deleteDirectoryViaSsh(
         remotePath: String,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {

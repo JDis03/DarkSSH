@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.connectbot.sshlib.SftpClient
 import org.connectbot.sshlib.SftpResult
@@ -161,6 +162,7 @@ class CbsshTransfer(
                 var chunkGaps = StringBuilder()
 
                 while (window.isNotEmpty()) {
+                    coroutineContext.ensureActive() // Check for cancellation
                     // Drain the oldest request — measure round-trip latency
                     val chunkStart = System.nanoTime()
                     val chunkResult = window.removeFirst().await()
@@ -308,6 +310,7 @@ class CbsshTransfer(
 
                 localFile.inputStream().use { input ->
                     while (true) {
+                        coroutineContext.ensureActive() // Check for cancellation
                         val read = input.read(buffer)
                         if (read == -1) break
 
@@ -339,6 +342,9 @@ class CbsshTransfer(
 
                 Timber.d("Upload completed: $bytesWritten bytes to $remotePath")
                 return@withContext SftpResult.Success(Unit)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Timber.d("[UL] cancelled: $remotePath")
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Upload failed: $remotePath")
                 return@withContext SftpResult.IoError(e)
@@ -411,6 +417,7 @@ class CbsshTransfer(
                                     input.skip(chunk.first)
                                     var pos = chunk.first
                                     while (pos < chunk.last) {
+                                        coroutineContext.ensureActive() // Check for cancellation
                                         val toRead = minOf(buffer.size.toLong(), chunk.last - pos).toInt()
                                         val read = input.read(buffer, 0, toRead)
                                         if (read == -1) break
@@ -445,6 +452,9 @@ class CbsshTransfer(
 
                 Timber.d("Parallel upload completed: $totalBytes bytes to $remotePath")
                 return@withContext SftpResult.Success(Unit)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Timber.d("[UL-PARALLEL] cancelled: $remotePath")
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Parallel upload failed: $remotePath")
                 return@withContext SftpResult.IoError(e)
@@ -504,6 +514,7 @@ class CbsshTransfer(
                 var lastReportedBytes = 0L
 
                 while (true) {
+                    coroutineContext.ensureActive() // Check for cancellation
                     val chunkResult = sftp.read(sourceHandle, offset, COPY_BUFFER_SIZE)
                     val chunk: ByteArray =
                         when (chunkResult) {
@@ -559,6 +570,9 @@ class CbsshTransfer(
 
                 Timber.d("Server-side copy completed: $offset bytes from $sourcePath to $destPath")
                 return@withContext SftpResult.Success(Unit)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Timber.d("[COPY] cancelled: $sourcePath -> $destPath")
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Server-side copy failed: $sourcePath -> $destPath")
                 return@withContext SftpResult.IoError(e)

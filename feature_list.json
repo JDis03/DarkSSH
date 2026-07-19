@@ -261,6 +261,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "TabManager.kt: (1) Added Mutex for thread-safe tab operations, (2) Fixed race condition in closeTab() by using snapshot of tabs list before modifications, (3) Made pendingSwitchToNewTab flag thread-safe with mutex protection, (4) Fixed reorderTabs() to properly adjust currentTabIndex when affected by reorder, (5) Cleaned up FQN imports. TabbedMainScreen.kt: (1) Consolidated two bridge management LaunchedEffects into single effect triggered by currentTabIndex+tabs+bridges, (2) Used derivedStateOf for safeTabIndex calculation, (3) Improved closeTab() to await cleanup before removing tab from DB. TabBar.kt: (1) Extracted magic numbers to TabBarDefaults object, (2) Removed unused widthFraction parameter and animation, (3) Fixed auto-scroll calculation to use actual tab widths from constants."
+    },
+    {
+      "id": "bug-013",
+      "name": "cbssh SFTP Cancellation Not Working",
+      "description": "Cancelling upload/download transfers in cbssh SFTP implementation did not work correctly - transfers continued despite cancellation request",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "CbsshTransfer.kt: (1) Added CancellationException catch-and-rethrow to upload(), uploadParallel(), and copy() functions - they were catching generic Exception which swallowed CancellationException and broke coroutine cancellation propagation. (2) Added ensureActive() calls at the start of each I/O loop iteration in all transfer functions (download, upload, uploadParallel, copy) to enable cooperative cancellation at regular intervals (every 32KB chunk). Download already had CancellationException handling but lacked ensureActive() in the loop."
     }
   ]
 }

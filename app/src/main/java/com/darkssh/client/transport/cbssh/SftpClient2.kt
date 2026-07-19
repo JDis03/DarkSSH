@@ -682,6 +682,7 @@ class SftpClient2(
         sourcePath: String,
         destPath: String,
         isDirectory: Boolean,
+        overwrite: Boolean,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
@@ -691,7 +692,10 @@ class SftpClient2(
                         ?: return@withContext Result.failure(Exception("Failed to open session"))
 
                 session.use { s ->
-                    val flags = if (isDirectory) "-r" else ""
+                    val flags = buildString {
+                        if (isDirectory) append("-r ")
+                        if (overwrite) append("-f ")
+                    }.trim()
                     val command = "cp $flags '$sourcePath' '$destPath'"
                     DebugLogger.d("SftpClient2", "copyFileViaSsh: $command")
                     if (!s.requestExec(command)) {
@@ -733,6 +737,37 @@ class SftpClient2(
         }
         return rm(sourcePath)
     }
+
+    /**
+     * Recursively delete a directory via SSH rm -rf.
+     */
+    override suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
+                val session = ssh.openSession()
+                    ?: return@withContext Result.failure(Exception("Failed to open session"))
+
+                session.use { s ->
+                    val command = "rm -rf '$remotePath'"
+                    DebugLogger.d("SftpClient2", "deleteDirectoryViaSsh: $command")
+                    if (!s.requestExec(command)) {
+                        return@withContext Result.failure(Exception("Failed to exec rm command"))
+                    }
+                    // Drain stdout to EOF
+                    while (true) {
+                        s.read() ?: break
+                    }
+                    s.sendEof()
+                    DebugLogger.i("SftpClient2", "✅ delete OK: $remotePath")
+                    Result.success(Unit)
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to delete directory via SSH: $remotePath")
+                DebugLogger.e("SftpClient2", "❌ delete falló: $remotePath: ${e.message}")
+                Result.failure(e)
+            }
+        }
 }
 
 /**

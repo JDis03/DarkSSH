@@ -112,11 +112,13 @@ interface ISftpClient {
      * Copy a file or directory via SSH (much faster than SFTP streaming).
      *
      * @param isDirectory Whether the source is a directory (recursive copy required).
+     * @param overwrite Whether to overwrite existing files at destination.
      */
     suspend fun copyFileViaSsh(
         sourcePath: String,
         destPath: String,
-        isDirectory: Boolean,
+        isDirectory: Boolean = false,
+        overwrite: Boolean = false,
     ): Result<Unit>
 
     /** Move a file from sourcePath to destPath. */
@@ -124,4 +126,10 @@ interface ISftpClient {
         sourcePath: String,
         destPath: String,
     ): Result<Unit>
+
+    /**
+     * Recursively delete a directory via SSH rm -rf.
+     * SFTP rmdir only works on empty directories — this handles non-empty ones.
+     */
+    suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit>
 }

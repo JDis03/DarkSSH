@@ -253,7 +253,6 @@ fun ConsoleScreen(
                     fontSize = fontSize,
                     typeface = terminalTypeface,
                     isActive = isActive, // Control focus based on tab visibility
-                    focusTrigger = focusTrigger,
                 )
             } else if (isDisconnected && disconnectReason != com.darkssh.client.service.DisconnectReason.USER_REQUESTED) {
                 // Only show reconnect overlay if disconnect was NOT user-requested
