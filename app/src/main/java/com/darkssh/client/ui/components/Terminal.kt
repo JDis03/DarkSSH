@@ -41,6 +41,7 @@ fun Terminal(
     isActive: Boolean = true, // Whether this terminal is the active/visible tab
     focusTrigger: Int = 0, // External trigger to force focus transfer
     forceShowKeyboardTrigger: Int = 0, // Increment to force-show the keyboard (explicit user action)
+    onPinchZoom: ((Float) -> Unit)? = null, // Callback for pinch zoom (scale factor)
 ) {
     val context = LocalContext.current
     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -48,6 +49,10 @@ fun Terminal(
     var prevTypeface by remember { mutableStateOf<Typeface?>(null) }
 
     val terminalViewRef = remember { mutableStateOf<TerminalView?>(null) }
+    
+    // Track cumulative scale during pinch gesture for font size changes
+    var cumulativeScale by remember { mutableFloatStateOf(1f) }
+    var lastScaleApplyTime by remember { mutableStateOf(0L) }
 
     // NestedScrollConnection to resolve gesture conflict between terminal scroll and HorizontalPager swipe.
     // Problem: When scrolling vertically in the terminal history, the finger naturally has a small
@@ -123,7 +128,26 @@ fun Terminal(
                     terminalViewRef.value = this
 
                     setTerminalViewClient(object : TerminalViewClient {
-                    override fun onScale(scale: Float): Float = scale
+                    override fun onScale(scale: Float): Float {
+                        // Accumulate scale factor during pinch gesture
+                        cumulativeScale *= scale
+                        val now = System.currentTimeMillis()
+                        // Apply font size change every 100ms to avoid too frequent updates
+                        if (now - lastScaleApplyTime > 100) {
+                            lastScaleApplyTime = now
+                            if (cumulativeScale > 1.15f) {
+                                // Zoom in - increase font
+                                onPinchZoom?.invoke(1f)
+                                cumulativeScale = 1f
+                            } else if (cumulativeScale < 0.85f) {
+                                // Zoom out - decrease font
+                                onPinchZoom?.invoke(-1f)
+                                cumulativeScale = 1f
+                            }
+                        }
+                        // Return 1f to prevent TerminalView's internal scaling (we handle it via font size)
+                        return 1f
+                    }
 
                     override fun onSingleTapUp(e: MotionEvent) {
                         terminalView.requestFocus()
