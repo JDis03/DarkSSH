@@ -19,14 +19,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.connectbot.sshlib.SftpClient
 import org.connectbot.sshlib.SftpResult
 import timber.log.Timber
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
+import java.util.concurrent.TimeoutException
+import kotlin.coroutines.coroutineContext
 
 /**
  * High-level file transfer operations on top of cbssh SFTP client.
@@ -622,6 +626,75 @@ class CbsshTransfer(
 
         /** Default number of parallel chunks */
         private const val DEFAULT_PARALLEL_CHUNKS = 4
+
+        // === Resilience settings ===
+
+        /** Max retries for transient errors (IoError, timeout) */
+        private const val MAX_RETRIES = 3
+
+        /** Initial delay between retries (doubles each retry) */
+        private const val RETRY_DELAY_MS = 1000L
+
+        /** Timeout for individual SFTP operations (read/write chunk) */
+        private const val OPERATION_TIMEOUT_MS = 60_000L
+
+        /** Timeout for stat/open operations */
+        private const val METADATA_TIMEOUT_MS = 30_000L
+    }
+
+    /**
+     * Execute an SFTP operation with timeout and retry logic.
+     * Retries on IoError (network issues), not on ServerError (permission denied, etc).
+     */
+    private suspend fun <T> withRetry(
+        operationName: String,
+        timeoutMs: Long = OPERATION_TIMEOUT_MS,
+        maxRetries: Int = MAX_RETRIES,
+        operation: suspend () -> SftpResult<T>,
+    ): SftpResult<T> {
+        var lastError: SftpResult<T>? = null
+        var delayMs = RETRY_DELAY_MS
+
+        repeat(maxRetries) { attempt ->
+            coroutineContext.ensureActive()
+
+            try {
+                val result = withTimeout(timeoutMs) { operation() }
+
+                when (result) {
+                    is SftpResult.Success -> return result
+                    is SftpResult.ServerError -> {
+                        // Server errors are not retryable (permission denied, file not found, etc)
+                        Timber.w("[$operationName] ServerError (not retrying): ${result.message}")
+                        return result
+                    }
+                    is SftpResult.ProtocolError -> {
+                        // Protocol errors are not retryable
+                        Timber.w("[$operationName] ProtocolError (not retrying): ${result.message}")
+                        return result
+                    }
+                    is SftpResult.IoError -> {
+                        // IO errors are retryable
+                        lastError = result
+                        if (attempt < maxRetries - 1) {
+                            Timber.w("[$operationName] IoError attempt ${attempt + 1}/$maxRetries, retrying in ${delayMs}ms: ${result.cause.message}")
+                            delay(delayMs)
+                            delayMs *= 2 // Exponential backoff
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                lastError = SftpResult.IoError(TimeoutException("$operationName timed out after ${timeoutMs}ms"))
+                if (attempt < maxRetries - 1) {
+                    Timber.w("[$operationName] Timeout attempt ${attempt + 1}/$maxRetries, retrying in ${delayMs}ms")
+                    delay(delayMs)
+                    delayMs *= 2
+                }
+            }
+        }
+
+        Timber.e("[$operationName] Failed after $maxRetries attempts")
+        return lastError ?: SftpResult.IoError(IOException("$operationName failed after $maxRetries attempts"))
     }
 }
 
