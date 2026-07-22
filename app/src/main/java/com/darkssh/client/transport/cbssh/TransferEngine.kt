@@ -139,6 +139,15 @@ class TransferEngine(
     }
 
     /**
+     * Test-only accessor for [withRetry]. Wraps the private retry helper so
+     * unit tests can exercise retry behavior without going through full I/O.
+     */
+    internal suspend fun <T> withRetryForTest(
+        name: String,
+        operation: suspend () -> SftpResult<T>,
+    ): SftpResult<T> = withRetry(name, operation)
+
+    /**
      * Download with Flow-based progress.
      * Returns a Flow that emits progress updates.
      * Collect the flow to drive the download; it completes when transfer finishes.
