@@ -24,6 +24,7 @@ import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.data.repository.PubkeyRepository
 import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.transport.ISftpClient
+import com.darkssh.client.util.DebugLogger
 import com.darkssh.client.transport.SftpAuthState
 import com.darkssh.client.transport.SftpClientFactory
 import com.darkssh.client.transport.SftpEntry
@@ -233,6 +234,10 @@ class SftpViewModel
             fingerprints: String,
         ): Boolean {
             val h = _uiState.value.host ?: return false
+            DebugLogger.i(
+                "SftpHostKey",
+                "📋 Showing host key prompt for ${h.hostname}:${h.port} algo=$algorithm",
+            )
             val deferred = CompletableDeferred<Boolean>()
             pendingHostKeyResponse = deferred
             _uiState.value =
@@ -244,6 +249,7 @@ class SftpViewModel
 
         /** User responded to [SftpUiState.hostKeyPrompt] (accept or reject the key). */
         fun respondToHostKeyPrompt(accept: Boolean) {
+            DebugLogger.i("SftpHostKey", "👆 User responded to host key prompt: accept=$accept")
             _uiState.value = _uiState.value.copy(hostKeyPrompt = null)
             pendingHostKeyResponse?.complete(accept)
             pendingHostKeyResponse = null
@@ -277,29 +283,41 @@ class SftpViewModel
          */
         private suspend fun resolveKeyPairForHost(h: Host): KeyPair? {
             val pubkeyId = h.pubkeyId ?: return null
+            DebugLogger.i(
+                "SftpKeyAuth",
+                "🔐 Resolving assigned key (pubkeyId=$pubkeyId) for ${h.hostname}",
+            )
             val pubkey =
                 pubkeyRepository.getPubkeyById(pubkeyId) ?: run {
-                    Timber.w("SftpViewModel: host has pubkeyId=$pubkeyId but no matching key was found (deleted?)")
+                    DebugLogger.w(
+                        "SftpKeyAuth",
+                        "❌ Host has pubkeyId=$pubkeyId but no matching key was found (deleted?)",
+                    )
                     return null
                 }
 
-            loadedKeypairs[pubkey.nickname]?.let { return it }
+            loadedKeypairs[pubkey.nickname]?.let {
+                DebugLogger.i("SftpKeyAuth", "♻️ Using cached unlocked key '${pubkey.nickname}'")
+                return it
+            }
 
             var password: String? = null
             if (pubkey.encrypted) {
+                DebugLogger.i("SftpKeyAuth", "🔒 Key '${pubkey.nickname}' is encrypted, prompting for passphrase")
                 password = promptForKeyPassphrase(pubkey.nickname)
                 if (password == null) {
-                    Timber.d("SftpViewModel: key unlock prompt cancelled for ${pubkey.nickname}")
+                    DebugLogger.i("SftpKeyAuth", "🚫 Key unlock prompt cancelled for '${pubkey.nickname}'")
                     return null
                 }
             }
 
             val unlocked =
                 PubkeyUtils.convertToKeyPair(pubkey, password) ?: run {
-                    Timber.w("SftpViewModel: failed to unlock key ${pubkey.nickname}")
+                    DebugLogger.e("SftpKeyAuth", "❌ Failed to unlock key '${pubkey.nickname}' (wrong passphrase?)")
                     return null
                 }
             loadedKeypairs[pubkey.nickname] = unlocked
+            DebugLogger.i("SftpKeyAuth", "✅ Key '${pubkey.nickname}' unlocked successfully")
             return unlocked
         }
 
@@ -435,11 +453,13 @@ class SftpViewModel
          * matching `SSH.kt`'s `tryHostPubkeyAuth` behavior on the terminal side.
          */
         private fun connectUsingHostKey(h: Host) {
+            DebugLogger.i("SftpKeyAuth", "🚀 connectUsingHostKey: ${h.hostname} (pubkeyId=${h.pubkeyId})")
             viewModelScope.launch {
                 _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
 
                 val keyPair = resolveKeyPairForHost(h)
                 if (keyPair == null) {
+                    DebugLogger.e("SftpKeyAuth", "❌ Could not resolve/unlock key for ${h.hostname}, aborting connect")
                     _uiState.value =
                         _uiState.value.copy(
                             authState = SftpAuthState.Failed("Could not unlock the SSH key assigned to this host"),
@@ -451,12 +471,18 @@ class SftpViewModel
                 val result = client.connectWithKey(keyPair)
 
                 if (result.isSuccess) {
+                    DebugLogger.i("SftpKeyAuth", "✅ Key auth succeeded for ${h.hostname}")
                     activeClients[h.id] = client
                     _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
                     val pwd = client.pwd()
                     _uiState.value = _uiState.value.copy(currentPath = pwd, homeDirectory = pwd)
                     listDirectory(pwd)
                 } else {
+                    DebugLogger.e(
+                        "SftpKeyAuth",
+                        "❌ Key auth FAILED for ${h.hostname}: ${result.exceptionOrNull()?.message}",
+                        result.exceptionOrNull(),
+                    )
                     _uiState.value =
                         _uiState.value.copy(
                             authState = SftpAuthState.Failed(result.exceptionOrNull()?.message ?: "Key authentication failed"),

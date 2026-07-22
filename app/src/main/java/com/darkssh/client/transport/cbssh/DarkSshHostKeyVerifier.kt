@@ -24,10 +24,10 @@ import android.util.Base64
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.KnownHost
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.util.DebugLogger
 import com.darkssh.client.util.SshFingerprint
 import org.connectbot.sshlib.HostKeyVerifier
 import org.connectbot.sshlib.PublicKey
-import timber.log.Timber
 
 /**
  * Verifies an SFTP server's host key against [KnownHostRepository], the same
@@ -45,15 +45,19 @@ class DarkSshHostKeyVerifier(
     private val onUnknownKey: suspend (algorithm: String, fingerprints: String) -> Boolean,
 ) : HostKeyVerifier {
     companion object {
-        private const val TAG = "DarkSshHostKeyVerifier"
+        private const val TAG = "SftpHostKey"
     }
 
     override suspend fun verify(key: PublicKey): Boolean {
         val keyData = Base64.encodeToString(key.encoded, Base64.NO_WRAP)
+        DebugLogger.i(
+            TAG,
+            "🔑 verify() called for ${host.hostname}:${host.port} (hostId=${host.id}) algo=${key.type}",
+        )
         val existing = knownHostRepository.getByHostIdAndAlgo(host.id, key.type)
 
         if (existing.isEmpty()) {
-            Timber.d("$TAG: no known host key for host=${host.id} algo=${key.type}, prompting")
+            DebugLogger.i(TAG, "❓ No known host key stored for hostId=${host.id} algo=${key.type} — prompting user")
             val fingerprints = SshFingerprint.build(key.type, key.encoded)
             val accepted = onUnknownKey(key.type, fingerprints)
             if (accepted) {
@@ -66,15 +70,23 @@ class DarkSshHostKeyVerifier(
                         hostKey = keyData,
                     ),
                 )
-                Timber.d("$TAG: host key accepted and saved for host=${host.id}")
+                DebugLogger.i(TAG, "✅ Host key ACCEPTED by user and saved for hostId=${host.id}")
             } else {
-                Timber.w("$TAG: host key rejected by user for host=${host.id}")
+                DebugLogger.w(TAG, "🚫 Host key REJECTED by user for hostId=${host.id} — connection will fail")
             }
             return accepted
         }
 
         val matches = existing.any { it.hostKey == keyData }
-        Timber.d("$TAG: found ${existing.size} known host key(s) for host=${host.id}, match=$matches")
+        if (matches) {
+            DebugLogger.i(TAG, "✅ Presented key matches a known host key for hostId=${host.id} — trusted silently")
+        } else {
+            DebugLogger.w(
+                TAG,
+                "🚨 Presented key does NOT match ${existing.size} known host key(s) for hostId=${host.id} " +
+                    "— REJECTING without prompting (possible MITM or server key rotation)",
+            )
+        }
         return matches
     }
 }
