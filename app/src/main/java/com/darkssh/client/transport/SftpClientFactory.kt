@@ -16,6 +16,7 @@ package com.darkssh.client.transport
 
 import android.content.Context
 import com.darkssh.client.data.entity.Host
+import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.transport.cbssh.SftpClient2
 import com.darkssh.client.util.AppPreferences
 import com.darkssh.client.util.DebugLogger
@@ -37,16 +38,28 @@ object SftpClientFactory {
      *
      * @param host The SSH host to connect to.
      * @param context Android context for accessing SharedPreferences.
+     * @param knownHostRepository Per-host known-hosts trust store, forwarded to
+     *   [SftpClient2] for real host key verification. Optional so existing callers
+     *   that only care about the sshj-vs-cbssh backend selection (e.g. tests that
+     *   never call connect()) keep compiling unchanged; a caller that actually
+     *   connects via the cbssh backend should always supply it.
+     * @param onUnknownHostKey Forwarded to [SftpClient2]; see its documentation.
      * @return [ISftpClient] implementation based on the useCbsshSftp preference.
      */
     fun create(
         host: Host,
         context: Context,
+        knownHostRepository: KnownHostRepository? = null,
+        onUnknownHostKey: (suspend (algorithm: String, fingerprints: String) -> Boolean)? = null,
     ): ISftpClient {
         val useCbssh = AppPreferences.getUseCbsshSftp(context)
         val implName = if (useCbssh) "cbssh (SftpClient2)" else "sshj (SftpClient legacy)"
         Timber.i("SftpClientFactory: using $implName for ${host.hostname}")
         DebugLogger.i("SftpClientFactory", "Backend: $implName → ${host.hostname}:${host.port}")
-        return if (useCbssh) SftpClient2(host) else SftpClient(host)
+        return if (useCbssh) {
+            SftpClient2(host, knownHostRepository, onUnknownHostKey)
+        } else {
+            SftpClient(host)
+        }
     }
 }

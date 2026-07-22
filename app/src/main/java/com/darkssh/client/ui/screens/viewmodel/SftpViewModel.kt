@@ -20,6 +20,8 @@ import androidx.work.workDataOf
 import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
+import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.data.repository.PubkeyRepository
 import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpAuthState
@@ -27,8 +29,10 @@ import com.darkssh.client.transport.SftpClientFactory
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.MainActivity
+import com.darkssh.client.util.PubkeyUtils
 import com.darkssh.client.worker.UploadWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +46,7 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.io.File
 import java.io.OutputStream
+import java.security.KeyPair
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -85,6 +90,30 @@ data class SftpUiState(
     val host: Host? = null,
     val renameConflict: RenameConflict? = null,
     val downloadConflict: DownloadConflict? = null,
+    val hostKeyPrompt: HostKeyPrompt? = null,
+    val keyPassphrasePrompt: KeyPassphrasePrompt? = null,
+)
+
+/**
+ * An SFTP host key was seen for the first time (or a stored key would need to
+ * change) and needs the user's explicit accept/reject before the connection
+ * proceeds. Mirrors the terminal's host-key-verification prompt, but SFTP has
+ * no [com.darkssh.client.service.TerminalBridge] to trigger it through, so it
+ * flows through [SftpUiState] + [SftpViewModel.respondToHostKeyPrompt] instead.
+ */
+data class HostKeyPrompt(
+    val hostname: String,
+    val port: Int,
+    val algorithm: String,
+    val fingerprints: String,
+)
+
+/**
+ * The SSH key assigned to this host ([Host.pubkeyId]) is passphrase-encrypted
+ * and needs unlocking before [ISftpClient.connectWithKey] can be attempted.
+ */
+data class KeyPassphrasePrompt(
+    val keyNickname: String,
 )
 
 data class RenameConflict(
@@ -119,6 +148,8 @@ class SftpViewModel
     constructor(
         application: Application,
         private val hostRepository: HostRepository,
+        private val knownHostRepository: KnownHostRepository,
+        private val pubkeyRepository: PubkeyRepository,
     ) : AndroidViewModel(application) {
         companion object {
             // Made internal for access from SftpTransferService and UploadWorker
@@ -126,6 +157,11 @@ class SftpViewModel
 
             // Global transfer state (survives ViewModel recreation)
             private val activeTransfers = ConcurrentHashMap<String, TransferProgress>()
+
+            // Unlocked key pairs cached by Pubkey.nickname, so a reconnect doesn't
+            // re-prompt for an encrypted key's passphrase. Mirrors
+            // TerminalService.loadedKeypairs (the terminal's equivalent cache).
+            private val loadedKeypairs = ConcurrentHashMap<String, KeyPair>()
 
             // Active WorkManager upload jobs (for observing progress)
             private val activeWorkIds = ConcurrentHashMap<Long, UUID>()
@@ -182,6 +218,93 @@ class SftpViewModel
             val entry: SftpEntry,
             val newName: String,
         )
+
+        private var pendingHostKeyResponse: CompletableDeferred<Boolean>? = null
+        private var pendingPassphraseResponse: CompletableDeferred<String?>? = null
+
+        /**
+         * Called by [SftpClient2][com.darkssh.client.transport.cbssh.SftpClient2] (via
+         * [SftpClientFactory]) the first time a host's key is seen. Surfaces
+         * [SftpUiState.hostKeyPrompt] for the screen to render a confirmation dialog
+         * and suspends until [respondToHostKeyPrompt] resolves it.
+         */
+        private suspend fun promptForUnknownHostKey(
+            algorithm: String,
+            fingerprints: String,
+        ): Boolean {
+            val h = _uiState.value.host ?: return false
+            val deferred = CompletableDeferred<Boolean>()
+            pendingHostKeyResponse = deferred
+            _uiState.value =
+                _uiState.value.copy(
+                    hostKeyPrompt = HostKeyPrompt(h.hostname, h.port, algorithm, fingerprints),
+                )
+            return deferred.await()
+        }
+
+        /** User responded to [SftpUiState.hostKeyPrompt] (accept or reject the key). */
+        fun respondToHostKeyPrompt(accept: Boolean) {
+            _uiState.value = _uiState.value.copy(hostKeyPrompt = null)
+            pendingHostKeyResponse?.complete(accept)
+            pendingHostKeyResponse = null
+        }
+
+        /**
+         * Prompts for an encrypted key's passphrase and suspends until
+         * [respondToKeyPassphrase] resolves it. Returns null if the user cancels.
+         */
+        private suspend fun promptForKeyPassphrase(keyNickname: String): String? {
+            val deferred = CompletableDeferred<String?>()
+            pendingPassphraseResponse = deferred
+            _uiState.value = _uiState.value.copy(keyPassphrasePrompt = KeyPassphrasePrompt(keyNickname))
+            return deferred.await()
+        }
+
+        /** User responded to [SftpUiState.keyPassphrasePrompt] (passphrase or null to cancel). */
+        fun respondToKeyPassphrase(passphrase: String?) {
+            _uiState.value = _uiState.value.copy(keyPassphrasePrompt = null)
+            pendingPassphraseResponse?.complete(passphrase)
+            pendingPassphraseResponse = null
+        }
+
+        /**
+         * Resolves and unlocks the SSH key assigned to [h] (`h.pubkeyId`), prompting
+         * for its passphrase if encrypted and not already cached. Returns null (and
+         * does NOT fall back to password auth) if the host has no assigned key, the
+         * key can't be found, or unlocking fails/cancels — mirrors `SSH.kt`'s
+         * `tryHostPubkeyAuth`: a host with an explicitly assigned key only ever
+         * authenticates with that key.
+         */
+        private suspend fun resolveKeyPairForHost(h: Host): KeyPair? {
+            val pubkeyId = h.pubkeyId ?: return null
+            val pubkey =
+                pubkeyRepository.getPubkeyById(pubkeyId) ?: run {
+                    Timber.w("SftpViewModel: host has pubkeyId=$pubkeyId but no matching key was found (deleted?)")
+                    return null
+                }
+
+            loadedKeypairs[pubkey.nickname]?.let { return it }
+
+            var password: String? = null
+            if (pubkey.encrypted) {
+                password = promptForKeyPassphrase(pubkey.nickname)
+                if (password == null) {
+                    Timber.d("SftpViewModel: key unlock prompt cancelled for ${pubkey.nickname}")
+                    return null
+                }
+            }
+
+            val unlocked =
+                PubkeyUtils.convertToKeyPair(pubkey, password) ?: run {
+                    Timber.w("SftpViewModel: failed to unlock key ${pubkey.nickname}")
+                    return null
+                }
+            loadedKeypairs[pubkey.nickname] = unlocked
+            return unlocked
+        }
+
+        private fun createSftpClient(h: Host): ISftpClient =
+            SftpClientFactory.create(h, getApplication(), knownHostRepository, ::promptForUnknownHostKey)
 
         fun initialize(hostId: Long) {
             val existingHost = _uiState.value.host
@@ -264,11 +387,17 @@ class SftpViewModel
                     return@launch
                 }
 
-                val storedPassword = CredentialStore.getPassword(hostId)
-                if (storedPassword != null) {
-                    connectWithPassword(storedPassword)
+                if (h.pubkeyId != null) {
+                    // Host has an assigned SSH key — always try that key, never fall
+                    // back to password (matches SSH.kt's terminal behavior).
+                    connectUsingHostKey(h)
                 } else {
-                    _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+                    val storedPassword = CredentialStore.getPassword(hostId)
+                    if (storedPassword != null) {
+                        connectWithPassword(storedPassword)
+                    } else {
+                        _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+                    }
                 }
             }
         }
@@ -281,7 +410,7 @@ class SftpViewModel
             viewModelScope.launch {
                 _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
 
-                val client = SftpClientFactory.create(h, getApplication())
+                val client = createSftpClient(h)
                 val result = client.connectWithPassword(password)
 
                 if (result.isSuccess) {
@@ -299,9 +428,51 @@ class SftpViewModel
             }
         }
 
+        /**
+         * Connects using the SSH key assigned to [h] ([Host.pubkeyId]), unlocking it
+         * first if encrypted. Does not fall back to password auth on failure — a host
+         * with an explicitly assigned key only ever authenticates with that key,
+         * matching `SSH.kt`'s `tryHostPubkeyAuth` behavior on the terminal side.
+         */
+        private fun connectUsingHostKey(h: Host) {
+            viewModelScope.launch {
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
+
+                val keyPair = resolveKeyPairForHost(h)
+                if (keyPair == null) {
+                    _uiState.value =
+                        _uiState.value.copy(
+                            authState = SftpAuthState.Failed("Could not unlock the SSH key assigned to this host"),
+                        )
+                    return@launch
+                }
+
+                val client = createSftpClient(h)
+                val result = client.connectWithKey(keyPair)
+
+                if (result.isSuccess) {
+                    activeClients[h.id] = client
+                    _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
+                    val pwd = client.pwd()
+                    _uiState.value = _uiState.value.copy(currentPath = pwd, homeDirectory = pwd)
+                    listDirectory(pwd)
+                } else {
+                    _uiState.value =
+                        _uiState.value.copy(
+                            authState = SftpAuthState.Failed(result.exceptionOrNull()?.message ?: "Key authentication failed"),
+                        )
+                }
+            }
+        }
+
         fun dismissAuthError() {
             val h = _uiState.value.host ?: return
-            _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+            if (h.pubkeyId != null) {
+                // Key-based hosts have nothing to prompt for — retry the key directly.
+                connectUsingHostKey(h)
+            } else {
+                _uiState.value = _uiState.value.copy(authState = SftpAuthState.NeedsPassword(h.hostname, h.username))
+            }
         }
 
         private fun filterEntries(
@@ -393,11 +564,18 @@ class SftpViewModel
             if (existing != null && existing.isConnected) return true
 
             val h = _uiState.value.host ?: return false
-            val password = CredentialStore.getPassword(h.id) ?: return false
 
             return try {
-                val c = SftpClientFactory.create(h, getApplication())
-                if (c.connectWithPassword(password).isSuccess) {
+                val c = createSftpClient(h)
+                val connected =
+                    if (h.pubkeyId != null) {
+                        val keyPair = resolveKeyPairForHost(h) ?: return false
+                        c.connectWithKey(keyPair).isSuccess
+                    } else {
+                        val password = CredentialStore.getPassword(h.id) ?: return false
+                        c.connectWithPassword(password).isSuccess
+                    }
+                if (connected) {
                     activeClients[hostId] = c
                     true
                 } else {

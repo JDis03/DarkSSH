@@ -1,3 +1,57 @@
+## 2026-07-22 12:01 — ClientSSH
+**Summary**: Dos entregables: (1) Integration tests Docker: implementados 7 tests con Testcontainers+linuxserver/openssh-server que ejercen cbssh (SftpClient2/TransferEngine) end-to-end contra un servidor SSH real — connect/auth (correcto y rechazo), listdir, mkdir, upload+download 200KB con integridad byte-a-byte, rename, remove. Aislados vía JUnit4 @Category para no requerir Docker en ./init.sh normal (86 tests siguen igual); corren solo con ./gradlew integrationTest. Resuelto un problema real: docker-java necesita la system property Java 'api.version' (no env var DOCKER_API_VERSION) para negociar con Docker Engine 28+/29+ que rechaza la versión 1.32 default. (2) Investigación de auth: confirmado que 'sshlib' (Trilead, terminal SSH.kt) y 'cbssh' (SftpClient2) son librerías DIFERENTES — el terminal no está migrado a cbssh. Auth de SFTP (sshj legacy Y cbssh nuevo) comparten las mismas limitaciones hoy vs el terminal: host key verification siempre true (sin KnownHostRepository), y connectWithKey es código muerto (SftpViewModel siempre usa password). Conclusión: eliminar sshj es seguro en auth — cbssh ya iguala el comportamiento actual de sshj — pero se registraron 2 TODOs de gaps preexistentes (independientes de la migración) para dar paridad real con el terminal. 1 commit, 86 tests sin cambios + 7 tests Docker nuevos (opt-in), ./init.sh verde, assembleDebug exitoso.
+**Verified**: ./init.sh verde, 86 tests, 0 failures (sin Docker). ./gradlew integrationTest: 7/7 passing contra Docker Engine 29.6.1 real, sin contenedores huérfanos tras la corrida. assembleDebug exitoso.
+**Completed**: none
+---
+---
+## 2026-07-22 11:43 — ClientSSH
+**Summary**: Camino C completado: 22 tests end-to-end nuevos en 1 commit cubriendo TransferEngine.download() y .upload() (los pipelines completos de lectura/escritura, no solo helpers aislados). Testeados vía sus wrappers públicos con SftpClient mockeado — sin necesitar accesores internal porque download/downloadToStream/upload ya son suspend fun públicas (a diferencia de withRetry/retryChunk que eran private en sesiones previas). Cobertura: happy path single/multi-chunk, fallos de stat/open, recovery via retry en chunk individual, agotamiento de retries, cierre de handle, resume-past-EOF short-circuit, flags CREATE+TRUNCATE vs WRITE-only según resumeFrom. Cero cambios a src/main — commit 100% de tests. Aprendizaje documentado sobre mockito-kotlin y parámetros default en funciones suspend (InvalidUseOfMatchersException si falta un matcher por parámetro real, incluso los con default value). Total acumulado en la rama: 86 tests, 0 failures (era 64).
+**Verified**: ./init.sh verde. 86 tests, 0 failures (era 64, +22). assembleDebug exitoso. git status confirmó cero cambios en src/main.
+**Completed**: none
+---
+---
+## 2026-07-22 11:37 — ClientSSH
+**Summary**: Camino B completado: refactor estructural pre-requisito para eliminar sshj. Extraídos SftpEntry y SftpAuthState de SftpClient.kt (sshj legacy) a SftpTypes.kt propio, mismo patrón que TransferProgress.kt. Move verbatim sin cambios de lógica, mismo package = cero cambios de import en los 4 consumidores (ISftpClient, SftpClient2, SftpViewModel, SftpScreen, SftpClipboard). También verificado manualmente que ISftpClient (17 miembros) está 100% implementado por ambos clientes sin gaps, confirmando que no falta portar funcionalidad legacy antes de poder eliminar sshj. No se agregaron tests para los tipos extraídos por ser value types puros sin lógica derivada (mismo criterio que TransferResult). 1 commit, 64 tests sin cambios (0 failures), ./init.sh verde, assembleDebug y assembleRelease compilan.
+**Verified**: ./init.sh verde. 64 tests, 0 failures (sin cambios respecto a antes, refactor puro). assembleDebug y assembleRelease ambos exitosos.
+**Completed**: none
+---
+---
+## 2026-07-22 08:24 — ClientSSH
+**Summary**: Camino A completado: 22 tests nuevos en 2 commits (retryChunk: 7 tests, mapResult: 6 tests, más ajuste de plan que descartó TransferResult por ser sealed class sin lógica). Total acumulado en la rama contrib/cbssh-sftp: 64 tests, 0 failures (era 42 al inicio de la sesión anterior). Aprendizajes clave documentados: SftpFileHandle (constructor internal en cbssh) se puede mockear con Mockito aunque no instanciar directamente; funs top-level internal colisionan por firma entre archivos del mismo package (a diferencia de private que es file-scoped) — encontrado con toException() duplicado, resuelto dejando la copia como private y testeando vía mapResult (misma lógica de ramas). Todos los cambios de producción son mínimos: accesores internal o cambios de visibilidad, cero refactors de lógica.
+**Verified**: ./init.sh verde en cada commit. Tests: 42→51→58→64, 0 failures en todo momento. APK debug compila en cada paso.
+**Completed**: none
+---
+---
+## 2026-07-22 03:15 — ClientSSH
+**Summary**: Tests de TransferEngine.withRetry: 9 tests nuevos cubriendo clasificación de errores (Success/ServerError/ProtocolError/IoError), retry vs no-retry, maxRetries, exponential backoff, CancellationException propagation. Mismo patrón que sesión anterior: accesor internal (withRetryForTest) hace visible la función privada solo para tests del mismo módulo, sin cambiar API pública ni lógica de producción. Verificación: 51 tests total, 0 failures (era 42), ./init.sh verde, APK debug compila sin warnings. Total acumulado en este branch: 4 commits agregando tests, 51 tests, 0 regressions.
+**Verified**: ./init.sh pasó completo. 51 tests, 0 failures. Antes: 42 tests. +9 tests nuevos todos verdes.
+**Completed**: none
+---
+---
+## 2026-07-22 03:03 — ClientSSH
+**Summary**: Tests del pipeline adaptativo de TransferEngine: 9 tests nuevos cubriendo EMA (exponential moving average), adaptación de profundidad basada en RTT buckets (<20, <50, <100, <200, else), bounds clamping (min/max), y comportamiento gradual (±1 por sample). Para hacer state interno observable desde tests, agregué 3 accesores 'internal' (currentPipelineDepthForTest, avgRttMsForTest, updateRttForTest) — internal es invisible a callers externos pero visible desde tests del mismo módulo. Cero cambios de lógica de producción. Verificación: 42 tests, 0 failures (era 33), ./init.sh verde, APK debug compila sin warnings. Pre-requisito cumplido para eliminar sshj legacy en siguientes sesiones.
+**Verified**: ./init.sh pasó completo. 42 tests, 0 failures, 2.3s. Antes: 33 tests, 0 failures. +9 tests nuevos todos verdes.
+**Completed**: none
+---
+---
+## 2026-07-22 02:56 — ClientSSH
+**Summary**: Refactor: extraje TransferProgress de SftpClient.kt (legacy sshj) a su propio archivo TransferProgress.kt en el package com.darkssh.client.transport. Agregué 15 tests unitarios (TransferProgressTest) cubriendo percentage, elapsedSeconds, speed, speedFormatted con edge cases (zero total, backwards clock, etc.). Todos los call sites (7 archivos) ya importaban desde el package correcto, así que el refactor fue transparente sin tocar imports. Verificación: 33 tests total (era 18), 0 failures, ./init.sh verde, compilación limpia sin warnings. Pre-requisito para eventual eliminación de SftpClient.kt sshj legacy.
+**Verified**: ./init.sh pasó completo. 33 tests, 0 failures, 1.8s. Antes: 18 tests, 0 failures. +15 tests nuevos todos verdes.
+**Completed**: none
+---
+---
+## 2026-07-22 02:51 — ClientSSH
+**Summary**: Fix aplicado: TransferState.isComplete retorna false correctamente para archivos vacíos (totalBytes=0). Cambio mínimo 1 línea + 4 comentarios explicativos. Verificado: test rojo→verde, ./init.sh pasa completo, 18 tests 0 failures (1.7s), grep confirma no hay call sites de producción afectados (TransferState es interno, UI usa TransferInfo.isComplete basado en status, no bytes). Bug expost por TransferStateTest que escribí en sesión anterior (test rojo intencional). Commit f8d2b830 pusheado.
+**Verified**: ./init.sh pasó completo. 18 tests, 0 failures, 1.7s. Antes: 17 tests, 1 failure.
+**Completed**: none
+---
+---
+## 2026-07-22 02:39 — ClientSSH
+**Summary**: Reporte formal de migración sshj→cbssh según estándar harness engineering. Resultado: PROBLEMÁTICO. Agregué 8 nuevos tests (TransferConfigTest x2, TransferStateTest x4, SftpClientFactoryTest x3) — 7 pasan, 1 falla porque expone un bug pre-existente en TransferState.isComplete (returns true cuando totalBytes=0). 17 tests totales, 16 passing. Hallazgos críticos: (H1) NO tests para SFTP existente, (H2) NO JaCoCo configurado, (H3) NO benchmark, (H4) bug isComplete para archivos vacíos, (H5-H7) deuda en eliminacion sshj/CbsshTransfer. Cobertura efectiva estimada <1% del módulo SFTP. 8 gaps explícitos listados. Esperando decisión del usuario sobre: fix del bug H4, agregar JaCoCo, y scope de próximos tests.
+**Verified**: ./gradlew testDebugUnitTest ejecutado: 17 tests, 1 failing (bug expuesto por test). Antes: 9 tests, 0 failures.
+**Completed**: none
+---
+---
 ## 2026-07-19 19:17 — ClientSSH
 **Summary**: Sesión de INVESTIGACIÓN/VALIDACIÓN antes de migración cbssh + extensions SFTP modernas. SIN código de producción modificado. Validado: (1) cbssh 0.3.2-SNAPSHOT compila, (2) Docker integration tests PASAN contra OpenSSH 9.9p2, (3) OpenSSH 10.3 local anuncia todas las extensions (posix-rename, statvfs, fsync, hardlink, limits, copy-data, etc), (4) APK debug compila, (5) SSH key auth a localhost funciona. BLOQUEADOR identificado: unit test pre-existente SshClientTest.openSftp maps... falla en cbssh main - debe arreglarse ANTES de cualquier PR. Reglas estrictas registradas: ningún PR sin prueba real, ningún adoption sin soak test, toda extension nueva debe tener integration test Docker.
 **Verified**: cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv, DarkSSH ./init.sh passed
@@ -135,58 +189,4 @@
 ## 2026-07-08 02:22 — ClientSSH
 **Summary**: Clone host estilo Termius: duplica la config inmediatamente sin diálogos. Nickname único (Copy of X, Copy of X (2)...), id=0L para nuevo row, lastConnected=null. Aparece en lista via Flow al instante.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 21:01 — ClientSSH
-**Summary**: Fix swipe-delete: confirmValueChange devuelve false (snap back) + llama onDeleteClick para mostrar diálogo. Item solo desaparece cuando se confirma y la DB lo borra, animado por LazyColumn.animateItem().
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 20:52 — ClientSSH
-**Summary**: Indicador online/offline por host con arquitectura escalable. TerminalService.connectedHostIds (flatMapLatest+combine), pasado como Set<Long> a HostListScreen, punto verde/gris de 12dp sobre el icono del host. ViewModel no se acopla al Service.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 20:40 — ClientSSH
-**Summary**: Rediseño completo de HostCard: swipe derecha para edit (azul), swipe izquierda para delete (rojo), menú desplegable (⋮) con SFTP y Clone. Icono más grande, menos clutter, mejor jerarquía visual. Clone abre editor vacío (pendiente pre-llenar datos).
-**Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 20:29 — ClientSSH
-**Summary**: Modernización de HostListScreen: swipe-to-delete con animación, botón SFTP prominente (FilledTonalButton full-width), card elevation mejorada, mejor spacing y jerarquía visual. Edit button discreto en esquina. UX más intuitiva y moderna.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 20:15 — ClientSSH
-**Summary**: Fix back button en host editor: ahora cierra el diálogo en lugar de salir de la app. BackHandler verifica showHostEditor primero antes de manejar navegación entre tabs. Orden de prioridad: diálogos → navegación → exit.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 19:43 — ClientSSH
-**Summary**: Regression check después de fix host-editor. Detectada y corregida regresión crítica: NavGraph no pasaba hostId al HostEditorScreen, causando que LaunchedEffect limpiara el host cargado por el ViewModel. Fix: extraer hostId de backStackEntry.arguments. Verificados otros cambios recientes (SFTP delete, copy/move progress) - sin regresiones.
-**Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-07 18:49 — ClientSSH
-**Summary**: Fix bug en HostEditor: después de editar un host, al hacer Add aparecían los datos del host anterior. Root cause: ViewModel._host.value no se limpiaba cuando hostId cambiaba de N a -1L. Fix: loadHost() limpia _host = null cuando hostId <= 0, y LaunchedEffect siempre llama loadHost(hostId).
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-05 23:24 — ClientSSH
-**Summary**: Fix para borrar carpetas no vacías en SFTP al usar rmdir que fallaba silenciosamente. deleteDirectoryViaSsh usa rm -rf vía SSH exec, con fallback al rmdir de SFTP para carpetas vacías.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev, confirmación de compilación únicamente (no tests)
-**Completed**: none
----
----
-## 2026-07-03 03:21 — ClientSSH
-**Summary**: Sesión de fix SFTP copy/move + orden de ramas. Fixes: (1) moveFile usa SSH mv -f con fallback SFTP rename, (2) copyFileViaSsh con overwrite flag y skip same-path, (3) pasteFiles integrado con TransferQueue panel mostrando progreso por archivo. Ramas master/dev/feature sincronizadas con force-push a aaa9d2dc. App estable con todos los features.
-**Verified**: BUILD SUCCESSFUL, 4 commits pushed, 3 ramas sincronizadas
 **Completed**: none

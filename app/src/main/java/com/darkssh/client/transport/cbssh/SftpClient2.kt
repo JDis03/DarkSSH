@@ -15,6 +15,7 @@
 package com.darkssh.client.transport.cbssh
 
 import com.darkssh.client.data.entity.Host
+import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
@@ -42,15 +43,26 @@ import java.security.KeyPair
  *
  * Usage:
  * ```kotlin
- * val client = SftpClient2(host)
+ * val client = SftpClient2(host, knownHostRepository, onUnknownHostKey)
  * client.connectWithPassword(password)
  * client.ls(path)  // Returns Result<List<SftpEntry>>
  * client.downloadFile(remotePath, localFile) { progress -> ... }
  * client.disconnect()
  * ```
+ *
+ * @param knownHostRepository Per-host known-hosts trust store used for real host key
+ *   verification (see [DarkSshHostKeyVerifier]). When `null` (e.g. a caller that has
+ *   not been wired up yet), the connection fails closed — every host key is rejected
+ *   rather than silently trusted, since blindly trusting is the exact gap this class
+ *   used to have.
+ * @param onUnknownHostKey Called with (algorithm, formatted fingerprints) the first
+ *   time a host's key is seen. Must return `true` to trust and persist it, `false` to
+ *   reject the connection. Ignored if [knownHostRepository] is `null`.
  */
 class SftpClient2(
     private val host: Host,
+    private val knownHostRepository: KnownHostRepository? = null,
+    private val onUnknownHostKey: (suspend (algorithm: String, fingerprints: String) -> Boolean)? = null,
 ) : ISftpClient {
     private var sshClient: SshClient? = null
     private var sftpClient: SftpClient? = null
@@ -69,6 +81,33 @@ class SftpClient2(
 
     override val isConnected: Boolean
         get() = sftpClient != null && sshClient?.isAuthenticated == true
+
+    /**
+     * Build the host key verifier for this connection.
+     *
+     * Backed by [DarkSshHostKeyVerifier] (real TOFU verification against
+     * [knownHostRepository], matching the terminal's trust model) when a repository
+     * was supplied. Fails closed — rejects every key — if it wasn't, instead of
+     * falling back to the old "always trust" behavior.
+     */
+    private fun buildHostKeyVerifier(): HostKeyVerifier {
+        val repo = knownHostRepository
+        return if (repo != null) {
+            DarkSshHostKeyVerifier(host, repo) { algo, fingerprints ->
+                onUnknownHostKey?.invoke(algo, fingerprints) ?: false
+            }
+        } else {
+            object : HostKeyVerifier {
+                override suspend fun verify(key: PublicKey): Boolean {
+                    Timber.w(
+                        "SftpClient2: no KnownHostRepository configured for ${host.hostname} — " +
+                            "rejecting host key (fail closed, was: always-trust)",
+                    )
+                    return false
+                }
+            }
+        }
+    }
 
     /**
      * Mark connection as dead after an unrecoverable IoError.
@@ -91,10 +130,7 @@ class SftpClient2(
     override suspend fun connectWithPassword(password: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val verifier =
-                    object : HostKeyVerifier {
-                        override suspend fun verify(key: PublicKey): Boolean = true
-                    }
+                val verifier = buildHostKeyVerifier()
 
                 val client =
                     SshClient(
@@ -188,10 +224,7 @@ class SftpClient2(
     override suspend fun connectWithKey(keyPair: KeyPair): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
-                val verifier =
-                    object : HostKeyVerifier {
-                        override suspend fun verify(key: PublicKey): Boolean = true
-                    }
+                val verifier = buildHostKeyVerifier()
 
                 val client =
                     SshClient(

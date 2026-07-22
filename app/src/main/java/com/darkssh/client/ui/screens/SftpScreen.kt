@@ -279,6 +279,66 @@ fun SftpScreen(
         )
     }
 
+    uiState.hostKeyPrompt?.let { prompt ->
+        AlertDialog(
+            onDismissRequest = { viewModel.respondToHostKeyPrompt(false) },
+            title = { Text("Verify host key") },
+            text = {
+                Column {
+                    Text("The authenticity of host '${prompt.hostname}:${prompt.port}' can't be established.")
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        prompt.fingerprints,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.size(8.dp))
+                    Text(
+                        "Are you sure you want to continue connecting?",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.respondToHostKeyPrompt(true) }) {
+                    Text("Trust & Connect")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.respondToHostKeyPrompt(false) }) {
+                    Text("Cancel", color = MaterialTheme.colorScheme.error)
+                }
+            },
+        )
+    }
+
+    uiState.keyPassphrasePrompt?.let { prompt ->
+        var passphrase by remember(prompt) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { viewModel.respondToKeyPassphrase(null) },
+            title = { Text("Unlock key \"${prompt.keyNickname}\"") },
+            text = {
+                OutlinedTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    label = { Text("Passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.respondToKeyPassphrase(passphrase) }) {
+                    Text("Unlock")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.respondToKeyPassphrase(null) }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
     when (val authState = uiState.authState) {
         is SftpAuthState.NeedsPassword -> {
             SftpPasswordScreen(

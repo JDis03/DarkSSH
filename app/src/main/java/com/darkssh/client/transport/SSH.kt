@@ -8,6 +8,7 @@ import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.util.PubkeyUtils
+import com.darkssh.client.util.SshFingerprint
 import com.darkssh.client.util.TextSanitizer
 import com.trilead.ssh2.Connection
 import com.trilead.ssh2.ConnectionMonitor
@@ -465,7 +466,7 @@ class SSH(
 
             return if (existing.isEmpty()) {
                 Timber.d("$TAG: No known host key found for ${host.id}, prompting user...")
-                val fingerprints = buildFingerprints(serverHostKeyAlgorithm, serverHostKey)
+                val fingerprints = SshFingerprint.build(serverHostKeyAlgorithm, serverHostKey)
                 val accepted = bridge.promptForHostKeyVerificationBlocking(hostname, port, fingerprints)
                 Timber.d("$TAG: User response to host key prompt: $accepted")
                 if (accepted) {
@@ -493,22 +494,4 @@ class SSH(
         }
     }
 
-    private fun buildFingerprints(
-        algo: String,
-        key: ByteArray,
-    ): String {
-        val md5 =
-            java.security.MessageDigest
-                .getInstance("MD5")
-                .digest(key)
-                .joinToString(":") { "%02x".format(it) }
-        val sha256 =
-            Base64.encodeToString(
-                java.security.MessageDigest
-                    .getInstance("SHA-256")
-                    .digest(key),
-                Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE,
-            )
-        return "$algo\nSHA256:$sha256\nMD5:$md5"
-    }
 }
