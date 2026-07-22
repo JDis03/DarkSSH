@@ -58,7 +58,13 @@ internal object KeyPairToPem {
      */
     private fun inferKeyType(keyPair: KeyPair): String =
         when {
-            keyPair.private is EdECPrivateKey -> {
+            // Prefer the standard JCA interface, but some providers (notably Android's
+            // Conscrypt, which returns com.android.org.conscrypt.OpenSslEdDsaPrivateKey)
+            // don't implement java.security.interfaces.EdECPrivateKey even for Ed25519
+            // keys — fall back to matching on the algorithm name in that case.
+            keyPair.private is EdECPrivateKey ||
+                keyPair.private.algorithm.equals("Ed25519", ignoreCase = true) ||
+                keyPair.private.algorithm.equals("EdDSA", ignoreCase = true) -> {
                 "ssh-ed25519"
             }
 
@@ -191,9 +197,25 @@ internal object KeyPairToPem {
             }
 
             else -> {
-                throw IllegalArgumentException(
-                    "Cannot extract Ed25519 seed from ${privKey.javaClass.name}",
-                )
+                // Fallback for providers that don't implement EdECPrivateKey (e.g. Android's
+                // Conscrypt OpenSslEdDsaPrivateKey). RFC 8410 defines the PKCS8 encoding of
+                // an Ed25519 private key as a fixed, minimal structure whose innermost
+                // element is exactly the 32-byte raw seed — for an unencrypted key with no
+                // extra PKCS8 attributes, that seed is always the LAST 32 bytes of
+                // getEncoded(), the same trick already used above for the public key's
+                // X.509 encoding. This works regardless of provider/concrete class.
+                val encoded =
+                    privKey.encoded
+                        ?: throw IllegalArgumentException(
+                            "Cannot extract Ed25519 seed: ${privKey.javaClass.name} has no PKCS8 encoding",
+                        )
+                if (encoded.size < 32) {
+                    throw IllegalArgumentException(
+                        "Cannot extract Ed25519 seed: encoded key too short (${encoded.size} bytes) " +
+                            "from ${privKey.javaClass.name}",
+                    )
+                }
+                encoded.copyOfRange(encoded.size - 32, encoded.size)
             }
         }
     }
