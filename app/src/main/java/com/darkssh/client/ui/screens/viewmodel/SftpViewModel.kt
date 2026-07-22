@@ -1393,6 +1393,29 @@ class SftpViewModel
                 )
         }
 
+        /**
+         * Updates the displayed name/label of an in-progress transfer without attaching
+         * byte-based [TransferProgress] data. Used by operations like [pasteFiles] whose
+         * server-side `cp`/`mv` exec gives no byte-level progress — forcing a fake
+         * [TransferProgress] with a file COUNT (not bytes) into `transferred`/`total` used
+         * to render as a nonsensical "0 B / 1 B" stuck at 0% for the whole duration of a
+         * single large file, which looked like a freeze. Leaving `progress = null` instead
+         * makes [com.darkssh.client.ui.screens.TransferRow] fall back to its existing
+         * indeterminate spinner, which correctly communicates "working, no ETA available".
+         */
+        private fun updateTransferLabel(
+            id: Long,
+            label: String,
+        ) {
+            _uiState.value =
+                _uiState.value.copy(
+                    transfers =
+                        _uiState.value.transfers.map {
+                            if (it.id == id) it.copy(fileName = label) else it
+                        },
+                )
+        }
+
         private fun updateTransfer(
             id: Long,
             status: TransferStatus,
@@ -1451,20 +1474,24 @@ class SftpViewModel
             val id = ++transferIdCounter
             val job =
                 viewModelScope.launch(Dispatchers.IO) {
-                    // Añadir al queue con progreso 0/total
+                    // Añadir al queue. No TransferProgress here — copyFileViaSsh/moveFile run
+                    // a server-side `cp`/`mv` with no byte-level progress available, so
+                    // `progress` stays null and the UI renders its existing indeterminate
+                    // spinner instead of a fake byte count stuck at 0% (see updateTransferLabel).
+                    val verb = if (isMove) "Moviendo" else "Copiando"
                     addTransfer(
                         TransferInfo(
                             id = id,
                             fileName =
                                 if (total == 1) {
-                                    clipboardData.files[0].name
+                                    "$verb: ${clipboardData.files[0].name}"
                                 } else {
-                                    "$total archivos"
+                                    "$verb 1/$total: ${clipboardData.files[0].name}"
                                 },
                             remotePath = targetPath,
                             localPath = clipboardData.sourcePath,
                             isDownload = false,
-                            progress = TransferProgress(0, total.toLong(), if (isMove) "Moviendo…" else "Copiando…"),
+                            progress = null,
                         ),
                     )
 
@@ -1487,17 +1514,10 @@ class SftpViewModel
                         val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
                         val destPath = "$targetPath/${entry.name}"
 
-                        // Actualizar progreso: N/total completados
+                        // Update the visible label — see updateTransferLabel doc for why this
+                        // is a plain label instead of a fake byte-based TransferProgress.
                         val label = if (isMove) "Moviendo ${index + 1}/$total" else "Copiando ${index + 1}/$total"
-                        updateTransferProgress(
-                            id,
-                            TransferProgress(
-                                transferred = index.toLong(),
-                                total = total.toLong(),
-                                filePath = entry.name,
-                                startTime = System.currentTimeMillis(),
-                            ),
-                        )
+                        updateTransferLabel(id, "$label: ${entry.name}")
 
                         try {
                             val result =
