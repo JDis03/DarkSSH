@@ -127,6 +127,17 @@ class TransferEngine(
     private var avgRttMs = 0L
     private var rttSamples = 0
 
+    // === Internal accessors for unit testing ===
+    // These are `internal` so test code in the same module can observe state
+    // without exposing it to external callers. Not part of the public API.
+
+    internal val currentPipelineDepthForTest: Int get() = currentPipelineDepth
+    internal val avgRttMsForTest: Long get() = avgRttMs
+
+    internal fun updateRttForTest(rttMs: Long) {
+        updateRtt(rttMs)
+    }
+
     /**
      * Download with Flow-based progress.
      * Returns a Flow that emits progress updates.
