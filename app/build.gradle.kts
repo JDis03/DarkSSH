@@ -136,6 +136,7 @@ dependencies {
     testImplementation(libs.robolectric)
     testImplementation(libs.androidx.test.core)
     testImplementation(libs.conscrypt.openjdk.uber)
+    testImplementation(libs.testcontainers)
 
     androidTestImplementation(composeBom)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
@@ -152,5 +153,52 @@ dependencies {
 configurations.all {
     resolutionStrategy {
         force("com.google.crypto.tink:tink-android:1.22.0")
+    }
+}
+
+// === Docker-based SFTP integration tests ===
+//
+// Tests tagged with the DockerIntegrationTest marker (JUnit4 @Category) spin
+// up a real OpenSSH server via Testcontainers and exercise SftpClient2/cbssh
+// end-to-end against it. They require a running Docker daemon, so they are
+// EXCLUDED from the regular unit test tasks (testDebugUnitTest,
+// testReleaseUnitTest) that `./gradlew test` and `./init.sh` invoke — those
+// must keep working in environments without Docker.
+//
+// Run them explicitly with: ./gradlew integrationTest
+val dockerIntegrationCategory = "com.darkssh.client.transport.cbssh.DockerIntegrationTest"
+
+// Only exclude from the AGP-generated unit test tasks by exact name — NOT via
+// tasks.withType<Test>().configureEach, which would also match (and break)
+// the dedicated `integrationTest` task registered below that needs the
+// opposite filter (includeCategories).
+listOf("testDebugUnitTest", "testReleaseUnitTest").forEach { taskName ->
+    tasks.matching { it.name == taskName }.configureEach {
+        (this as Test).useJUnit {
+            excludeCategories(dockerIntegrationCategory)
+        }
+    }
+}
+
+afterEvaluate {
+    val unitTestTask = tasks.named<Test>("testDebugUnitTest").get()
+    tasks.register<Test>("integrationTest") {
+        group = "verification"
+        description =
+            "Runs Docker-based SFTP integration tests against a real OpenSSH " +
+            "server (requires a running Docker daemon). Not part of " +
+            "'./gradlew test' or './init.sh'."
+        testClassesDirs = unitTestTask.testClassesDirs
+        classpath = unitTestTask.classpath
+        useJUnit {
+            includeCategories(dockerIntegrationCategory)
+        }
+        // docker-java (used internally by Testcontainers) can default to an
+        // old Docker API version (1.32) that recent Docker Engine releases
+        // (28+) reject outright ("client version too old"). Pin a modern
+        // version explicitly so version negotiation succeeds. Must be the
+        // "api.version" JAVA SYSTEM PROPERTY (docker-java reads this exact
+        // key, not the DOCKER_API_VERSION env var the docker CLI uses).
+        systemProperty("api.version", "1.45")
     }
 }
