@@ -148,6 +148,15 @@ class TransferEngine(
     ): SftpResult<T> = withRetry(name, operation)
 
     /**
+     * Test-only accessor for [retryChunk]. See [withRetryForTest] for rationale.
+     */
+    internal suspend fun retryChunkForTest(
+        handle: SftpFileHandle,
+        offset: Long,
+        size: Int,
+    ): ByteArray? = retryChunk(handle, offset, size)
+
+    /**
      * Download with Flow-based progress.
      * Returns a Flow that emits progress updates.
      * Collect the flow to drive the download; it completes when transfer finishes.
