@@ -52,7 +52,15 @@ data class TransferState(
     val startTime: Long = System.currentTimeMillis(),
 ) {
     val progress: Float get() = if (totalBytes > 0) transferredBytes.toFloat() / totalBytes else 0f
-    val isComplete: Boolean get() = transferredBytes >= totalBytes
+
+    /**
+     * Whether the transfer has finished writing all expected bytes.
+     *
+     * Returns false when [totalBytes] is zero — an empty file transfer
+     * has not produced any work yet, even though the trivial inequality
+     * `0 >= 0` would otherwise report it as complete.
+     */
+    val isComplete: Boolean get() = totalBytes > 0 && transferredBytes >= totalBytes
 }
 
 /**
