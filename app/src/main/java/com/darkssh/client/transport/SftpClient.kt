@@ -44,26 +44,6 @@ data class SftpEntry(
     val modifiedTime: Long?,
 )
 
-data class TransferProgress(
-    val transferred: Long,
-    val total: Long,
-    val filePath: String,
-    val startTime: Long = System.currentTimeMillis(),
-    val currentTime: Long = System.currentTimeMillis(),
-) {
-    val percentage: Int get() = if (total > 0) (transferred * 100 / total).toInt() else 0
-    val elapsedSeconds: Double get() = (currentTime - startTime) / 1000.0
-    val speed: Long get() = if (elapsedSeconds > 0) (transferred / elapsedSeconds).toLong() else 0L
-    val speedFormatted: String get() = formatSpeed(speed)
-
-    private fun formatSpeed(bytesPerSecond: Long): String =
-        when {
-            bytesPerSecond >= 1_048_576 -> "%.1f MB/s".format(bytesPerSecond / 1_048_576.0)
-            bytesPerSecond >= 1024 -> "%.1f KB/s".format(bytesPerSecond / 1024.0)
-            else -> "$bytesPerSecond B/s"
-        }
-}
-
 sealed class SftpAuthState {
     data object Idle : SftpAuthState()
 
