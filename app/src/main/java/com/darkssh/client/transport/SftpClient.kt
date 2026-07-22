@@ -34,35 +34,6 @@ import java.security.PrivateKey
 import java.security.PublicKey
 import kotlin.coroutines.coroutineContext
 
-data class SftpEntry(
-    val name: String,
-    val path: String,
-    val isDirectory: Boolean,
-    val isSymlink: Boolean,
-    val size: Long,
-    val permissions: String?,
-    val modifiedTime: Long?,
-)
-
-sealed class SftpAuthState {
-    data object Idle : SftpAuthState()
-
-    data object Connecting : SftpAuthState()
-
-    data class NeedsPassword(
-        val hostname: String,
-        val username: String,
-    ) : SftpAuthState()
-
-    data object Authenticating : SftpAuthState()
-
-    data object Authenticated : SftpAuthState()
-
-    data class Failed(
-        val message: String,
-    ) : SftpAuthState()
-}
-
 class SftpClient(
     private val host: Host,
 ) : ISftpClient {
