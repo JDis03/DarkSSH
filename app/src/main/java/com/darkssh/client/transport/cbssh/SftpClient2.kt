@@ -821,8 +821,12 @@ class SftpClient2(
 
 /**
  * Map SftpResult<T> to Result<Unit> preserving error info.
+ *
+ * `internal` (rather than `private`) so unit tests in this module can
+ * exercise the mapping directly without exercising real SFTP I/O. Not part
+ * of the public API.
  */
-private fun <T> mapResult(result: SftpResult<T>): Result<Unit> =
+internal fun <T> mapResult(result: SftpResult<T>): Result<Unit> =
     when (result) {
         is SftpResult.Success -> {
             Result.success(Unit)
