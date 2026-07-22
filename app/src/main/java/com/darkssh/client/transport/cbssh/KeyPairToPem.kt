@@ -30,6 +30,16 @@ internal object KeyPairToPem {
     private val OPENSSH_V1_MAGIC = "openssh-key-v1\u0000".toByteArray(Charsets.US_ASCII)
     private const val LINE_LENGTH = 70
 
+    // DER encoding of OID 1.3.101.112 (id-Ed25519, RFC 8410 §3), as it appears inside a
+    // PKCS8/X.509 AlgorithmIdentifier: tag(06) + length(03) + the 3 OID content bytes.
+    // Used to detect Ed25519 keys directly from raw encoded bytes when neither the
+    // EdECPrivateKey interface nor a recognizable algorithm() name is available — this is
+    // what real-device testing showed is needed: Android's Conscrypt returns
+    // OpenSslEdDsaPrivateKey, which implements neither EdECPrivateKey NOR reports an
+    // algorithm() name of "Ed25519"/"EdDSA" (observed empirically; exact string undetermined,
+    // logged via DebugLogger below so future encounters diagnose faster).
+    private val ED25519_OID_DER = byteArrayOf(0x06, 0x03, 0x2B, 0x65, 0x70)
+
     /**
      * Convert keypair to unencrypted OpenSSH PEM string.
      *
@@ -58,13 +68,16 @@ internal object KeyPairToPem {
      */
     private fun inferKeyType(keyPair: KeyPair): String =
         when {
-            // Prefer the standard JCA interface, but some providers (notably Android's
-            // Conscrypt, which returns com.android.org.conscrypt.OpenSslEdDsaPrivateKey)
-            // don't implement java.security.interfaces.EdECPrivateKey even for Ed25519
-            // keys — fall back to matching on the algorithm name in that case.
+            // Prefer the standard JCA interface, then the conventional algorithm() names,
+            // then fall back to sniffing the Ed25519 OID directly out of the PKCS8 bytes —
+            // some providers (Android's Conscrypt, which returns
+            // com.android.org.conscrypt.OpenSslEdDsaPrivateKey for Ed25519 keys) implement
+            // neither EdECPrivateKey nor report a recognizable algorithm() name, but every
+            // provider's PKCS8 encoding still contains the standard RFC 8410 OID bytes.
             keyPair.private is EdECPrivateKey ||
                 keyPair.private.algorithm.equals("Ed25519", ignoreCase = true) ||
-                keyPair.private.algorithm.equals("EdDSA", ignoreCase = true) -> {
+                keyPair.private.algorithm.equals("EdDSA", ignoreCase = true) ||
+                containsEd25519Oid(keyPair.private) -> {
                 "ssh-ed25519"
             }
 
@@ -90,10 +103,35 @@ internal object KeyPairToPem {
 
             else -> {
                 throw IllegalArgumentException(
-                    "Unsupported key type: ${keyPair.private.javaClass.name}",
+                    "Unsupported key type: ${keyPair.private.javaClass.name} " +
+                        "(algorithm=${keyPair.private.algorithm})",
                 )
             }
         }
+
+    /**
+     * Detects an Ed25519 private key by looking for its RFC 8410 OID (1.3.101.112) directly
+     * in the PKCS8 DER encoding, instead of relying on interface checks or algorithm() name
+     * conventions that vary by provider (see [inferKeyType] and [extractEd25519Seed]).
+     */
+    private fun containsEd25519Oid(privKey: java.security.PrivateKey): Boolean {
+        val encoded = privKey.encoded ?: return false
+        return containsSubsequence(encoded, ED25519_OID_DER)
+    }
+
+    private fun containsSubsequence(
+        haystack: ByteArray,
+        needle: ByteArray,
+    ): Boolean {
+        if (needle.isEmpty() || needle.size > haystack.size) return false
+        outer@ for (start in 0..(haystack.size - needle.size)) {
+            for (i in needle.indices) {
+                if (haystack[start + i] != needle[i]) continue@outer
+            }
+            return true
+        }
+        return false
+    }
 
     /**
      * Encode the public key in SSH wire format.

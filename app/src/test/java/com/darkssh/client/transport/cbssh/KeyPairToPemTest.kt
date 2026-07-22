@@ -81,16 +81,21 @@ class KeyPairToPemTest {
     fun `Ed25519 key from a provider not implementing EdECPrivateKey still converts (Conscrypt regression)`() {
         // Reproduces the real-device bug found via manual testing on Android 16 (API 36):
         // Android's Conscrypt provider returns com.android.org.conscrypt.OpenSslEdDsaPrivateKey
-        // for Ed25519 keys, which does NOT implement java.security.interfaces.EdECPrivateKey
-        // (unlike the JVM's own SunEC provider, used by generateEd25519KeyPair() above).
-        // KeyPairToPem.inferKeyType/extractEd25519Seed used to hard-require that interface
-        // and threw "Unsupported key type: ...OpenSslEdDsaPrivateKey" — this test fakes that
-        // exact shape (real PKCS8 bytes, algorithm name "Ed25519", no EdECPrivateKey) to
-        // guard the fallback path that fixes it.
+        // for Ed25519 keys. That class implements NEITHER
+        // java.security.interfaces.EdECPrivateKey NOR reports a recognizable algorithm()
+        // name (empirically confirmed: a first fix that only added an algorithm().equals
+        // ("Ed25519"/"EdDSA") check still failed on the real device — the observed
+        // algorithm() string on Conscrypt is neither of those). Only sniffing the RFC 8410
+        // Ed25519 OID (1.3.101.112) directly out of the PKCS8 bytes is provider-agnostic
+        // enough to catch this. This test fakes that exact shape — real PKCS8 bytes, an
+        // algorithm() name that deliberately does NOT match "Ed25519"/"EdDSA", and no
+        // EdECPrivateKey — to guard the OID-sniffing fallback that fixes it.
         val realKeyPair = generateEd25519KeyPair()
         val fakePrivateKey =
             object : PrivateKey {
-                override fun getAlgorithm() = "Ed25519"
+                // Deliberately NOT "Ed25519"/"EdDSA" — the real Conscrypt algorithm() string
+                // is unknown/unmapped-by-us, so only OID-sniffing can classify this key.
+                override fun getAlgorithm() = "1.3.101.112"
 
                 override fun getFormat() = "PKCS#8"
 
