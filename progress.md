@@ -1,3 +1,9 @@
+## 2026-07-19 19:17 — ClientSSH
+**Summary**: Sesión de INVESTIGACIÓN/VALIDACIÓN antes de migración cbssh + extensions SFTP modernas. SIN código de producción modificado. Validado: (1) cbssh 0.3.2-SNAPSHOT compila, (2) Docker integration tests PASAN contra OpenSSH 9.9p2, (3) OpenSSH 10.3 local anuncia todas las extensions (posix-rename, statvfs, fsync, hardlink, limits, copy-data, etc), (4) APK debug compila, (5) SSH key auth a localhost funciona. BLOQUEADOR identificado: unit test pre-existente SshClientTest.openSftp maps... falla en cbssh main - debe arreglarse ANTES de cualquier PR. Reglas estrictas registradas: ningún PR sin prueba real, ningún adoption sin soak test, toda extension nueva debe tener integration test Docker.
+**Verified**: cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv, DarkSSH ./init.sh passed
+**Completed**: none
+---
+---
 ## 2026-07-19 13:00 — ClientSSH
 **Summary**: Sesión de INVESTIGACIÓN previa a migración cbssh + extensions modernas. VALIDACIONES COMPLETADAS:
 1. ✅ cbssh 0.3.2-SNAPSHOT compila limpio
