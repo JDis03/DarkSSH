@@ -46,21 +46,34 @@ contrib/cbssh-sftp/
 | Phase | Duration | Status |
 |-------|----------|--------|
 | Research | 1 week | ✅ Done (cbssh has SFTP!) |
-| Test cbssh SFTP | 1 week | 🔜 Next |
-| Implement Progress | 1-2 weeks | ⏸️ Pending |
-| Migrate SftpClient | 1 week | ⏸️ Pending |
-| Migrate SSH | 1 week | ⏸️ Pending |
-| Rollout & Cleanup | 1 week | ⏸️ Pending |
-| **Total** | **4-6 weeks** | - |
+| Test cbssh SFTP | 1 week | ✅ Done |
+| Implement Progress | 1-2 weeks | ✅ Done (`TransferEngine`, adaptive pipelining) |
+| Migrate SftpClient | 1 week | ✅ Done (`SftpClient2`) |
+| Migrate SSH (terminal) | 1 week | ⏸️ Not started — separate, tracked in `openspec/changes/cbssh-migration-strategy/` |
+| Rollout & Cleanup | 1 week | ✅ Done (2026-07-23 — sshj removed entirely, see below) |
+| **Total** | **4-6 weeks** | **SFTP side complete** |
 
-## Current Status
+## Current Status (2026-07-23)
+
+**SFTP migration is complete and sshj has been fully removed from the app.**
+`SftpClient2` (cbssh-backed) is the only SFTP client left — `SftpClient.kt`
+(sshj), `SftpClientFactory.kt`, and the `useCbsshSftp` feature flag were all
+deleted once real-device testing confirmed functional parity plus real
+performance wins (adaptive pipelining + a circuit breaker fix for a
+self-congestion bug found during dogfooding: +77% download / +377% upload
+throughput on the same test transfer). See
+`openspec/changes/archive/2026-07-23-migrate-sftp-to-cbssh/` for the full
+executed task list and history.
+
+Terminal SSH (`SSH.kt`) is unaffected by this — it still uses the older
+`sshlib` (Java/Trilead), not cbssh. Migrating the terminal is a separate,
+not-yet-started effort tracked in `openspec/changes/cbssh-migration-strategy/`.
 
 - ✅ Branch created: `contrib/cbssh-sftp`
 - ✅ Directory structure created
 - ✅ cbssh upstream cloned
 - ✅ **DISCOVERED: cbssh already has SFTP!**
-- 🔜 Next: Test cbssh SFTP implementation
-- 🔜 Next: Create migration plan
+- ✅ SFTP fully migrated, sshj removed
 
 ## References
 

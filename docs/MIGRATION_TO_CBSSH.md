@@ -1,5 +1,16 @@
 # Migration Plan: SSHJ → cbssh (ConnectBot SSH Kotlin)
 
+> **✅ STATUS (2026-07-23): SFTP migration complete.** sshj has been removed
+> entirely — `SftpClient2` (cbssh-backed) is now the app's only SFTP client.
+> The rest of this document is the original planning doc and is kept for
+> historical context; treat any "IN DEVELOPMENT" / "current limitations"
+> language below about SFTP as **outdated**. See
+> `openspec/changes/archive/2026-07-23-migrate-sftp-to-cbssh/` for the
+> executed plan and `contrib/cbssh-sftp/README.md` for implementation notes.
+> Terminal SSH (`SSH.kt`) still uses the older `sshlib` (Java/Trilead), not
+> cbssh — that migration is tracked separately in
+> `openspec/changes/cbssh-migration-strategy/` and has not started.
+
 ## Overview
 
 **Current State**:
