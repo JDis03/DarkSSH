@@ -187,8 +187,11 @@
       (~230-260ms) at depth 32 is plausibly mostly self-inflicted overhead
       rather than genuine benefit (Little's Law: throughput ≈ depth/RTT, so a
       lower depth achieving proportionally lower RTT could match or beat this
-      with far less panic risk). Follow-up idea, not yet tried: lower
-      `maxPipelineDepth` default (e.g. 32→16) and compare.
+      with far less panic risk). **Applied 2026-07-23**: lowered
+      `maxPipelineDepth` 32→16 and collapsed the now-redundant <200ms/else RTT
+      buckets (95/95 tests green). A real-device retest of the same 375MB
+      transfer with this change is the natural next verification step, but is
+      optional tuning at this point, not a blocker for Phase 6.
 - [x] **T5.1.4** Performance benchmark vs the pre-fix baseline (same host, same
       file, before/after the circuit breaker): +77% download, +377% upload —
       done, see T5.1.5
