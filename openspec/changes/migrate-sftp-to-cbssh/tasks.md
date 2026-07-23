@@ -176,15 +176,26 @@
       instead of the normal gradual ±1-per-sample step, so a runaway (depth
       pinned at max while RTT climbs into the seconds) actually recovers
       instead of digging in further. 4 new tests in
-      `TransferEngineAdaptiveTest`. Still needs a real-device retest to
-      confirm actual throughput improves (unit tests only prove the math, not
-      that this is the *complete* fix — the underlying WiFi/CPU/dispatcher
-      contention that triggers high RTT in the first place isn't touched, only
-      how the engine reacts to it).
-- [ ] Status: 🟡 In progress — functional parity confirmed, T5.1.5's circuit
-      breaker fix landed 2026-07-23; real-device retest of the same 375MB
-      transfer is the next step to confirm it actually helps before this can
-      close and Phase 6 can start
+      `TransferEngineAdaptiveTest`.       **Retested 2026-07-23 (same 375MB file, same host):** download
+      856KB/s → 1512KB/s (+77%), upload 676KB/s → 3227KB/s (+377%, ~5x).
+      Circuit breaker fired 4x during download, 2x during upload — each time
+      snapping 32→6 then gradually ramping back up (confirmed correct from log
+      math: the periodic `%50` print interval makes the ramp-back look
+      instant in the log, it isn't). Real, substantial improvement, but the
+      breaker still firing repeatedly at depth 32 suggests 32 remains
+      borderline-aggressive for this link — the "good" steady-state RTT
+      (~230-260ms) at depth 32 is plausibly mostly self-inflicted overhead
+      rather than genuine benefit (Little's Law: throughput ≈ depth/RTT, so a
+      lower depth achieving proportionally lower RTT could match or beat this
+      with far less panic risk). Follow-up idea, not yet tried: lower
+      `maxPipelineDepth` default (e.g. 32→16) and compare.
+- [x] **T5.1.4** Performance benchmark vs the pre-fix baseline (same host, same
+      file, before/after the circuit breaker): +77% download, +377% upload —
+      done, see T5.1.5
+- [ ] Status: 🟡 In progress — functional parity confirmed, circuit breaker
+      confirmed working and substantially faster on a real device; the
+      `maxPipelineDepth` follow-up idea (T5.1.5) is optional tuning, not a
+      blocker — T5.1.5 can be considered closed enough to unblock Phase 6
 
 ### T5.2: Fix any issues found
 - [x] Ed25519 key detection on Android/Conscrypt (OID-sniffing fix, 2026-07-22)
