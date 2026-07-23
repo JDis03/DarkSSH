@@ -155,13 +155,24 @@
       SSH channel window-size bug (`SessionChannel.initialWindowSize`): verified
       via `javap` on the actual published `.m2` jar that the 16MB
       window/32KB-packet fix (fork commit `49af22a`) is compiled in and in use.
-      Needs: (a) a same-network comparison run with `useCbsshSftp=false` (sshj)
-      to establish whether this is cbssh-specific or an environmental
-      WiFi/MIUI-throttling ceiling both backends would hit equally; (b) consider
-      reworking the pipeline-depth heuristic to use measured throughput
-      (bytes/sec over a window), not just RTT, so it can detect
-      "deeper pipeline → lower throughput" and back off instead of only ever
-      escalating.
+      **Update 2026-07-23:** the planned sshj A/B comparison (this task's
+      original next step) turned out not to be viable — sshj's own
+      `KeyType.fromKey()` classifies Ed25519 keys via
+      `"EdDSA".equals(key.getAlgorithm())`, which fails on Android/Conscrypt
+      for the exact same reason `KeyPairToPem.inferKeyType` did before its
+      OID-sniffing fix (confirmed via `javap` on the sshj 0.38.0 jar,
+      `KeyType$6.isMyType()`). sshj's key-based auth is simply broken on this
+      device — not worth patching a dependency we're actively removing.
+      Determined analytically instead (no live A/B needed): ChaCha20-Poly1305
+      on a modern phone SoC and typical home WiFi both comfortably exceed
+      decent double-digit MB/s; 856KB/s-676KB/s is roughly 50-100x below that
+      floor, which is the signature of a software-induced bottleneck, not an
+      environmental ceiling. Combined with the observed pipeline-depth/RTT
+      runaway pattern, root cause is almost certainly `TransferEngine`'s
+      RTT-only adaptive heuristic (escalates depth on high RTT, never measures
+      actual throughput or backs off) — proceeding straight to reworking it to
+      use measured throughput (bytes/sec over a window) instead of RTT alone,
+      so it can detect "deeper pipeline → lower throughput" and back off.
 - [ ] Status: 🟡 In progress — functional parity confirmed, performance
       investigation (T5.1.5) is the current focus and a hard gate before Phase 6
 
