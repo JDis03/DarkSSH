@@ -26,7 +26,7 @@ import com.darkssh.client.service.CredentialStore
 import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.util.DebugLogger
 import com.darkssh.client.transport.SftpAuthState
-import com.darkssh.client.transport.SftpClientFactory
+import com.darkssh.client.transport.cbssh.SftpClient2
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.MainActivity
@@ -322,7 +322,7 @@ class SftpViewModel
         }
 
         private fun createSftpClient(h: Host): ISftpClient =
-            SftpClientFactory.create(h, getApplication(), knownHostRepository, ::promptForUnknownHostKey)
+            SftpClient2(h, knownHostRepository, ::promptForUnknownHostKey)
 
         fun initialize(hostId: Long) {
             val existingHost = _uiState.value.host

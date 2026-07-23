@@ -2,12 +2,10 @@
  * DarkSSH SFTP Client - Common Interface
  * Copyright 2026 DarkSSH
  *
- * Common interface implemented by both:
- * - SftpClient (sshj-based legacy implementation)
- * - SftpClient2 (cbssh-based new implementation)
- *
- * Allows the SFTP feature flag (useCbsshSftp) to swap implementations
- * transparently at the ViewModel/Worker level.
+ * Implemented by SftpClient2 (cbssh-based). Historically also implemented by a
+ * legacy sshj-based SftpClient, removed 2026-07-23 once cbssh reached parity
+ * and was made the only backend — this interface is what let that removal be
+ * a one-file swap instead of touching every ViewModel/Worker call site.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.

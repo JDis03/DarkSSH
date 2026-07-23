@@ -15,7 +15,7 @@ import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.HostRepository
 import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.data.repository.PubkeyRepository
-import com.darkssh.client.transport.SftpClient
+import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.ui.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -81,7 +81,7 @@ class TerminalService : Service() {
     private val _activeBridge = MutableStateFlow<TerminalBridge?>(null)
     val activeBridge: StateFlow<TerminalBridge?> = _activeBridge
 
-    private val sftpClients = ConcurrentHashMap<Long, SftpClient>()
+    private val sftpClients = ConcurrentHashMap<Long, ISftpClient>()
 
     val loadedKeypairs: ConcurrentHashMap<String, KeyPair> = ConcurrentHashMap()
 

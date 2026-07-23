@@ -79,7 +79,6 @@ ksp {
 }
 
 dependencies {
-    implementation(libs.sshj)
     implementation(libs.sshd.core)
     implementation(libs.sshd.sftp)
     implementation(libs.spongycastle.core)

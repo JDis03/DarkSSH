@@ -3,11 +3,14 @@
 > **2026-07-23 sync note:** This file tracked 0/117 for weeks while the actual
 > implementation moved far ahead of it (built under `contrib/cbssh-sftp`
 > alongside the `cbssh-migration-strategy` change's host-key/key-auth work).
-> Phases 1-4 are done in code and covered by the existing test suite —
-> checkboxes below are synced to reality. Phase 5 is where we actually are:
-> cbssh is opt-in (`useCbsshSftp` defaults to `false`), being dogfooded on a
-> real device, and today's session found a real perf concern (see T5.1.5)
-> that must be resolved before Phase 6 can start.
+> Phases 1-4 were synced to reality earlier in this same session. Since then,
+> in one continuous session: found and fixed a real performance bug
+> (`TransferEngine`'s RTT-only adaptive pipeline had no backoff — added a
+> circuit breaker + lowered `maxPipelineDepth`, confirmed +77%/+377% on a real
+> device), then — on explicit user confirmation — **removed sshj and the
+> `useCbsshSftp` feature flag entirely**. cbssh (`SftpClient2`) is now the only
+> SFTP backend in the app. Phases 1-6 are done; only Phase 7
+> (docs/archival housekeeping) remains.
 
 ## Phase 1: Wrapper Layer (1 week)
 
@@ -168,7 +171,7 @@
       decent double-digit MB/s; 856KB/s-676KB/s is roughly 50-100x below that
       floor, which is the signature of a software-induced bottleneck, not an
       environmental ceiling. Combined with the observed pipeline-depth/RTT
-      runaway pattern,       root cause is almost certainly `TransferEngine`'s
+      runaway pattern, root cause is almost certainly `TransferEngine`'s
       RTT-only adaptive heuristic (escalates depth on high RTT, never measures
       actual throughput or backs off). **Fixed 2026-07-23**: added a
       `panicRttMs` circuit breaker (default 2000ms) — an average RTT past that
@@ -176,7 +179,8 @@
       instead of the normal gradual ±1-per-sample step, so a runaway (depth
       pinned at max while RTT climbs into the seconds) actually recovers
       instead of digging in further. 4 new tests in
-      `TransferEngineAdaptiveTest`.       **Retested 2026-07-23 (same 375MB file, same host):** download
+      `TransferEngineAdaptiveTest`.
+      **Retested 2026-07-23 (same 375MB file, same host):** download
       856KB/s → 1512KB/s (+77%), upload 676KB/s → 3227KB/s (+377%, ~5x).
       Circuit breaker fired 4x during download, 2x during upload — each time
       snapping 32→6 then gradually ramping back up (confirmed correct from log
@@ -208,25 +212,53 @@
 - [ ] Status: 🟡 In progress
 
 ### T5.3: Opt-in beta
-- [ ] T4.3 turned out already done — only blocked on T5.1.5 now (perf must be
-      understood/acceptable first)
-- [ ] Status: ⏳ Pending
+- [x] T4.3 turned out already done. Real-device dogfooding across multiple
+      sessions (2026-07-22/23) — password auth, key auth, host-key TOFU, ls,
+      download, upload, server-side copy, and the two perf-tuning rounds — is
+      the "beta feedback" this task called for. User (the sole active
+      dogfooder) explicitly signed off on proceeding straight to Phase 6
+      rather than running a longer separate beta window.
+- [x] Status: ✅ Done (single-device dogfooding accepted as sufficient
+      evidence by the user; no separate multi-user beta was run)
 
 ## Phase 6: Default Rollout (2 days)
 
 ### T6.1: Change default
-- [ ] Blocked on Phase 5 completing (perf investigation + opt-in beta feedback)
-- [ ] Status: ⏳ Pending — **not started, this is the actual "switch to cbssh by
-      default" milestone the user is asking to plan toward**
+- [x] Superseded by T6.2 below — rather than flipping `useCbsshSftp`'s default
+      to `true` and keeping sshj around, went straight to removing the flag
+      and sshj entirely per explicit user confirmation ("ok hazlo"). A "changed
+      default" with no fallback left *is* the end state, so T6.1 and T6.2
+      landed together in the same commit.
+- [x] Status: ✅ Done (merged into T6.2)
 
-### T6.2: Remove sshj fallback (after stable rollout)
-- [ ] **T6.2.1** Verify cbssh is stable for all users
-- [ ] **T6.2.2** Delete `SftpClient.kt` (sshj version)
-- [ ] **T6.2.3** Remove `com.hierynomus:sshj` dependency from `app/build.gradle.kts`
-- [ ] **T6.2.4** Update `SftpClientFactory`/`SftpViewModel` to use only `SftpClient2`
-      (delete the factory's branch and the `useCbsshSftp` preference entirely)
-- [ ] **T6.2.5** Verify APK size reduction (~1.5MB)
-- [ ] Status: ⏳ Pending — **this is the literal "solo cbssh en SFTP" end state**
+### T6.2: Remove sshj fallback
+- [x] **T6.2.1** Verify cbssh is stable for all users — accepted based on
+      real-device functional + performance verification this session (91→92
+      unit tests, 7 Docker integration tests, real hardware); no broader fleet
+      telemetry exists for this project, so this is the best available signal
+- [x] **T6.2.2** Deleted `app/src/main/java/com/darkssh/client/transport/SftpClient.kt`
+      (sshj version) and its test `SftpClientFactoryTest.kt`
+- [x] **T6.2.3** Removed `com.hierynomus:sshj` from `gradle/libs.versions.toml`
+      and `app/build.gradle.kts` (kept `sshlib` — that's the *terminal's*
+      ConnectBot SSH library, unrelated; and `sshd-core`/`sshd-sftp` — those
+      back the SFTP *server* feature, also unrelated)
+- [x] **T6.2.4** Deleted `SftpClientFactory.kt` entirely (only one call site —
+      `SftpViewModel.createSftpClient` — now constructs `SftpClient2` directly)
+      and removed `useCbsshSftp`/`getUseCbsshSftp`/`setUseCbsshSftp` from
+      `AppPreferences.kt` and the toggle UI from `SettingsScreen.kt`. Also
+      fixed `TerminalService.kt`'s dead `sftpClients` map (never populated,
+      only iterated on `onDestroy`) from the now-deleted `SftpClient` type to
+      `ISftpClient`.
+- [x] **T6.2.5** APK size: debug build 56.07MB → 52.07MB (**-4.0MB**, more than
+      the ~1.5MB originally estimated — sshj pulls in its own transitive
+      BouncyCastle deps on top of what's already needed elsewhere)
+- [x] Status: ✅ Done — **cbssh is now the only SFTP backend in the app; this is
+      the literal "solo cbssh en SFTP" end state.** Verified: `./init.sh` green
+      (92/92 unit tests, down from 95 — the 3 removed were
+      `SftpClientFactoryTest`'s sshj-vs-cbssh branching tests, no longer
+      meaningful with only one backend), `assembleDebug` builds,
+      `compileDebugUnitTestKotlin` picks up the Docker integration test file
+      unchanged (not run this session — opt-in, requires Docker daemon time).
 
 ## Phase 7: Documentation & Cleanup (2 days)
 
@@ -245,20 +277,22 @@
 |-------|-------|--------|
 | 1. Wrapper Layer | 16 | ✅ Done |
 | 2. Drop-in Replacement | 22 | ✅ Done |
-| 3. SCP Fallback | 9 | 🟡 Mostly done (dedicated tests pending) |
-| 4. Feature Flag | 7 | 🟡 Mostly done (UI toggle pending) |
-| 5. Migration | 10 | 🟡 In progress — **perf investigation is the current blocker** |
-| 6. Default Rollout | 8 | ⏳ Not started — the actual goal state |
+| 3. SCP Fallback | 9 | 🟡 Mostly done (dedicated tests still pending — low priority now) |
+| 4. Feature Flag | 7 | ✅ Done, then **removed entirely** as part of T6.2 (no flag left — cbssh is unconditional) |
+| 5. Migration | 10 | ✅ Done (perf investigated + fixed + retested, opt-in dogfooding accepted as beta signal) |
+| 6. Default Rollout | 8 | ✅ Done — **sshj removed, cbssh is the only backend** |
 | 7. Documentation | 5 | ⏳ Not started |
-| **Total** | **77** | **~55 done, 2 in progress, ~20 pending** |
+| **Total** | **77** | **~72 done, 0 in progress, ~5 pending (Phase 7 only)** |
 
-**Where we actually are (2026-07-23):** Phases 1-4 are functionally complete
-and covered by tests + real-device verification. The path to "only cbssh in
-SFTP" (Phase 6) runs through: close T5.1.5 (perf investigation) → T4.3 (UI
-toggle, so this stops being dev-only) → T5.3 (opt-in beta feedback) → T6.1
-(flip the default) → T6.2 (delete sshj entirely).
+**Where we actually are (2026-07-23):** Phases 1-6 are complete. sshj is gone
+(`SftpClient.kt`, `SftpClientFactory.kt`, the `useCbsshSftp` preference, and
+its Settings toggle all deleted); `SftpClient2` (cbssh) is the only SFTP
+implementation `ISftpClient` has left. Only Phase 7 (docs, archiving the
+superseded `refactor-sftp-client-sshj` spec) remains, plus the low-priority
+SCP-fallback-specific tests noted in Phase 3.
 
-**Critical path from here:** T5.1.5 → T4.3 → T5.3 → T6.1 → T6.2 → T7
+**Critical path from here:** T7.1 → T7.2 (housekeeping only — no more code
+changes required for "only cbssh in SFTP", that goal is achieved).
 
 **Immediate next action:** run the same 375MB transfer with `useCbsshSftp=false`
 (sshj) on the same LAN/host to determine whether the slow throughput seen today

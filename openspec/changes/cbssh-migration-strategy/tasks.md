@@ -54,9 +54,13 @@
       driven against the test container)
 - [ ] 3.4 Docker integration test: SFTP connection using a wrong/mismatched key is
       rejected — **follow-up**, same blocker as 2.6
-- [ ] 3.5 Manual verification: connect to a real host with `pubkeyId` set from the SFTP
-      screen and confirm no password prompt appears — **follow-up**, requires a real
-      device/host, not exercisable in this environment
+- [x] 3.5 Manual verification: connect to a real host with `pubkeyId` set from the SFTP
+      screen and confirm no password prompt appears — verified on a real Android device
+      (Xiaomi 25069PTEBG, Android 16/API 36) against a real SSH server: log shows
+      `Key 'dark' unlocked successfully` → host key trusted silently (previously
+      accepted) → `Conectado (pubkey)` → `Key auth succeeded`, no password prompt at
+      any point. Required two follow-up fixes first (Ed25519 key detection on Conscrypt,
+      see `KeyPairToPem.kt`) — both confirmed working in the same successful log.
 
 ## 4. Cleanup
 

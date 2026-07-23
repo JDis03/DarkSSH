@@ -12,7 +12,6 @@ object AppPreferences {
     private const val KEY_SFTP_SORT_BY = "sftp_sort_by"
     private const val KEY_SFTP_SORT_ASCENDING = "sftp_sort_ascending"
     private const val KEY_SFTP_SHOW_HIDDEN = "sftp_show_hidden"
-    private const val KEY_USE_CBSSH_SFTP = "use_cbssh_sftp"
 
     fun getTerminalFont(context: Context): FontManager.FontPreset {
         val name =
@@ -74,23 +73,5 @@ object AppPreferences {
         }
     }
 
-    /**
-     * Whether to use the new cbssh-based SFTP client instead of the legacy sshj one.
-     *
-     * Defaults to false (legacy sshj) for safety. Users can opt-in via Settings.
-     * Once the cbssh path is stable, this will be flipped to true by default and eventually removed.
-     */
-    fun getUseCbsshSftp(context: Context): Boolean =
-        context
-            .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            .getBoolean(KEY_USE_CBSSH_SFTP, false)
 
-    fun setUseCbsshSftp(
-        context: Context,
-        enabled: Boolean,
-    ) {
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit {
-            putBoolean(KEY_USE_CBSSH_SFTP, enabled)
-        }
-    }
 }

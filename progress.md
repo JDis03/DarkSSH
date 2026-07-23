@@ -1,3 +1,15 @@
+## 2026-07-22 15:45 — ClientSSH
+**Summary**: Agregué DebugLogger tracing detallado (tags 'SftpHostKey' y 'SftpKeyAuth') a todo el flujo nuevo de host-key-verification y key-based-auth de SftpClient2/SftpViewModel, aprovechando la infraestructura de logging ya existente en la app (FileLoggingTree siempre activo + pantalla Settings→Debug Logs con Copy/Share). No hizo falta construir infra nueva. Pusheado 2 commits nuevos (a98905a1 el feature, 8df90084 el logging) a contrib/cbssh-sftp. Le expliqué al usuario cómo probar manualmente: activar 'Use cbssh SFTP (experimental)' en Settings, conectar a un host, y usar Settings→Debug Logs para copiarme el resultado.
+**Verified**: ./init.sh verde (90 tests sin cambios), assembleDebug exitoso, compileDebugKotlin limpio tras agregar los imports/logs.
+**Completed**: none
+---
+---
+## 2026-07-22 15:35 — ClientSSH
+**Summary**: Apliqué el openspec change 'cbssh-migration-strategy' (creado en el turno anterior): implementé los 2 fixes de auth que había identificado como TODOs. (1) Host key verification real: DarkSshHostKeyVerifier.kt implementa la interfaz suspend HostKeyVerifier de cbssh contra KnownHostRepository con la misma semántica TOFU que SSH.kt (prompt+persist en key desconocida, reject silencioso en mismatch), reemplazando el hardcoded 'return true'. Extraje SshFingerprint.kt compartido entre terminal y SFTP. SftpClient2 ahora recibe knownHostRepository+onUnknownHostKey opcionales con fail-closed si faltan. SftpViewModel expone HostKeyPrompt vía StateFlow+CompletableDeferred y SftpScreen renderiza el dialog de confirmación. (2) Key-based auth wiring: SftpViewModel ahora resuelve Host.pubkeyId → Pubkey → KeyPair (con passphrase prompt propio KeyPassphrasePrompt si está encriptada, cache en memoria tipo TerminalService.loadedKeypairs) y llama connectWithKey en vez de siempre password — wireado en initialize/tryReconnectIfNeeded/dismissAuthError, nunca cae a password para un host con key asignada (igual que SSH.kt). (3) Cleanup: eliminé transport/cbssh/PENDING/ (leftover obsoleto). Agregué DarkSshHostKeyVerifierTest.kt (4 tests, mocks, sin Docker) cubriendo los 4 escenarios TOFU. tasks.md del change actualizado a 15/21 (los 6 pendientes son Docker E2E tests + verificación manual + sync de otro change, registrados como TODOs de proyecto). 1 commit local en contrib/cbssh-sftp (NO pusheado, no se pidió explícitamente).
+**Verified**: ./init.sh verde: 90 tests (86 previos + 4 nuevos), 0 failures, sin Docker. ./gradlew integrationTest verde: los 7 Docker tests preexistentes siguen pasando sin regresión. assembleDebug exitoso. openspec validate cbssh-migration-strategy pasa. git status limpio tras commit.
+**Completed**: none
+---
+---
 ## 2026-07-22 12:01 — ClientSSH
 **Summary**: Dos entregables: (1) Integration tests Docker: implementados 7 tests con Testcontainers+linuxserver/openssh-server que ejercen cbssh (SftpClient2/TransferEngine) end-to-end contra un servidor SSH real — connect/auth (correcto y rechazo), listdir, mkdir, upload+download 200KB con integridad byte-a-byte, rename, remove. Aislados vía JUnit4 @Category para no requerir Docker en ./init.sh normal (86 tests siguen igual); corren solo con ./gradlew integrationTest. Resuelto un problema real: docker-java necesita la system property Java 'api.version' (no env var DOCKER_API_VERSION) para negociar con Docker Engine 28+/29+ que rechaza la versión 1.32 default. (2) Investigación de auth: confirmado que 'sshlib' (Trilead, terminal SSH.kt) y 'cbssh' (SftpClient2) son librerías DIFERENTES — el terminal no está migrado a cbssh. Auth de SFTP (sshj legacy Y cbssh nuevo) comparten las mismas limitaciones hoy vs el terminal: host key verification siempre true (sin KnownHostRepository), y connectWithKey es código muerto (SftpViewModel siempre usa password). Conclusión: eliminar sshj es seguro en auth — cbssh ya iguala el comportamiento actual de sshj — pero se registraron 2 TODOs de gaps preexistentes (independientes de la migración) para dar paridad real con el terminal. 1 commit, 86 tests sin cambios + 7 tests Docker nuevos (opt-in), ./init.sh verde, assembleDebug exitoso.
 **Verified**: ./init.sh verde, 86 tests, 0 failures (sin Docker). ./gradlew integrationTest: 7/7 passing contra Docker Engine 29.6.1 real, sin contenedores huérfanos tras la corrida. assembleDebug exitoso.
@@ -177,16 +189,4 @@
 ## 2026-07-08 03:31 — ClientSSH
 **Summary**: Análisis y fix de 3 bugs estructurales en tabs: (1) collectAsState dentro de forEach en TabBar → key(tab.id){}, (2) isSyncing race condition con 4 efectos → una sola dirección TabManager→pager, (3) DisposableEffect con captures stale eliminado. -44 líneas, código más simple y correcto.
 **Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 02:26 — ClientSSH
-**Summary**: Regression check: 2 fixes. (1) connectedHostIds SharingStarted.WhileSubscribed→Eagerly porque el Service gestiona su propio lifecycle. (2) cloneHost firstNotNullOf(2..99)→generateSequence para evitar NoSuchElementException. NavGraph sin connectedHostIds es aceptable (default emptySet).
-**Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 02:22 — ClientSSH
-**Summary**: Clone host estilo Termius: duplica la config inmediatamente sin diálogos. Nickname único (Copy of X, Copy of X (2)...), id=0L para nuevo row, lastConnected=null. Aparece en lista via Flow al instante.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
