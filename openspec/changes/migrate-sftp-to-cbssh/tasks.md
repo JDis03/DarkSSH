@@ -127,11 +127,10 @@
 - [x] Status: ✅ Done (different shape, same outcome)
 
 ### T4.3: Add UI toggle
-- [ ] **T4.3.1**-**T4.3.3** Settings toggle to switch backend — **not yet found**
-      in `ServerSettingsScreen`; the flag is currently only flippable by whoever
-      is dogfooding it (dev testing, this session's real-device logs). Needed
-      before any wider opt-in beta (T5.3).
-- [ ] Status: ⏳ Pending
+- [x] **T4.3.1**-**T4.3.3** Settings toggle exists in `SettingsScreen.kt` (global
+      app settings, not per-host `ServerSettingsScreen` as originally assumed —
+      corrected 2026-07-23 after user pointed out the toggle already exists)
+- [x] Status: ✅ Done
 
 ## Phase 5: Migration (3 days)
 
@@ -174,8 +173,8 @@
 - [ ] Status: 🟡 In progress
 
 ### T5.3: Opt-in beta
-- [ ] Blocked on T4.3 (no UI toggle yet — flag is dev-only today) and T5.1.5
-      (perf must be understood/acceptable first)
+- [ ] T4.3 turned out already done — only blocked on T5.1.5 now (perf must be
+      understood/acceptable first)
 - [ ] Status: ⏳ Pending
 
 ## Phase 6: Default Rollout (2 days)
