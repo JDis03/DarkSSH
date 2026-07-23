@@ -168,13 +168,23 @@
       decent double-digit MB/s; 856KB/s-676KB/s is roughly 50-100x below that
       floor, which is the signature of a software-induced bottleneck, not an
       environmental ceiling. Combined with the observed pipeline-depth/RTT
-      runaway pattern, root cause is almost certainly `TransferEngine`'s
+      runaway pattern,       root cause is almost certainly `TransferEngine`'s
       RTT-only adaptive heuristic (escalates depth on high RTT, never measures
-      actual throughput or backs off) — proceeding straight to reworking it to
-      use measured throughput (bytes/sec over a window) instead of RTT alone,
-      so it can detect "deeper pipeline → lower throughput" and back off.
-- [ ] Status: 🟡 In progress — functional parity confirmed, performance
-      investigation (T5.1.5) is the current focus and a hard gate before Phase 6
+      actual throughput or backs off). **Fixed 2026-07-23**: added a
+      `panicRttMs` circuit breaker (default 2000ms) — an average RTT past that
+      threshold snaps `currentPipelineDepth` straight to `minPipelineDepth`
+      instead of the normal gradual ±1-per-sample step, so a runaway (depth
+      pinned at max while RTT climbs into the seconds) actually recovers
+      instead of digging in further. 4 new tests in
+      `TransferEngineAdaptiveTest`. Still needs a real-device retest to
+      confirm actual throughput improves (unit tests only prove the math, not
+      that this is the *complete* fix — the underlying WiFi/CPU/dispatcher
+      contention that triggers high RTT in the first place isn't touched, only
+      how the engine reacts to it).
+- [ ] Status: 🟡 In progress — functional parity confirmed, T5.1.5's circuit
+      breaker fix landed 2026-07-23; real-device retest of the same 375MB
+      transfer is the next step to confirm it actually helps before this can
+      close and Phase 6 can start
 
 ### T5.2: Fix any issues found
 - [x] Ed25519 key detection on Android/Conscrypt (OID-sniffing fix, 2026-07-22)
