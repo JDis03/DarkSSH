@@ -27,6 +27,8 @@ import org.mockito.Mockito.mock
  * - Pipeline depth adjusts gradually toward target based on RTT buckets:
  *   <20ms = min (default 6), <50ms = 10, <100ms = 16, <200ms = 24, else = max
  * - Adjustments are ±1 per sample (gradual), clamped to [min, max]
+ * - Circuit breaker: avgRttMs >= panicRttMs (default 2000ms) snaps depth straight
+ *   to min instead of the gradual step — see [TransferConfig.panicRttMs]
  */
 class TransferEngineAdaptiveTest {
 
@@ -133,6 +135,55 @@ class TransferEngineAdaptiveTest {
         val engine2 = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
         repeat(20) { engine2.updateRttForTest(21L) }
         assertEquals(10, engine2.currentPipelineDepthForTest) // next bucket above min
+    }
+
+    @Test
+    fun `panic threshold snaps depth straight down instead of gradual step`() {
+        // Default panicRttMs = 2000. A single very-high sample (first sample sets the
+        // average directly, no EMA smoothing needed) should snap depth to min immediately
+        // — not the usual -1-per-sample crawl the normal branch uses.
+        val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 32))
+
+        engine.updateRttForTest(5000L)
+
+        assertEquals(6, engine.currentPipelineDepthForTest) // default minPipelineDepth
+    }
+
+    @Test
+    fun `just below panic threshold still uses the normal gradual ramp`() {
+        val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
+
+        // 1999ms is just under the default 2000ms panic threshold — should follow the
+        // normal "else" bucket (target = max) with a gradual +1 step, not snap anywhere.
+        engine.updateRttForTest(1999L)
+
+        assertEquals(9, engine.currentPipelineDepthForTest) // 8 + 1, ramping toward max
+    }
+
+    @Test
+    fun `depth recovers gradually after a panic snap once RTT normalizes`() {
+        val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 32))
+
+        engine.updateRttForTest(5000L) // panic — snaps to min (6)
+        assertEquals(6, engine.currentPipelineDepthForTest)
+
+        // RTT recovers to a low value; EMA needs a few samples to pull the average down
+        // from 5000, then depth ramps back up gradually (+1 per sample) once it does.
+        repeat(60) { engine.updateRttForTest(10L) }
+
+        assertEquals(6, engine.currentPipelineDepthForTest) // low-RTT target is also min
+    }
+
+    @Test
+    fun `custom panicRttMs threshold is respected`() {
+        val engine = TransferEngine(
+            sftp,
+            TransferConfig(initialPipelineDepth = 20, panicRttMs = 500),
+        )
+
+        engine.updateRttForTest(600L)
+
+        assertEquals(6, engine.currentPipelineDepthForTest) // snapped to min at a lower bar
     }
 
     @Test

@@ -34,6 +34,7 @@ class TransferConfigTest {
         assertEquals(60_000L, config.operationTimeoutMs)
         assertEquals(256L * 1024, config.progressIntervalBytes)
         assertEquals(100L, config.targetRttMs)
+        assertEquals(2000L, config.panicRttMs)
     }
 
     @Test

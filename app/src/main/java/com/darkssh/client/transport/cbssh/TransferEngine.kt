@@ -113,6 +113,17 @@ data class TransferConfig(
     val progressIntervalBytes: Long = 256 * 1024,
     /** Target RTT for adaptive pipelining (ms) */
     val targetRttMs: Long = 100,
+    /**
+     * Circuit-breaker threshold (ms). A healthy link/server never takes multiple
+     * *seconds* to answer a single [chunkSize] read/write — an average RTT this high is
+     * the signature of self-induced congestion (our own pipeline depth overwhelming the
+     * phone's WiFi radio / CPU / coroutine dispatcher), not real network latency that
+     * deeper pipelining would help with. Above this threshold [updateRtt] snaps the
+     * depth straight down to [minPipelineDepth] instead of the normal gradual ±1 step,
+     * so a runaway (depth pinned at max while RTT climbs into the seconds/tens-of-seconds)
+     * actually recovers instead of digging in.
+     */
+    val panicRttMs: Long = 2000,
 )
 
 /**
@@ -698,6 +709,23 @@ class TransferEngine(
                 (avgRttMs * 7 + rttMs) / 8
             }
         rttSamples++
+
+        // Circuit breaker: an average RTT past config.panicRttMs means the pipeline is
+        // congesting itself, not that the network needs deeper pipelining (see its doc).
+        // Snap down immediately instead of running the normal gradual adjustment below —
+        // crawling down by 1 per sample from depth 32 would keep hammering an already
+        // self-congested link for many more samples before relief arrives.
+        if (avgRttMs >= config.panicRttMs) {
+            if (currentPipelineDepth > config.minPipelineDepth) {
+                Timber.w(
+                    "[ADAPTIVE] avgRtt=${avgRttMs}ms exceeds panic threshold " +
+                        "(${config.panicRttMs}ms) — backing off depth=$currentPipelineDepth " +
+                        "-> ${config.minPipelineDepth}",
+                )
+            }
+            currentPipelineDepth = config.minPipelineDepth
+            return
+        }
 
         // Adapt pipeline depth based on RTT
         // High latency = deeper pipeline, low latency = shallower — but even "low
