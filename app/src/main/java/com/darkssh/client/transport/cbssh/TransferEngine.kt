@@ -89,9 +89,16 @@ sealed class TransferResult {
  */
 data class TransferConfig(
     /** Initial pipeline depth (adapts based on RTT) */
-    val initialPipelineDepth: Int = 8,
-    /** Min pipeline depth (won't go below this) */
-    val minPipelineDepth: Int = 2,
+    val initialPipelineDepth: Int = 12,
+    /**
+     * Min pipeline depth (won't go below this). Even on a very-low-RTT connection (LAN /
+     * fast home internet), a floor of 2 left throughput capped near
+     * `2 * chunkSize / RTT`. Raised so "low latency" doesn't mean "barely any
+     * parallelism" — extra in-flight requests essentially never hurt on a fast link and
+     * help absorb per-operation overhead (crypto, JNI, dispatcher) that isn't pure network
+     * RTT.
+     */
+    val minPipelineDepth: Int = 6,
     /** Max pipeline depth (won't exceed this) */
     val maxPipelineDepth: Int = 32,
     /** Chunk size for reads/writes */
@@ -474,6 +481,17 @@ class TransferEngine(
         }
     }
 
+    /**
+     * Pipelined upload — mirrors [downloadInternal]'s sliding window, but for writes.
+     *
+     * The original implementation wrote one chunk, awaited the server's ack, *then* read
+     * and sent the next — fully serial. Throughput was capped at `chunkSize / RTT`
+     * regardless of bandwidth (e.g. ~1MB/s at a 30ms RTT with 32KB chunks), which is why
+     * uploads felt slow even on fast connections. Local file reads are cheap/sequential so
+     * they still happen synchronously in order, but each chunk's SFTP write is dispatched
+     * asynchronously and up to [currentPipelineDepth] writes are kept in flight at once —
+     * write order on the wire doesn't matter since every write carries an explicit offset.
+     */
     private suspend fun uploadInternal(
         localFile: File,
         remotePath: String,
@@ -498,7 +516,10 @@ class TransferEngine(
             return TransferResult.Success(0, 0, 0, 0, 0)
         }
 
-        Timber.d("[UL] Starting: ${localFile.name} -> $remotePath, total=$totalBytes, resume=$resumeFrom")
+        Timber.d(
+            "[UL] Starting: ${localFile.name} -> $remotePath, total=$totalBytes, " +
+                "resume=$resumeFrom, pipeline=$currentPipelineDepth",
+        )
 
         // Open remote file
         val flags =
@@ -520,112 +541,141 @@ class TransferEngine(
             }
 
         try {
-            val buffer = ByteArray(config.chunkSize)
+            val chunkSize = config.chunkSize
             var lastProgressBytes = resumeFrom
 
-            localFile.inputStream().use { input ->
-                // Skip to resume point
+            return localFile.inputStream().use { input ->
                 if (resumeFrom > 0) {
                     input.skip(resumeFrom)
                 }
 
-                while (coroutineContext.isActive) {
-                    coroutineContext.ensureActive()
+                var readOffset = resumeFrom
+                var eof = false
+                val window = ArrayDeque<PipelineWriteRequest>(config.maxPipelineDepth)
 
-                    val read = input.read(buffer)
-                    if (read == -1) break
+                coroutineScope {
+                    // Reads the next chunk synchronously (fast local disk I/O — no need to
+                    // pipeline reads) and dispatches its SFTP write asynchronously. Each
+                    // chunk gets its own freshly-allocated buffer since several writes can
+                    // be in flight at once (unlike the old serial loop, reusing one shared
+                    // buffer would let an in-flight write see data overwritten by the next
+                    // read).
+                    fun dispatchNextWrite() {
+                        if (eof) return
+                        val buf = ByteArray(chunkSize)
+                        val read = input.read(buf)
+                        if (read <= 0) {
+                            eof = true
+                            return
+                        }
+                        val data = if (read == buf.size) buf else buf.copyOf(read)
+                        val offset = readOffset
+                        readOffset += read
+                        window.addLast(
+                            PipelineWriteRequest(
+                                offset = offset,
+                                size = read,
+                                data = data,
+                                deferred = async { sftp.write(handle, offset, data) },
+                                dispatchTime = System.nanoTime(),
+                            ),
+                        )
+                    }
 
-                    val data = if (read == buffer.size) buffer else buffer.copyOf(read)
+                    // Pre-fill pipeline
+                    while (window.size < currentPipelineDepth && !eof) {
+                        dispatchNextWrite()
+                    }
 
-                    // Write with retry
-                    var written = false
-                    var retries = 0
-                    var lastError: Throwable? = null
-
-                    while (!written && retries < config.maxRetries) {
+                    while (window.isNotEmpty()) {
                         coroutineContext.ensureActive()
 
-                        try {
-                            val result =
-                                withTimeout(config.operationTimeoutMs) {
-                                    sftp.write(handle, bytesWritten, data)
-                                }
+                        val request = window.removeFirst()
 
-                            when (result) {
-                                is SftpResult.Success -> {
-                                    written = true
-                                }
+                        val ok =
+                            try {
+                                val result =
+                                    withTimeout(config.operationTimeoutMs) {
+                                        request.deferred.await()
+                                    }
 
-                                is SftpResult.IoError -> {
-                                    lastError = result.cause
-                                    retries++
-                                    totalRetries++
-                                    if (retries < config.maxRetries) {
-                                        delay(config.retryDelayMs * (1 shl (retries - 1)))
+                                val rttMs = (System.nanoTime() - request.dispatchTime) / 1_000_000
+                                updateRtt(rttMs)
+
+                                when (result) {
+                                    is SftpResult.Success -> true
+
+                                    is SftpResult.IoError -> {
+                                        val retried = retryWriteChunk(handle, request.offset, request.data)
+                                        if (retried) totalRetries++
+                                        retried
+                                    }
+
+                                    else -> {
+                                        return@coroutineScope TransferResult.Failed(
+                                            result.toException(),
+                                            bytesWritten,
+                                            canResume = true,
+                                        )
                                     }
                                 }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                val retried = retryWriteChunk(handle, request.offset, request.data)
+                                if (retried) totalRetries++
+                                retried
+                            }
 
-                                else -> {
-                                    return TransferResult.Failed(
-                                        result.toException(),
-                                        bytesWritten,
-                                        canResume = true,
-                                    )
-                                }
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            lastError = e
-                            retries++
-                            totalRetries++
-                            if (retries < config.maxRetries) {
-                                delay(config.retryDelayMs * (1 shl (retries - 1)))
-                            }
+                        if (!ok) {
+                            return@coroutineScope TransferResult.Failed(
+                                IOException("Write failed at offset ${request.offset} after retries"),
+                                bytesWritten,
+                                canResume = true,
+                            )
+                        }
+
+                        bytesWritten += request.size
+                        chunksWritten++
+
+                        if (bytesWritten - lastProgressBytes >= config.progressIntervalBytes ||
+                            bytesWritten >= totalBytes
+                        ) {
+                            onProgress?.invoke(
+                                TransferProgress(
+                                    transferred = bytesWritten,
+                                    total = totalBytes,
+                                    filePath = localFile.name,
+                                    startTime = startTime,
+                                    currentTime = System.currentTimeMillis(),
+                                ),
+                            )
+                            lastProgressBytes = bytesWritten
+                        }
+
+                        // Refill pipeline (adaptive depth)
+                        while (window.size < currentPipelineDepth && !eof) {
+                            dispatchNextWrite()
                         }
                     }
 
-                    if (!written) {
-                        return TransferResult.Failed(
-                            lastError ?: IOException("Write failed after $retries retries"),
-                            bytesWritten,
-                            canResume = true,
-                        )
-                    }
+                    val elapsed = System.currentTimeMillis() - startTime
+                    val speedKBps = if (elapsed > 0) (bytesWritten - resumeFrom) * 1000 / elapsed / 1024 else 0
 
-                    bytesWritten += read
-                    chunksWritten++
+                    Timber.d(
+                        "[UL] Complete: ${bytesWritten - resumeFrom}B in ${elapsed}ms = " +
+                            "${speedKBps}KB/s, retries=$totalRetries, finalDepth=$currentPipelineDepth",
+                    )
 
-                    // Progress
-                    if (bytesWritten - lastProgressBytes >= config.progressIntervalBytes ||
-                        bytesWritten >= totalBytes
-                    ) {
-                        onProgress?.invoke(
-                            TransferProgress(
-                                transferred = bytesWritten,
-                                total = totalBytes,
-                                filePath = localFile.name,
-                                startTime = startTime,
-                                currentTime = System.currentTimeMillis(),
-                            ),
-                        )
-                        lastProgressBytes = bytesWritten
-                    }
+                    TransferResult.Success(
+                        bytesTransferred = bytesWritten - resumeFrom,
+                        durationMs = elapsed,
+                        avgSpeedKBps = speedKBps,
+                        chunksTransferred = chunksWritten,
+                        retriesUsed = totalRetries,
+                    )
                 }
             }
-
-            val elapsed = System.currentTimeMillis() - startTime
-            val speedKBps = if (elapsed > 0) (bytesWritten - resumeFrom) * 1000 / elapsed / 1024 else 0
-
-            Timber.d("[UL] Complete: ${bytesWritten - resumeFrom}B in ${elapsed}ms = ${speedKBps}KB/s, retries=$totalRetries")
-
-            return TransferResult.Success(
-                bytesTransferred = bytesWritten - resumeFrom,
-                durationMs = elapsed,
-                avgSpeedKBps = speedKBps,
-                chunksTransferred = chunksWritten,
-                retriesUsed = totalRetries,
-            )
         } catch (e: CancellationException) {
             Timber.d("[UL] Cancelled at $bytesWritten bytes")
             return TransferResult.Cancelled
@@ -650,17 +700,18 @@ class TransferEngine(
         rttSamples++
 
         // Adapt pipeline depth based on RTT
-        // High latency = deeper pipeline, low latency = shallower
+        // High latency = deeper pipeline, low latency = shallower — but even "low
+        // latency" still benefits from real parallelism, so the floor is
+        // config.minPipelineDepth (see its doc) rather than a near-serial depth of 2.
         val targetDepth =
             when {
                 avgRttMs < 20 -> config.minPipelineDepth
 
-                // LAN - shallow is fine
-                avgRttMs < 50 -> 4
+                avgRttMs < 50 -> 10
 
-                avgRttMs < 100 -> 8
+                avgRttMs < 100 -> 16
 
-                avgRttMs < 200 -> 16
+                avgRttMs < 200 -> 24
 
                 else -> config.maxPipelineDepth // High latency - max pipeline
             }
@@ -762,9 +813,49 @@ class TransferEngine(
         return null
     }
 
+    /** Write-side counterpart of [retryChunk], used by the pipelined upload path. */
+    private suspend fun retryWriteChunk(
+        handle: SftpFileHandle,
+        offset: Long,
+        data: ByteArray,
+    ): Boolean {
+        var delayMs = config.retryDelayMs
+
+        repeat(config.maxRetries - 1) { attempt ->
+            coroutineContext.ensureActive()
+            delay(delayMs)
+            delayMs *= 2
+
+            try {
+                val result =
+                    withTimeout(config.operationTimeoutMs) {
+                        sftp.write(handle, offset, data)
+                    }
+                if (result is SftpResult.Success) {
+                    Timber.d("[RETRY] Write chunk at $offset succeeded on attempt ${attempt + 2}")
+                    return true
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.w("[RETRY] Write chunk at $offset attempt ${attempt + 2} failed: ${e.message}")
+            }
+        }
+        return false
+    }
+
     private data class PipelineRequest(
         val offset: Long,
         val deferred: kotlinx.coroutines.Deferred<SftpResult<ByteArray?>>,
+        val dispatchTime: Long,
+    )
+
+    private data class PipelineWriteRequest(
+        val offset: Long,
+        val size: Int,
+        /** Kept so a failed write can be retried without re-reading the local file. */
+        val data: ByteArray,
+        val deferred: kotlinx.coroutines.Deferred<SftpResult<Unit>>,
         val dispatchTime: Long,
     )
     // === CbsshTransfer-compatible API ===

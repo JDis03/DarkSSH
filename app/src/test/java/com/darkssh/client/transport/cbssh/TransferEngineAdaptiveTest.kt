@@ -25,7 +25,7 @@ import org.mockito.Mockito.mock
  * - First sample initializes the average
  * - Subsequent samples use EMA: (avg * 7 + sample) / 8
  * - Pipeline depth adjusts gradually toward target based on RTT buckets:
- *   <20ms = min, <50ms = 4, <100ms = 8, <200ms = 16, else = max
+ *   <20ms = min (default 6), <50ms = 10, <100ms = 16, <200ms = 24, else = max
  * - Adjustments are ±1 per sample (gradual), clamped to [min, max]
  */
 class TransferEngineAdaptiveTest {
@@ -62,23 +62,23 @@ class TransferEngineAdaptiveTest {
 
     @Test
     fun `low RTT adapts pipeline to min depth`() {
-        // Min default = 2, initial = 8, RTT < 20ms target = min
+        // Min default = 6, initial = 8, RTT < 20ms target = min
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
 
-        // Sample 10ms RTT many times — pipeline should drop to min (2)
+        // Sample 10ms RTT many times — pipeline should drop to min (6)
         repeat(20) { engine.updateRttForTest(10L) }
 
-        assertEquals(2, engine.currentPipelineDepthForTest)
+        assertEquals(6, engine.currentPipelineDepthForTest)
     }
 
     @Test
     fun `medium RTT adapts pipeline gradually toward target`() {
-        // RTT 60ms target = 8, initial = 8 → should stay at 8
-        val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
+        // RTT 40ms target = 10 (the <50ms bucket), initial = 10 → should stay at 10
+        val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 10))
 
-        repeat(10) { engine.updateRttForTest(60L) }
+        repeat(10) { engine.updateRttForTest(40L) }
 
-        assertEquals(8, engine.currentPipelineDepthForTest)
+        assertEquals(10, engine.currentPipelineDepthForTest)
     }
 
     @Test
@@ -124,15 +124,15 @@ class TransferEngineAdaptiveTest {
 
     @Test
     fun `RTT boundary at 20ms switches target`() {
-        // 19ms → target = min
-        // 21ms → target = next bucket
+        // 19ms → target = min (default 6)
+        // 21ms → target = next bucket (10)
         val engine1 = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 4))
         repeat(20) { engine1.updateRttForTest(19L) }
-        assertEquals(2, engine1.currentPipelineDepthForTest) // min
+        assertEquals(6, engine1.currentPipelineDepthForTest) // min
 
         val engine2 = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
         repeat(20) { engine2.updateRttForTest(21L) }
-        assertEquals(4, engine2.currentPipelineDepthForTest) // next bucket above min
+        assertEquals(10, engine2.currentPipelineDepthForTest) // next bucket above min
     }
 
     @Test

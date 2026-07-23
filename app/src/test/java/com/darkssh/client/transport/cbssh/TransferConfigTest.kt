@@ -25,8 +25,8 @@ class TransferConfigTest {
         val config = TransferConfig()
 
         // Lock in current defaults so silent changes are caught by CI.
-        assertEquals(8, config.initialPipelineDepth)
-        assertEquals(2, config.minPipelineDepth)
+        assertEquals(12, config.initialPipelineDepth)
+        assertEquals(6, config.minPipelineDepth)
         assertEquals(32, config.maxPipelineDepth)
         assertEquals(32 * 1024, config.chunkSize)
         assertEquals(3, config.maxRetries)
