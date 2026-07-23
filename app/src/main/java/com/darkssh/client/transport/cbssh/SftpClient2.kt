@@ -110,6 +110,27 @@ class SftpClient2(
     }
 
     /**
+     * Logs the algorithms actually negotiated for this connection (KEX, host key, cipher,
+     * MAC) via [DebugLogger], so real-device logs show what was used rather than only what
+     * cbssh *supports* (see `Algorithms.kt`'s full candidate lists). Also flags whether the
+     * negotiated KEX is post-quantum (`mlkem768x25519-sha256`).
+     *
+     * Best-effort: [org.connectbot.sshlib.SshClient.connectionInfo] is nullable — swallow
+     * and skip logging rather than fail an otherwise-successful connection over a
+     * diagnostics gap.
+     */
+    private fun logNegotiatedAlgorithms(client: SshClient) {
+        val info = client.connectionInfo ?: return
+        val pq = if (info.isPostQuantumSecure) " [post-quantum]" else ""
+        DebugLogger.i(
+            "SshNegotiation",
+            "kex=${info.kexAlgorithm}$pq hostkey=${info.serverHostKeyAlgorithm} " +
+                "cipher(c2s/s2c)=${info.encryptionAlgorithmC2S}/${info.encryptionAlgorithmS2C} " +
+                "mac(c2s/s2c)=${info.macAlgorithmC2S ?: "(aead)"}/${info.macAlgorithmS2C ?: "(aead)"}",
+        )
+    }
+
+    /**
      * Mark connection as dead after an unrecoverable IoError.
      * Sets isConnected to false so the ViewModel reconnects.
      */
@@ -207,6 +228,7 @@ class SftpClient2(
                 val engineInfo = if (useTransferEngine) "TransferEngine" else "CbsshTransfer"
                 Timber.d("cbssh SFTP session opened for ${host.hostname} (using $engineInfo)")
                 DebugLogger.i("SftpClient2", "✅ Conectado (password) a ${host.hostname}:${host.port} como ${host.username} [$engineInfo]")
+                logNegotiatedAlgorithms(client)
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP connect+auth failed")
@@ -312,6 +334,7 @@ class SftpClient2(
                 val engineInfo = if (useTransferEngine) "TransferEngine" else "CbsshTransfer"
                 Timber.d("cbssh SFTP session opened (pubkey auth) for ${host.hostname} (using $engineInfo)")
                 DebugLogger.i("SftpClient2", "✅ Conectado (pubkey) a ${host.hostname}:${host.port} como ${host.username} [$engineInfo]")
+                logNegotiatedAlgorithms(client)
                 Result.success(Unit)
             } catch (e: Exception) {
                 Timber.e(e, "cbssh SFTP pubkey auth failed")
