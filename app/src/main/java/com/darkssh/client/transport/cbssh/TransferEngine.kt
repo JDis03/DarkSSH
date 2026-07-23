@@ -99,8 +99,19 @@ data class TransferConfig(
      * RTT.
      */
     val minPipelineDepth: Int = 6,
-    /** Max pipeline depth (won't exceed this) */
-    val maxPipelineDepth: Int = 32,
+    /**
+     * Max pipeline depth (won't exceed this).
+     *
+     * Was 32. Real-device testing (2026-07-23, 375MB down+up over a private LAN)
+     * showed the circuit breaker ([panicRttMs]) repeatedly firing at depth 32 — the
+     * "good" steady-state RTT at that depth (~230-260ms) is plausibly mostly
+     * self-inflicted queueing/dispatch overhead rather than genuine throughput benefit
+     * (Little's Law: throughput ≈ depth / RTT, so a lower depth reaching proportionally
+     * lower RTT can match or beat a higher depth that needs a higher RTT to sustain).
+     * Lowered to 16 to keep the pipeline out of the range where it kept tipping into
+     * self-congestion on this device/link.
+     */
+    val maxPipelineDepth: Int = 16,
     /** Chunk size for reads/writes */
     val chunkSize: Int = 32 * 1024,
     /** Max retries per chunk */
@@ -731,17 +742,18 @@ class TransferEngine(
         // High latency = deeper pipeline, low latency = shallower — but even "low
         // latency" still benefits from real parallelism, so the floor is
         // config.minPipelineDepth (see its doc) rather than a near-serial depth of 2.
+        // Bucket ceiling is config.maxPipelineDepth (see its doc for why it's 16, not
+        // 32) — collapsed the old <200ms/else split since both resolved to the same
+        // "go to max" behavior once max was lowered.
         val targetDepth =
             when {
                 avgRttMs < 20 -> config.minPipelineDepth
 
-                avgRttMs < 50 -> 10
+                avgRttMs < 50 -> 8
 
-                avgRttMs < 100 -> 16
+                avgRttMs < 100 -> 12
 
-                avgRttMs < 200 -> 24
-
-                else -> config.maxPipelineDepth // High latency - max pipeline
+                else -> config.maxPipelineDepth // Genuinely high (but sub-panic) latency
             }
 
         // Gradual adjustment

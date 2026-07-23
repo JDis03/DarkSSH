@@ -27,7 +27,7 @@ class TransferConfigTest {
         // Lock in current defaults so silent changes are caught by CI.
         assertEquals(12, config.initialPipelineDepth)
         assertEquals(6, config.minPipelineDepth)
-        assertEquals(32, config.maxPipelineDepth)
+        assertEquals(16, config.maxPipelineDepth)
         assertEquals(32 * 1024, config.chunkSize)
         assertEquals(3, config.maxRetries)
         assertEquals(1000L, config.retryDelayMs)
