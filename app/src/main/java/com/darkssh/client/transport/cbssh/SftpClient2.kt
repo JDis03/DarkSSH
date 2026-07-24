@@ -31,6 +31,7 @@ import org.connectbot.sshlib.HostKeyVerifier
 import org.connectbot.sshlib.PublicKey
 import org.connectbot.sshlib.SftpClient
 import org.connectbot.sshlib.SftpDirectoryEntry
+import org.connectbot.sshlib.SftpOpenFlag
 import org.connectbot.sshlib.SftpResult
 import org.connectbot.sshlib.SshClient
 import org.connectbot.sshlib.SshSession
@@ -94,6 +95,12 @@ class SftpClient2(
          * "Copiando"/"Eliminando" and never finishing. See feature bug-015.
          */
         private const val EXEC_COMMAND_TIMEOUT_MS = 120_000L
+
+        /**
+         * OpenSSH SFTP protocol extension (added in OpenSSH 9.0, April 2022) for server-side
+         * data copy — see [copyFileViaSsh]. Checked against [SftpClient.extensions].
+         */
+        private const val EXT_COPY_DATA = "copy-data"
     }
 
     override val isConnected: Boolean
@@ -809,6 +816,14 @@ class SftpClient2(
 
     /**
      * Server-side file copy.
+     *
+     * Prefers the OpenSSH `"copy-data"` SFTP protocol extension (added in OpenSSH 9.0) when
+     * the server advertises it in [SftpClient.extensions] — a pure-SFTP server-side copy with
+     * no shell/exec involved at all, so it works even for accounts restricted to
+     * `internal-sftp` with no shell, and can't hang on a shell alias waiting for interactive
+     * input the way the exec-based `cp` fallback could (see bug-015). Falls back to the
+     * `cp`/`rm`-via-exec path ([copyFileViaExec]) for servers that don't advertise the
+     * extension, or if the native path fails unexpectedly for any other reason.
      */
     override suspend fun copyFileViaSsh(
         sourcePath: String,
@@ -817,55 +832,184 @@ class SftpClient2(
         overwrite: Boolean,
     ): Result<Unit> =
         withContext(Dispatchers.IO) {
-            try {
-                val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
-                val session =
-                    ssh.openSession()
-                        ?: return@withContext Result.failure(Exception("Failed to open session"))
-
-                session.use { s ->
-                    val flags =
-                        buildString {
-                            if (isDirectory) append("-r ")
-                            if (overwrite) append("-f ")
-                        }.trim()
-                    val command = "cp $flags '$sourcePath' '$destPath'"
-                    DebugLogger.d("SftpClient2", "copyFileViaSsh: $command")
-                    if (!s.requestExec(command)) {
-                        return@withContext Result.failure(Exception("Failed to exec cp command"))
-                    }
-                    // Drain stdout to EOF to ensure command completes. Bounded by
-                    // EXEC_COMMAND_TIMEOUT_MS — without this, a remote `cp` that never
-                    // sends CHANNEL_EOF (e.g. a cp/rm shell alias silently waiting on an
-                    // interactive overwrite confirmation we never send) hangs this call
-                    // forever, which surfaced to users as the paste dialog stuck showing
-                    // "Copiando" indefinitely (bug-015).
+            val client = sftpClient
+            if (client != null && EXT_COPY_DATA in client.extensions) {
+                DebugLogger.d(
+                    "SftpClient2",
+                    "copyFileViaSsh: using native copy-data extension ($sourcePath → $destPath, dir=$isDirectory)",
+                )
+                val nativeResult =
                     try {
-                        withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
-                            while (true) {
-                                val data = s.read() ?: break
-                            }
+                        if (isDirectory) {
+                            copyDataRecursive(client, sourcePath, destPath, overwrite)
+                        } else {
+                            copyDataSingleFile(client, sourcePath, destPath, overwrite)
                         }
-                    } catch (e: TimeoutCancellationException) {
-                        DebugLogger.e("SftpClient2", "⏱️ copyFileViaSsh timed out: $command")
-                        return@withContext Result.failure(
-                            IOException(
-                                "Copy timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s — " +
-                                    "the server may be waiting on input or unresponsive",
-                            ),
-                        )
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Timber.w(e, "copy-data threw unexpectedly, falling back to exec cp: $sourcePath -> $destPath")
+                        DebugLogger.w("SftpClient2", "⚠️ copy-data threw (${e.message}), falling back to exec cp")
+                        null
                     }
-                    s.sendEof()
-                    DebugLogger.i("SftpClient2", "✅ copy OK: $sourcePath → $destPath")
-                    Result.success(Unit)
+                if (nativeResult != null) {
+                    if (nativeResult.isSuccess) {
+                        DebugLogger.i("SftpClient2", "✅ copy OK via copy-data: $sourcePath → $destPath")
+                        return@withContext nativeResult
+                    }
+                    DebugLogger.w(
+                        "SftpClient2",
+                        "⚠️ copy-data failed (${nativeResult.exceptionOrNull()?.message}), falling back to exec cp",
+                    )
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to copy via SSH: $sourcePath -> $destPath")
-                DebugLogger.e("SftpClient2", "❌ copy falló: $sourcePath → $destPath: ${e.message}")
-                Result.failure(e)
             }
+
+            copyFileViaExec(sourcePath, destPath, isDirectory, overwrite)
+        }
+
+    /**
+     * Copies a single regular file entirely on the server via the `"copy-data"` extension:
+     * open source (read) and destination (write), ask the server to copy the bytes between
+     * the two open handles, close both. No data crosses the wire.
+     */
+    private suspend fun copyDataSingleFile(
+        client: SftpClient,
+        sourcePath: String,
+        destPath: String,
+        overwrite: Boolean,
+    ): Result<Unit> {
+        val srcHandle =
+            when (val r = client.open(sourcePath, setOf(SftpOpenFlag.READ))) {
+                is SftpResult.Success -> r.value
+                else -> return mapResult(r)
+            }
+
+        val destFlags =
+            buildSet {
+                add(SftpOpenFlag.WRITE)
+                add(SftpOpenFlag.CREATE)
+                if (overwrite) add(SftpOpenFlag.TRUNCATE) else add(SftpOpenFlag.EXCLUDE)
+            }
+        val dstHandle =
+            when (val r = client.open(destPath, destFlags)) {
+                is SftpResult.Success -> r.value
+                else -> {
+                    client.close(srcHandle)
+                    return mapResult(r)
+                }
+            }
+
+        // length=0 means "copy through EOF of the source file" per the extension spec —
+        // avoids an extra stat() round trip just to learn the source size.
+        val copyResult = client.copyData(srcHandle, 0L, 0L, dstHandle, 0L)
+        client.close(srcHandle)
+        client.close(dstHandle)
+        return mapResult(copyResult)
+    }
+
+    /**
+     * Recursively copies a directory tree entirely on the server: `mkdir` the destination,
+     * list the source, and recurse (subdirectories) or [copyDataSingleFile] (regular files)
+     * for each entry. There is no protocol-level "copy whole directory" operation — `copy-data`
+     * only copies bytes between two already-open regular-file handles — so the client has to
+     * drive the walk itself.
+     */
+    private suspend fun copyDataRecursive(
+        client: SftpClient,
+        sourcePath: String,
+        destPath: String,
+        overwrite: Boolean,
+    ): Result<Unit> {
+        // Create the destination directory. If it already exists and overwrite was
+        // requested, ignore the failure and merge into it (matches `cp -rf` semantics for
+        // an existing directory target); the listdir()/copy calls below will fail loudly
+        // if the destination genuinely isn't usable.
+        val mkdirResult = client.mkdir(destPath)
+        if (mkdirResult is SftpResult.ServerError && !overwrite) {
+            return mapResult(mkdirResult)
+        }
+
+        val entries =
+            when (val r = client.listdir(sourcePath)) {
+                is SftpResult.Success -> r.value
+                else -> return mapResult(r)
+            }
+
+        for (entry in entries) {
+            if (entry.filename == "." || entry.filename == "..") continue
+            val childSource = "${sourcePath.trimEnd('/')}/${entry.filename}"
+            val childDest = "${destPath.trimEnd('/')}/${entry.filename}"
+            val result =
+                if (isDirectoryFromPermissions(entry.attrs.permissions)) {
+                    copyDataRecursive(client, childSource, childDest, overwrite)
+                } else {
+                    copyDataSingleFile(client, childSource, childDest, overwrite)
+                }
+            if (result.isFailure) return result
+        }
+        return Result.success(Unit)
+    }
+
+    /**
+     * Server-side file copy via SSH exec (`cp`/`cp -r`) — the pre-`copy-data` fallback.
+     * Requires actual shell access on the server (fails outright for `internal-sftp`-only
+     * accounts) and is bounded by [EXEC_COMMAND_TIMEOUT_MS] so a wedged remote command can't
+     * hang this forever (see bug-015).
+     */
+    private suspend fun copyFileViaExec(
+        sourcePath: String,
+        destPath: String,
+        isDirectory: Boolean,
+        overwrite: Boolean,
+    ): Result<Unit> =
+        try {
+            val ssh = sshClient ?: return Result.failure(Exception("SSH not connected"))
+            val session =
+                ssh.openSession()
+                    ?: return Result.failure(Exception("Failed to open session"))
+
+            session.use { s ->
+                val flags =
+                    buildString {
+                        if (isDirectory) append("-r ")
+                        if (overwrite) append("-f ")
+                    }.trim()
+                val command = "cp $flags '$sourcePath' '$destPath'"
+                DebugLogger.d("SftpClient2", "copyFileViaExec: $command")
+                if (!s.requestExec(command)) {
+                    return Result.failure(Exception("Failed to exec cp command"))
+                }
+                // Drain stdout to EOF to ensure command completes. Bounded by
+                // EXEC_COMMAND_TIMEOUT_MS — without this, a remote `cp` that never
+                // sends CHANNEL_EOF (e.g. a cp/rm shell alias silently waiting on an
+                // interactive overwrite confirmation we never send) hangs this call
+                // forever, which surfaced to users as the paste dialog stuck showing
+                // "Copiando" indefinitely (bug-015).
+                try {
+                    withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
+                        while (true) {
+                            val data = s.read() ?: break
+                        }
+                    }
+                } catch (e: TimeoutCancellationException) {
+                    DebugLogger.e("SftpClient2", "⏱️ copyFileViaExec timed out: $command")
+                    return Result.failure(
+                        IOException(
+                            "Copy timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s — " +
+                                "the server may be waiting on input or unresponsive",
+                        ),
+                    )
+                }
+                s.sendEof()
+                DebugLogger.i("SftpClient2", "✅ copy OK via exec cp: $sourcePath → $destPath")
+                Result.success(Unit)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to copy via SSH exec: $sourcePath -> $destPath")
+            DebugLogger.e("SftpClient2", "❌ copy falló: $sourcePath → $destPath: ${e.message}")
+            Result.failure(e)
         }
 
     /**

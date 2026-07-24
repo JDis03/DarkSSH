@@ -75,3 +75,9 @@
 **Summary**: Mejoras UX en tabs: (1) ConnectionDot por tab SSH con verde/rojo/pulsando según estado de conexión, (2) Long-press menu con Close/Close others/Close all, (3) closeOtherTabs y closeAllTabs en TabManager, (4) Empty state con botón New connection, (5) Tab height 52dp.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-08 05:52 — ClientSSH
+**Summary**: Fix long-press (Tab() consume gestos, reemplazado por Box+combinedClickable) + Vivaldi collapse: >3 tabs, selected ancha (120-180dp icono+texto+close), demás colapsadas (44dp solo icono+dot). animateFloatAsState 200ms, auto-scroll al seleccionado, dividers, secondaryContainer background.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none

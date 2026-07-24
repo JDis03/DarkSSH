@@ -1,3 +1,9 @@
+## 2026-07-24 01:56 — ClientSSH
+**Summary**: El usuario corrigió mi diagnóstico anterior de la sesión pasada: el problema real no es que el botón Paste no aparezca, sino que al tocar Paste, la operación se queda colgada indefinidamente mostrando 'Copiando'/'Moviendo' sin terminar nunca ni dar error. Root cause encontrado en SftpClient2.kt: copyFileViaSsh/deleteDirectoryViaSsh ejecutan cp/rm -rf server-side vía SSH exec y drenan stdout con un loop sin timeout (`while (true) { s.read() ?: break }`); si el comando remoto nunca manda CHANNEL_EOF (alias de shell interactivo, proceso trabado, etc.), ese read() queda suspendido para siempre. Coincide con un TODO ya existente (#220) que predecía exactamente este failure mode. Descarté la teoría de deadlock por backpressure de stderr revisando LocalChannelWindow en cbssh-fork (rellena el window local sin esperar consumo de la app). Fix: agregado `internal var execCommandTimeoutMs` (120s default) envolviendo el drain loop con withTimeout() en copyFileViaSsh/deleteDirectoryViaSsh/executeCommand, convirtiendo el cuelgue silencioso en un Result.failure claro y recuperable. También agregado catch(CancellationException)+rethrow antes del catch(Exception) genérico en las 3 funciones (mismo patrón de bug-013), porque el catch genérico existente también tragaba cancelaciones reales del usuario. Agregada entrada bug-015 en feature_list.json, decisión y aprendizaje en memoria, y TODO de seguimiento para test de integración Docker del timeout (requiere mock de KnownHostRepository + probablemente Robolectric por el uso de android.util.Base64 en DarkSshHostKeyVerifier).
+**Verified**: ./init.sh BUILD SUCCESSFUL (unit tests verdes), ./gradlew assembleDebug BUILD SUCCESSFUL. NO verificado aún en dispositivo físico contra un cuelgue real reproducido (no había log de dispositivo disponible para este reporte específico) — es una mitigación defensiva correcta y de bajo riesgo, pero recomendado testear en el dispositivo real para confirmar que ahora el Paste falla con mensaje claro en vez de colgarse para siempre. 1 commit (36877c76) pusheado a contrib/cbssh-sftp.
+**Completed**: none
+---
+---
 ## 2026-07-24 01:40 — ClientSSH
 **Summary**: Analicé y arreglé el bug reportado 'copiar y cortar no funcionan' en SftpScreen. Root cause encontrado por análisis de código puro (sin logs): SftpClipboard.data era un plain var en un singleton object, no un Compose State observable — copyFiles()/cutFiles() SÍ guardaban los datos correctamente y el snackbar de confirmación sí aparecía (vía coroutine/SnackbarHostState, independiente de Compose), pero el botón Paste (gateado en hasClipboardData()) nunca recomponía para mostrarse, dando la impresión de que la acción no hacía nada. Fix: convertir data a `by mutableStateOf(null)` en SftpClipboard.kt (androidx.compose.runtime), cambio mínimo y localizado sin tocar el resto del flujo. Agregada entrada bug-014 en feature_list.json y decisión/aprendizaje en memoria sobre el patrón general (objects planos + Compose state).
 **Verified**: ./init.sh BUILD SUCCESSFUL (unit tests verdes), ./gradlew assembleDebug BUILD SUCCESSFUL. No verificado aún en dispositivo físico por el usuario (no se proporcionó log de reproducción para este reporte, el fix es 100% basado en análisis estático del código). 1 commit (6a4c8518) pusheado a contrib/cbssh-sftp.
@@ -182,11 +188,5 @@
 ---
 ## 2026-07-08 06:01 — ClientSSH
 **Summary**: Removed X close button from tabs - close via long-press menu only. Tab expandida: icono + texto limpio. Tab colapsada: solo icono + dot. Long-press → Close / Close others / Close all.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 05:52 — ClientSSH
-**Summary**: Fix long-press (Tab() consume gestos, reemplazado por Box+combinedClickable) + Vivaldi collapse: >3 tabs, selected ancha (120-180dp icono+texto+close), demás colapsadas (44dp solo icono+dot). animateFloatAsState 200ms, auto-scroll al seleccionado, dividers, secondaryContainer background.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
