@@ -1,5 +1,8 @@
 package com.darkssh.client.ui.screens.viewmodel
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import com.darkssh.client.transport.SftpEntry
 
 /**
@@ -19,7 +22,15 @@ object SftpClipboard {
         val sourcePath: String,
     )
 
-    private var data: ClipboardData? = null
+    // Backed by Compose's snapshot state (not a plain var) so that any @Composable
+    // reading hasData()/getOperation()/getFileCount() (via SftpViewModel's passthrough
+    // functions) is automatically recomposed when copy()/cut()/clear() mutate it.
+    // Previously this was `private var data: ClipboardData? = null`, a plain var that
+    // Compose has no way to observe — tapping Copy/Cut updated this object correctly,
+    // but the Paste button's `if (viewModel.hasClipboardData())` in SftpScreen never
+    // recomposed to reflect it, making Copy/Cut appear completely broken until some
+    // unrelated recomposition happened to occur (e.g. navigating to another folder).
+    private var data: ClipboardData? by mutableStateOf(null)
 
     fun copy(
         files: List<SftpEntry>,

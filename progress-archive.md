@@ -63,3 +63,9 @@
 **Summary**: Regression check: 2 fixes. (1) connectedHostIds SharingStarted.WhileSubscribed→Eagerly porque el Service gestiona su propio lifecycle. (2) cloneHost firstNotNullOf(2..99)→generateSequence para evitar NoSuchElementException. NavGraph sin connectedHostIds es aceptable (default emptySet).
 **Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-08 03:31 — ClientSSH
+**Summary**: Análisis y fix de 3 bugs estructurales en tabs: (1) collectAsState dentro de forEach en TabBar → key(tab.id){}, (2) isSyncing race condition con 4 efectos → una sola dirección TabManager→pager, (3) DisposableEffect con captures stale eliminado. -44 líneas, código más simple y correcto.
+**Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none

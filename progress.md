@@ -1,3 +1,9 @@
+## 2026-07-23 23:30 — ClientSSH
+**Summary**: Sesión completa: cerró la migración SFTP sshj→cbssh de punta a punta. Arrancó terminando gaps de auth (host-key TOFU real + key-based auth wiring, con fix de detección Ed25519 en Android/Conscrypt via OID-sniffing). Diagnosticó y arregló bug de UX en copy-paste (progreso falso '0 B/1 B'). Diagnosticó y arregló performance real: upload sin pipelining (100% serial), circuit breaker de RTT en TransferEngine (bug de auto-congestión sin backoff), y tuning de maxPipelineDepth 32→16 — confirmado en dispositivo real (+77% descarga, +377% subida). Con evidencia funcional+performance suficiente, el usuario confirmó explícitamente eliminar sshj por completo: borrado SftpClient.kt, SftpClientFactory.kt, preference useCbsshSftp, dependencia gradle — SftpClient2 (cbssh) es ahora el único backend SFTP. Cerró Fase 7 (housekeeping): archivó migrate-sftp-to-cbssh y refactor-sftp-client-sshj en openspec, actualizó docs/MIGRATION_TO_CBSSH.md y contrib/cbssh-sftp/README.md, agregó entrada cbssh-002 en feature_list.json.
+**Verified**: ./init.sh verde en cada commit (92/92 unit tests finales, bajó de 95 tras remover tests de la bifurcación sshj/cbssh que ya no aplica). assembleDebug compila. APK debug: 56.07MB→52.07MB (-4.0MB). Verificado en dispositivo real (Xiaomi 25069PTEBG, Android 16): auth por password y por llave, host-key TOFU, ls, download, upload, copy server-side — todo funcionando. Mejora de throughput confirmada en logs reales de dos rondas de retest (+77% descarga, +377% subida). openspec validate pasó para cbssh-migration-strategy; migrate-sftp-to-cbssh y refactor-sftp-client-sshj archivados con --skip-specs (legacy, sin formato de deltas). 8 commits pusheados a contrib/cbssh-sftp.
+**Completed**: none
+---
+---
 ## 2026-07-22 15:45 — ClientSSH
 **Summary**: Agregué DebugLogger tracing detallado (tags 'SftpHostKey' y 'SftpKeyAuth') a todo el flujo nuevo de host-key-verification y key-based-auth de SftpClient2/SftpViewModel, aprovechando la infraestructura de logging ya existente en la app (FileLoggingTree siempre activo + pantalla Settings→Debug Logs con Copy/Share). No hizo falta construir infra nueva. Pusheado 2 commits nuevos (a98905a1 el feature, 8df90084 el logging) a contrib/cbssh-sftp. Le expliqué al usuario cómo probar manualmente: activar 'Use cbssh SFTP (experimental)' en Settings, conectar a un host, y usar Settings→Debug Logs para copiarme el resultado.
 **Verified**: ./init.sh verde (90 tests sin cambios), assembleDebug exitoso, compileDebugKotlin limpio tras agregar los imports/logs.
@@ -183,10 +189,4 @@
 ## 2026-07-08 05:37 — ClientSSH
 **Summary**: Mejoras UX en tabs: (1) ConnectionDot por tab SSH con verde/rojo/pulsando según estado de conexión, (2) Long-press menu con Close/Close others/Close all, (3) closeOtherTabs y closeAllTabs en TabManager, (4) Empty state con botón New connection, (5) Tab height 52dp.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 03:31 — ClientSSH
-**Summary**: Análisis y fix de 3 bugs estructurales en tabs: (1) collectAsState dentro de forEach en TabBar → key(tab.id){}, (2) isSyncing race condition con 4 efectos → una sola dirección TabManager→pager, (3) DisposableEffect con captures stale eliminado. -44 líneas, código más simple y correcto.
-**Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
