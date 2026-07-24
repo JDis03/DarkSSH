@@ -1,3 +1,9 @@
+## 2026-07-24 01:40 — ClientSSH
+**Summary**: Analicé y arreglé el bug reportado 'copiar y cortar no funcionan' en SftpScreen. Root cause encontrado por análisis de código puro (sin logs): SftpClipboard.data era un plain var en un singleton object, no un Compose State observable — copyFiles()/cutFiles() SÍ guardaban los datos correctamente y el snackbar de confirmación sí aparecía (vía coroutine/SnackbarHostState, independiente de Compose), pero el botón Paste (gateado en hasClipboardData()) nunca recomponía para mostrarse, dando la impresión de que la acción no hacía nada. Fix: convertir data a `by mutableStateOf(null)` en SftpClipboard.kt (androidx.compose.runtime), cambio mínimo y localizado sin tocar el resto del flujo. Agregada entrada bug-014 en feature_list.json y decisión/aprendizaje en memoria sobre el patrón general (objects planos + Compose state).
+**Verified**: ./init.sh BUILD SUCCESSFUL (unit tests verdes), ./gradlew assembleDebug BUILD SUCCESSFUL. No verificado aún en dispositivo físico por el usuario (no se proporcionó log de reproducción para este reporte, el fix es 100% basado en análisis estático del código). 1 commit (6a4c8518) pusheado a contrib/cbssh-sftp.
+**Completed**: none
+---
+---
 ## 2026-07-23 23:30 — ClientSSH
 **Summary**: Sesión completa: cerró la migración SFTP sshj→cbssh de punta a punta. Arrancó terminando gaps de auth (host-key TOFU real + key-based auth wiring, con fix de detección Ed25519 en Android/Conscrypt via OID-sniffing). Diagnosticó y arregló bug de UX en copy-paste (progreso falso '0 B/1 B'). Diagnosticó y arregló performance real: upload sin pipelining (100% serial), circuit breaker de RTT en TransferEngine (bug de auto-congestión sin backoff), y tuning de maxPipelineDepth 32→16 — confirmado en dispositivo real (+77% descarga, +377% subida). Con evidencia funcional+performance suficiente, el usuario confirmó explícitamente eliminar sshj por completo: borrado SftpClient.kt, SftpClientFactory.kt, preference useCbsshSftp, dependencia gradle — SftpClient2 (cbssh) es ahora el único backend SFTP. Cerró Fase 7 (housekeeping): archivó migrate-sftp-to-cbssh y refactor-sftp-client-sshj en openspec, actualizó docs/MIGRATION_TO_CBSSH.md y contrib/cbssh-sftp/README.md, agregó entrada cbssh-002 en feature_list.json.
 **Verified**: ./init.sh verde en cada commit (92/92 unit tests finales, bajó de 95 tras remover tests de la bifurcación sshj/cbssh que ya no aplica). assembleDebug compila. APK debug: 56.07MB→52.07MB (-4.0MB). Verificado en dispositivo real (Xiaomi 25069PTEBG, Android 16): auth por password y por llave, host-key TOFU, ls, download, upload, copy server-side — todo funcionando. Mejora de throughput confirmada en logs reales de dos rondas de retest (+77% descarga, +377% subida). openspec validate pasó para cbssh-migration-strategy; migrate-sftp-to-cbssh y refactor-sftp-client-sshj archivados con --skip-specs (legacy, sin formato de deltas). 8 commits pusheados a contrib/cbssh-sftp.
@@ -182,11 +188,5 @@
 ---
 ## 2026-07-08 05:52 — ClientSSH
 **Summary**: Fix long-press (Tab() consume gestos, reemplazado por Box+combinedClickable) + Vivaldi collapse: >3 tabs, selected ancha (120-180dp icono+texto+close), demás colapsadas (44dp solo icono+dot). animateFloatAsState 200ms, auto-scroll al seleccionado, dividers, secondaryContainer background.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 05:37 — ClientSSH
-**Summary**: Mejoras UX en tabs: (1) ConnectionDot por tab SSH con verde/rojo/pulsando según estado de conexión, (2) Long-press menu con Close/Close others/Close all, (3) closeOtherTabs y closeAllTabs en TabManager, (4) Empty state con botón New connection, (5) Tab height 52dp.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none

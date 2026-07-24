@@ -20,8 +20,11 @@ import com.darkssh.client.transport.ISftpClient
 import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.util.DebugLogger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.connectbot.sshlib.AuthResult
 import org.connectbot.sshlib.ConnectResult
 import org.connectbot.sshlib.HostKeyVerifier
@@ -77,6 +80,20 @@ class SftpClient2(
          * Set to true once testing confirms it's stable.
          */
         var useTransferEngine: Boolean = true
+
+        /**
+         * Upper bound for server-side exec-based file operations (`cp`, `rm -rf`, etc. run
+         * via SSH exec in [copyFileViaSsh] / [deleteDirectoryViaSsh] / [executeCommand]).
+         *
+         * These are local disk operations on the remote host, not network transfers, so
+         * even huge files/directories should normally finish in seconds. Without a bound,
+         * a remote command that never sends CHANNEL_EOF — e.g. a `cp`/`rm` alias silently
+         * expecting an interactive confirmation on stdin that we never provide, or a truly
+         * wedged remote shell — leaves the app's exec-drain loop (`s.read()`) suspended
+         * forever, which surfaces to the user as the paste/delete progress dialog showing
+         * "Copiando"/"Eliminando" and never finishing. See feature bug-015.
+         */
+        private const val EXEC_COMMAND_TIMEOUT_MS = 120_000L
     }
 
     override val isConnected: Boolean
@@ -761,17 +778,29 @@ class SftpClient2(
                         return@withContext Result.failure(Exception("Failed to exec command"))
                     }
 
-                    // Collect output
+                    // Collect output. Bounded by EXEC_COMMAND_TIMEOUT_MS so a remote command
+                    // that never sends CHANNEL_EOF can't hang this call forever (see bug-015).
                     val outputBuilder = StringBuilder()
-                    while (true) {
-                        val data = s.read() ?: break
-                        outputBuilder.append(String(data))
+                    try {
+                        withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
+                            while (true) {
+                                val data = s.read() ?: break
+                                outputBuilder.append(String(data))
+                            }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        DebugLogger.e("SftpClient2", "⏱️ executeCommand timed out: $command")
+                        return@withContext Result.failure(
+                            IOException("Command timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s: $command"),
+                        )
                     }
 
                     s.sendEof()
 
                     Result.success(Pair(outputBuilder.toString(), 0))
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Failed to execute command: $command")
                 Result.failure(e)
@@ -805,14 +834,33 @@ class SftpClient2(
                     if (!s.requestExec(command)) {
                         return@withContext Result.failure(Exception("Failed to exec cp command"))
                     }
-                    // Drain stdout to EOF to ensure command completes
-                    while (true) {
-                        val data = s.read() ?: break
+                    // Drain stdout to EOF to ensure command completes. Bounded by
+                    // EXEC_COMMAND_TIMEOUT_MS — without this, a remote `cp` that never
+                    // sends CHANNEL_EOF (e.g. a cp/rm shell alias silently waiting on an
+                    // interactive overwrite confirmation we never send) hangs this call
+                    // forever, which surfaced to users as the paste dialog stuck showing
+                    // "Copiando" indefinitely (bug-015).
+                    try {
+                        withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
+                            while (true) {
+                                val data = s.read() ?: break
+                            }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        DebugLogger.e("SftpClient2", "⏱️ copyFileViaSsh timed out: $command")
+                        return@withContext Result.failure(
+                            IOException(
+                                "Copy timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s — " +
+                                    "the server may be waiting on input or unresponsive",
+                            ),
+                        )
                     }
                     s.sendEof()
                     DebugLogger.i("SftpClient2", "✅ copy OK: $sourcePath → $destPath")
                     Result.success(Unit)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Failed to copy via SSH: $sourcePath -> $destPath")
                 DebugLogger.e("SftpClient2", "❌ copy falló: $sourcePath → $destPath: ${e.message}")
@@ -859,14 +907,27 @@ class SftpClient2(
                     if (!s.requestExec(command)) {
                         return@withContext Result.failure(Exception("Failed to exec rm command"))
                     }
-                    // Drain stdout to EOF
-                    while (true) {
-                        s.read() ?: break
+                    // Drain stdout to EOF. Bounded by EXEC_COMMAND_TIMEOUT_MS — see the
+                    // matching comment in copyFileViaSsh (bug-015) for why this can't be
+                    // allowed to block forever.
+                    try {
+                        withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
+                            while (true) {
+                                s.read() ?: break
+                            }
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        DebugLogger.e("SftpClient2", "⏱️ deleteDirectoryViaSsh timed out: $command")
+                        return@withContext Result.failure(
+                            IOException("Delete timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s: $remotePath"),
+                        )
                     }
                     s.sendEof()
                     DebugLogger.i("SftpClient2", "✅ delete OK: $remotePath")
                     Result.success(Unit)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Timber.e(e, "Failed to delete directory via SSH: $remotePath")
                 DebugLogger.e("SftpClient2", "❌ delete falló: $remotePath: ${e.message}")

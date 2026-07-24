@@ -69,3 +69,9 @@
 **Summary**: Análisis y fix de 3 bugs estructurales en tabs: (1) collectAsState dentro de forEach en TabBar → key(tab.id){}, (2) isSyncing race condition con 4 efectos → una sola dirección TabManager→pager, (3) DisposableEffect con captures stale eliminado. -44 líneas, código más simple y correcto.
 **Verified**: ./init.sh BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-08 05:37 — ClientSSH
+**Summary**: Mejoras UX en tabs: (1) ConnectionDot por tab SSH con verde/rojo/pulsando según estado de conexión, (2) Long-press menu con Close/Close others/Close all, (3) closeOtherTabs y closeAllTabs en TabManager, (4) Empty state con botón New connection, (5) Tab height 52dp.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none
