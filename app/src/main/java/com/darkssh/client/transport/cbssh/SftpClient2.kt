@@ -1018,20 +1018,33 @@ class SftpClient2(
     override suspend fun moveFile(
         sourcePath: String,
         destPath: String,
+        isDirectory: Boolean,
     ): Result<Unit> {
-        DebugLogger.d("SftpClient2", "moveFile: $sourcePath → $destPath")
-        // Try simple rename first
+        DebugLogger.d("SftpClient2", "moveFile: $sourcePath → $destPath (dir=$isDirectory)")
+        // Try simple rename first — fast, atomic, no data movement.
         val renameResult = rename(sourcePath, destPath)
         if (renameResult.isSuccess) {
             return renameResult
         }
-        // Fallback: copy via SFTP + delete
-        val t = transfer ?: return Result.failure(Exception("SFTP not connected"))
-        val copyResult = mapResult(t.copy(sourcePath, destPath))
+        DebugLogger.d(
+            "SftpClient2",
+            "moveFile: rename failed (${renameResult.exceptionOrNull()?.message}), falling back to copy+delete",
+        )
+
+        // Fallback: copy + delete source. Reuses copyFileViaSsh (which prefers the native
+        // copy-data server-side extension, falling back to a timeout-bounded exec `cp`) so
+        // Move gets the same fast/bounded behavior Copy already has. This used to call the
+        // old CbsshTransfer.copy() directly — a slow, serial, single-chunk client-shuttled
+        // copy with no progress reporting and no bound on total duration, which on a large
+        // file looked exactly like a hang with nothing to show for it (bug-016: "copy worked,
+        // move didn't, had to cancel"). rename() commonly fails here specifically because
+        // plain SSH_FXP_RENAME forbids overwriting an existing destination — a very common
+        // case when cutting a file to replace one that's already there.
+        val copyResult = copyFileViaSsh(sourcePath, destPath, isDirectory = isDirectory, overwrite = true)
         if (copyResult.isFailure) {
             return copyResult
         }
-        return rm(sourcePath)
+        return if (isDirectory) deleteDirectoryViaSsh(sourcePath) else rm(sourcePath)
     }
 
     /**

@@ -1527,7 +1527,7 @@ class SftpViewModel
                                     }
 
                                     SftpClipboard.Operation.CUT -> {
-                                        client.moveFile(sourcePath, destPath)
+                                        client.moveFile(sourcePath, destPath, entry.isDirectory)
                                     }
                                 }
 

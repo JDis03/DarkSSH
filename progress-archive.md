@@ -81,3 +81,9 @@
 **Summary**: Fix long-press (Tab() consume gestos, reemplazado por Box+combinedClickable) + Vivaldi collapse: >3 tabs, selected ancha (120-180dp icono+texto+close), demás colapsadas (44dp solo icono+dot). animateFloatAsState 200ms, auto-scroll al seleccionado, dividers, secondaryContainer background.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-08 06:01 — ClientSSH
+**Summary**: Removed X close button from tabs - close via long-press menu only. Tab expandida: icono + texto limpio. Tab colapsada: solo icono + dot. Long-press → Close / Close others / Close all.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none

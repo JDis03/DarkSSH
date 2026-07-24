@@ -119,10 +119,23 @@ interface ISftpClient {
         overwrite: Boolean = false,
     ): Result<Unit>
 
-    /** Move a file from sourcePath to destPath. */
+    /**
+     * Move a file or directory from sourcePath to destPath.
+     *
+     * Tries a plain rename first (fast, atomic, no data movement) — but that fails per the
+     * SFTP spec if destPath already exists (a common case: moving/cutting a file to replace
+     * one at the destination), or if the paths cross filesystems on the server. Falls back to
+     * [copyFileViaSsh] (preferring the native `copy-data` server-side copy, see its docs) + delete
+     * of the source in that case.
+     *
+     * @param isDirectory Whether the source is a directory — determines whether the fallback
+     *   recurses ([copyFileViaSsh]'s directory walk) and deletes the source with
+     *   [deleteDirectoryViaSsh] instead of a plain file remove.
+     */
     suspend fun moveFile(
         sourcePath: String,
         destPath: String,
+        isDirectory: Boolean = false,
     ): Result<Unit>
 
     /**
