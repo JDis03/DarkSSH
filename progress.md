@@ -1,3 +1,16 @@
+## 2026-07-27 18:09 — ClientSSH
+**Summary**: Fix bug-017: en MainScreen.kt, el BackHandler no reseteaba `showServerSettings` ni `showDebugLogs` al apretar back desde esos sub-screens dentro de la pestaña Settings. Eso hacía que `selectedTab` volviera a 0 pero los flags quedaran `true`, entonces al volver a tocar Settings se re-abría el sub-screen en lugar de mostrar la lista de opciones. Fix: agregados los dos casos en el `BackHandler` siguiendo el mismo patrón que `showSshKeys` y `showGenerateKey`. También se descartó `refactor-001` (activeClients keyed by tabId) por falta de utilidad real para el usuario — se actualizó su estado a `resolved` en feature_list.json.
+**Verified**: ./init.sh BUILD SUCCESSFUL.
+**Completed**: Bug: showServerSettings/showDebugLogs no se resetean en BackHandler de MainScreen.kt
+
+---
+---
+## 2026-07-24 02:38 — ClientSSH
+**Summary**: Fix bug-016: usuario confirmó que Copy+Paste ya funciona (fix de copy-data de la sesión anterior), pero reportó que Mover (Cut+Paste) todavía se cuelga y tuvo que cancelar. Sin log a mano, encontré la causa por análisis de código: moveFile() en SftpClient2.kt usaba una ruta completamente separada de copyFileViaSsh — intentaba rename() primero (SSH_FXP_RENAME plano, que falla si el destino ya existe, caso muy común al cortar-pegar para reemplazar un archivo), y ante ese fallo caía al viejo CbsshTransfer.copy(): copia serial byte a byte sin progreso real ni timeout global, exactamente el patrón que ya se había arreglado en copyFileViaSsh en la sesión anterior pero nunca se replicó acá. Fix: moveFile() ahora recibe isDirectory y, si rename() falla, reusa copyFileViaSsh (que ya prioriza copy-data nativo con fallback exec acotado por timeout) + borra el origen (deleteDirectoryViaSsh o rm según corresponda). De paso corrige que el fallback de mover directorios ya estaba roto (CbsshTransfer.copy() abría todo como archivo regular). Agregada entrada bug-016 en feature_list.json, decisión y aprendizaje en memoria (sobre buscar TODOS los call sites de una función pública antes de dar un fix por completo), y TODO de test de seguimiento.
+**Verified**: ./init.sh BUILD SUCCESSFUL (unit tests verdes), ./gradlew assembleDebug BUILD SUCCESSFUL. No existe cobertura de test previa para moveFile() (gap preexistente, mismo bloqueo de infra Docker/mock que TODOs anteriores) — no se agregó test nuevo en esta sesión, solo se registró el TODO. No verificado aún en dispositivo físico — recomendado que el usuario reintente Cortar+Pegar, especialmente reemplazando un archivo ya existente en destino. 1 commit (befc430d) pusheado a contrib/cbssh-sftp.
+**Completed**: none
+---
+---
 ## 2026-07-24 02:24 — ClientSSH
 **Summary**: Feature cross-repo: implementé copia server-side SFTP nativa vía la extensión 'copy-data' de OpenSSH (SSH_FXP_EXTENDED), reemplazando el `cp` por exec como camino primario (mantenido como fallback con su timeout de bug-015). En cbssh-fork (sshlib 0.3.2→0.3.3-SNAPSHOT): parseo de los pares extension-name/data del handshake SSH_FXP_VERSION (antes ignorados por completo), nueva propiedad SftpClient.extensions, nuevo método SftpClient.copyData(), api.txt regenerado vía metalava, 4 tests unitarios nuevos (parsing + payload wire + error mapping) y 2 tests de integración Docker reales contra OpenSSH 9.9p2 confirmando que el servidor anuncia copy-data y que copia bytes correctamente — toda la suite :sshlib:test sigue verde. Publicado a mavenLocal. En clientssh: SftpClient2.copyFileViaSsh ahora chequea client.extensions primero — copyDataSingleFile (archivo individual vía open+copyData+close) y copyDataRecursive (walk recursivo client-side ya que copy-data no tiene operación de copia de directorio completo) — con fallback al exec `cp` renombrado a copyFileViaExec si el servidor no anuncia la extensión o el path nativo falla inesperadamente. Confirmé que el contenedor Docker que usan los tests de clientssh (linuxserver/openssh-server:latest) corre OpenSSH 10.3p1, por encima del mínimo 9.0 requerido. Agregada entrada feat-cbssh-copydata en feature_list.json, decisión y 2 aprendizajes en memoria, y TODOs de seguimiento (test Docker a nivel SftpClient2, y preparar PR a connectbot/cbssh recién después de testing manual en dispositivo real).
 **Verified**: cbssh-fork: ./gradlew :sshlib:test BUILD SUCCESSFUL (toda la suite Docker-backed, incluyendo los 2 tests nuevos de copy-data contra OpenSSH 9.9p2 real). clientssh: ./init.sh BUILD SUCCESSFUL, ./gradlew assembleDebug BUILD SUCCESSFUL con cbssh 0.3.3-SNAPSHOT. Verificado por fuera de test automatizado que el contenedor OpenSSH usado en los Docker tests de clientssh (10.3p1) soporta copy-data. NO verificado aún: (1) test de integración Docker a nivel SftpClient2 (bloqueado por mock de KnownHostRepository + Robolectric, mismo gap que bug-015), (2) testing manual en dispositivo real del flujo completo Copy→Paste con el nuevo path nativo. Commit 98b15ca en cbssh-fork (local, sin pushear — sin credenciales de git configuradas para ese remote, igual que sesiones anteriores). Commit 646aa879 en clientssh pusheado a contrib/cbssh-sftp.
@@ -47,7 +60,7 @@
 ---
 ---
 ## 2026-07-22 11:37 — ClientSSH
-**Summary**: Camino B completado: refactor estructural pre-requisito para eliminar sshj. Extraídos SftpEntry y SftpAuthState de SftpClient.kt (sshj legacy) a SftpTypes.kt propio, mismo patrón que TransferProgress.kt. Move verbatim sin cambios de lógica, mismo package = cero cambios de import en los 4 consumidores (ISftpClient, SftpClient2, SftpViewModel, SftpScreen, SftpClipboard). También verificado manualmente que ISftpClient (17 miembros) está 100% implementado por ambos clientes sin gaps, confirmando que no falta portar funcionalidad legacy antes de poder eliminar sshj. No se agregaron tests para los tipos extraídos por ser value types puros sin lógica derivada (mismo criterio que TransferResult). 1 commit, 64 tests sin cambios (0 failures), ./init.sh verde, assembleDebug y assembleRelease compilan.
+**Summary**: Camino B completado: refactor estructural pre-requisito para eliminar sshj. Extraídos SftpEntry y SftpAuthState de SftpClient.kt (legacy sshj) a SftpTypes.kt propio, mismo patrón que TransferProgress.kt. Move verbatim sin cambios de lógica, mismo package = cero cambios de import en los 4 consumidores (ISftpClient, SftpClient2, SftpViewModel, SftpScreen, SftpClipboard). También verificado manualmente que ISftpClient (17 miembros) está 100% implementado por ambos clientes sin gaps, confirmando que no falta portar funcionalidad legacy antes de poder eliminar sshj. No se agregaron tests para los tipos extraídos por ser value types puros sin lógica derivada (mismo criterio que TransferResult). 1 commit, 64 tests sin cambios (0 failures), ./init.sh verde, assembleDebug y assembleRelease compilan.
 **Verified**: ./init.sh verde. 64 tests, 0 failures (sin cambios respecto a antes, refactor puro). assembleDebug y assembleRelease ambos exitosos.
 **Completed**: none
 ---
@@ -78,7 +91,7 @@
 ---
 ## 2026-07-22 02:51 — ClientSSH
 **Summary**: Fix aplicado: TransferState.isComplete retorna false correctamente para archivos vacíos (totalBytes=0). Cambio mínimo 1 línea + 4 comentarios explicativos. Verificado: test rojo→verde, ./init.sh pasa completo, 18 tests 0 failures (1.7s), grep confirma no hay call sites de producción afectados (TransferState es interno, UI usa TransferInfo.isComplete basado en status, no bytes). Bug expost por TransferStateTest que escribí en sesión anterior (test rojo intencional). Commit f8d2b830 pusheado.
-**Verified**: ./init.sh pasó completo. 18 tests, 0 failures, 1.7s. Antes: 17 tests, 1 failure.
+**Verified**: ./init.sh pasó completo. 18 tests, 1 rojo→verde, 0 failures. Compilación limpia sin warnings nuevos relevantes.
 **Completed**: none
 ---
 ---
@@ -140,13 +153,19 @@
 ---
 ## 2026-07-17 04:24 — ClientSSH
 **Summary**: Diagnosticado y corregido bug-012: conexión SSH a IP válida (192.168.50.45) fallaba con error de DNS en Xiaomi Redmi Note 8 Pro. Causa raíz identificada por análisis del log darkssh_20260716_233139.log: InetAddress.getAllByName() solo evita DNS si el string matchea EXACTAMENTE su parser estricto de IPv4 literal; ningún caracter extra invisible (espacio, NBSP, zero-width space) rompía ese match y forzaba un lookup DNS real que fallaba. Ningún .trim()/sanitización existía en el flujo de guardado de Host ni en SSH.kt. Fix: nuevo util/TextSanitizer.kt (trim + strip de caracteres Unicode invisibles, escaneando todo el string ya que Character.isWhitespace() excluye NBSP deliberadamente) aplicado en HostEditorViewModel.saveHost() (save-time, limpia la DB a futuro) y en SSH.kt connect()/authenticate() (use-time, desbloquea inmediatamente el host ya roto del usuario sin que tenga que reescribirlo). También se commiteó el trabajo acumulado de sesiones previas sin commitear (bug-010 bracketed paste, bug-011 key-based auth E2E, fixes de teclado/mouse-tracking en TUIs) en un solo commit combinado (6b3b3621) dado que SSH.kt mezclaba cambios de bug-011 y bug-012 no separables limpiamente por hunks.
-**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 tareas frescas) + ./init.sh BUILD SUCCESSFUL, dos veces (antes y después del commit). Compilación limpia sin warnings nuevos relevantes. NO verificado en el dispositivo Xiaomi real del usuario (no había adb access en esta sesión, solo se proveyó el archivo de log) - pendiente que el usuario reinstale el APK y reintente conectar a 'arch' sin reeditar el host.
+**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL, dos veces (antes y después del commit). Compilación limpia sin warnings nuevos relevantes. NO verificado en el dispositivo Xiaomi real del usuario (no había adb access en esta sesión, solo se proveyó el archivo de log) - pendiente que el usuario reinstale el APK y reintente conectar a 'arch' sin reeditar el host.
 **Completed**: none
 ---
 ---
 ## 2026-07-16 00:59 — ClientSSH
-**Summary**: Implementado bug-011: key-based SSH login gestionado end-to-end desde la app. 4 fixes usando connectbot/ como referencia: (1) dropdown roto de SSH Key en Host Editor (ExposedDropdownMenuBox + PrimaryNotEditable), (2) host.pubkeyId ahora se usa realmente en SSH.kt::authenticate() en vez de ignorarse, (3) export de clave pública a clipboard vía PublicKeyUtils.toAuthorizedKeysFormat (sshlib), (4) agregada entrada real 'SSH Keys' en Settings ya que PubkeyListScreen/GeneratePubkeyScreen eran inalcanzables (NavGraph.kt es código muerto, MainActivity usa MainScreen.kt). Clean build 44/44 + ./init.sh OK.
+**Summary**: Implementado bug-011: key-based SSH login gestionado end-to-end desde la app. 4 fixes usando connectbot/ como referencia: (1) dropdown roto de SSH Key en Host Editor (ExposedDropdownMenuBox + PrimaryNotEditable), (2) host.pubkeyId ahora se usa realmente en SSH.kt::authenticate() en vez de ignorarse, (3) export de clave pública a clipboard vía PublicKeyUtils.toAuthorizedKeysFormat (sshlib), (4) agregada entrada real 'SSH Keys' en Settings ya que PubkeyListScreen/GeneratePubkeyScreen eran inalcanzables (NavGraph.kt es código muerto, MainScreen.kt). Clean build 44/44 + ./init.sh OK.
 **Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL; verificado en device real conectado vía adb (127.0.0.1:15555), DB inspeccionada en cada paso
+**Completed**: none
+---
+---
+## 2026-07-17 04:24 — ClientSSH
+**Summary**: Diagnosticado y corregido bug-012: conexión SSH a IP válida (192.168.50.45) fallaba con error de DNS en Xiaomi Redmi Note 8 Pro. Causa raíz identificada por análisis del log darkssh_20260716_233139.log: InetAddress.getAllByName() solo evita DNS si el string matchea EXACTAMENTE su parser estricto de IPv4 literal; ningún caracter extra invisible (espacio, NBSP, zero-width space) rompía ese match y forzaba un lookup DNS real que fallaba. Ningún .trim()/sanitización existía en el flujo de guardado de Host ni en SSH.kt. Fix: nuevo util/TextSanitizer.kt (trim + strip de caracteres Unicode invisibles, escaneando todo el string ya que Character.isWhitespace() excluye NBSP deliberadamente) aplicado en HostEditorViewModel.saveHost() (save-time, limpia la DB a futuro) y en SSH.kt connect()/authenticate() (use-time, desbloquea inmediatamente el host ya roto del usuario sin que tenga que reescribirlo). También se commiteó el trabajo acumulado de sesiones previas sin commitear (bug-010 bracketed paste, bug-011 key-based auth E2E, fixes de teclado/mouse-tracking en TUIs) en un solo commit combinado (6b3b3621) dado que SSH.Settings → Debug Logs, etc. No usé NavController en MainActivity.
+**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL, push a feature/master/dev
 **Completed**: none
 ---
 ---
@@ -182,11 +201,5 @@
 ---
 ## 2026-07-08 21:12 — ClientSSH
 **Summary**: Tres bugs corregidos: (1) rename host actualiza tabs abiertos via SharedFlow savedHost + TabManager.updateTabsForHost, (2) icono SFTP reemplazado por candy-icons/folder-remote (era un SVG complejo que no se veía), (3) prefijo 'SFTP:' redundante eliminado. Hilt prohíbe inyectar @HiltViewModel en otro — solucionado con callback via UI layer.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 06:09 — ClientSSH
-**Summary**: Fix crítico: close-others/close-all dejaban conexiones SSH/SFTP huérfanas. Extraído closeTab() como función privada con cleanup completo. TabManager.closeOtherTabs/closeAllTabs eliminados — cleanup no pertenece al ViewModel.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none

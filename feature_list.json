@@ -147,8 +147,8 @@
       "dependencies": [
         "openspec-001"
       ],
-      "status": "not-started",
-      "evidence": "See MEMORY_LEAK_ANALYSIS.md - Current Implementation Gap. Required for proper tab isolation"
+      "status": "resolved",
+      "evidence": "Discarded after user review: no real user value for the common case (one SFTP tab per host). Multiple tabs to the same host share a client today, which is acceptable. The cost/risk of touching UploadWorker, SftpTransferService, and cleanup logic outweighs the benefit. activeClients remains keyed by hostId."
     },
     {
       "id": "bug-001",
@@ -327,6 +327,14 @@
       ],
       "status": "done",
       "evidence": "SftpClient2.moveFile() tries rename() first (plain SSH_FXP_RENAME), then on failure fell back to `transfer.copy()` — the legacy CbsshTransfer.copy(): a serial, single-chunk-at-a-time, client-shuttled copy with NO onProgress wired through (so the UI showed only the generic indeterminate spinner with zero real feedback) and no bound on the total operation duration (only SftpDispatcher's internal 120s timeout per individual read/write request, not the whole multi-chunk loop). rename() commonly fails here specifically because plain SSH_FXP_RENAME forbids overwriting an existing destination per spec — a very common case when cutting a file to replace one already at the destination — so most real 'cut and paste to replace' operations fell straight into this slow, feedback-less fallback, which on a large file looked exactly like a hang, matching the user's report almost exactly ('copiar resultó pero mover no, tuve que cancelar'). Separately, this fallback was ALSO already broken for directory moves specifically, since CbsshTransfer.copy() always opens the path as a regular file — moveFile() never even had an isDirectory parameter to know better.\n\nFix: moveFile() (ISftpClient.kt + SftpClient2.kt) now takes an isDirectory: Boolean = false parameter (threaded from SftpViewModel.pasteFiles()'s entry.isDirectory, its only call site), and on rename() failure falls back to copyFileViaSsh(sourcePath, destPath, isDirectory, overwrite = true) + delete of the source (deleteDirectoryViaSsh for directories, rm for files) instead of the old CbsshTransfer.copy(). This gives Move the exact same copy-data-first / timeout-bounded-exec-fallback behavior Copy already has, and fixes the directory-move fallback as a side effect. Verified: ./init.sh BUILD SUCCESSFUL, ./gradlew assembleDebug BUILD SUCCESSFUL. No existing unit test coverage for moveFile() was found (pre-existing gap, same Docker/KnownHostRepository-mock infra blocker as bug-015/feat-cbssh-copydata's follow-up TODOs — not newly introduced by this fix). Not yet re-tested on a physical device — recommend the user retest Cut+Paste, especially replacing an already-existing destination file, to confirm the fix resolves the reported hang."
+    },
+    {
+      "id": "bug-017",
+      "name": "Settings Back Handler Leaves Sub-Screens Open",
+      "description": "When on Server Settings or Debug Logs sub-screens in the Settings tab, pressing back jumps to the Hosts tab but leaves showServerSettings/showDebugLogs flags true. Re-opening Settings then shows the sub-screen instead of the settings list.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Added showServerSettings -> false and showDebugLogs -> false cases in MainScreen.kt BackHandler, matching the existing showSshKeys/showGenerateKey pattern. Verified: ./init.sh BUILD SUCCESSFUL."
     }
   ]
 }

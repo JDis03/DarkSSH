@@ -78,6 +78,12 @@ fun MainScreen(
             showSshKeys -> {
                 showSshKeys = false
             }
+            showServerSettings -> {
+                showServerSettings = false
+            }
+            showDebugLogs -> {
+                showDebugLogs = false
+            }
             showHostEditor -> {
                 // Close host editor dialog first
                 showHostEditor = false

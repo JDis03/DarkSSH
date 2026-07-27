@@ -87,3 +87,9 @@
 **Summary**: Removed X close button from tabs - close via long-press menu only. Tab expandida: icono + texto limpio. Tab colapsada: solo icono + dot. Long-press → Close / Close others / Close all.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-08 06:09 — ClientSSH
+**Summary**: Fix crítico: close-others/close-all dejaban conexiones SSH/SFTP huérfanas. Extraído closeTab() como función privada con cleanup completo. TabManager.closeOtherTabs/closeAllTabs eliminados — cleanup no pertenece al ViewModel.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none
