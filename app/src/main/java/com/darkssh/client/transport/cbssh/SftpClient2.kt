@@ -23,6 +23,8 @@ import com.darkssh.client.util.DebugLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.connectbot.sshlib.AuthResult
@@ -73,6 +75,23 @@ class SftpClient2(
     private var transfer: CbsshTransfer? = null
     private var transferEngine: TransferEngine? = null
     private var keepAliveJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Serializes multi-request "management" operations (recursive directory delete, for
+     * now) against this client. Rapid UI actions — e.g. tapping delete on several folders
+     * within a few seconds, before each one's own confirmation dialog/refresh completes —
+     * launch independent coroutines that all share this single [SftpClient2] instance
+     * (recall `activeClients` is keyed by hostId, so multiple tabs/taps to the same host
+     * reuse it). Each recursive delete is itself a multi-round-trip walk (listdir + remove
+     * per entry + rmdir); running several of those walks concurrently was observed in a
+     * real device log to intermittently drop or delay individual remove()/rmdir() calls —
+     * a directory the user deleted stayed on disk with all its original contents even
+     * though no error was ever raised. Wrapping the whole recursive walk in a mutex makes
+     * concurrent delete taps queue instead of interleave, at the cost of running them one
+     * at a time instead of in parallel — an acceptable tradeoff for a destructive,
+     * infrequent operation like delete.
+     */
+    private val managementOpMutex = Mutex()
 
     companion object {
         /**
@@ -1048,49 +1067,60 @@ class SftpClient2(
     }
 
     /**
-     * Recursively delete a directory via SSH rm -rf.
+     * Recursively delete a directory using pure SFTP protocol operations.
+     *
+     * SFTP v3 has no recursive-delete operation — [SftpClient.rmdir] only works on empty
+     * directories — so the client drives the walk itself: list the directory, recursively
+     * delete subdirectories, delete files with [SftpClient.remove], then finally remove the
+     * emptied directory with [SftpClient.rmdir]. This works for any SFTP server, including
+     * accounts restricted to `internal-sftp` with no shell access (where an SSH-exec-based
+     * `rm -rf` cannot run at all), and surfaces real SFTP server error messages instead of
+     * silently succeeding when a remote exec fails.
      */
     override suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit> =
         withContext(Dispatchers.IO) {
-            try {
-                val ssh = sshClient ?: return@withContext Result.failure(Exception("SSH not connected"))
-                val session =
-                    ssh.openSession()
-                        ?: return@withContext Result.failure(Exception("Failed to open session"))
-
-                session.use { s ->
-                    val command = "rm -rf '$remotePath'"
-                    DebugLogger.d("SftpClient2", "deleteDirectoryViaSsh: $command")
-                    if (!s.requestExec(command)) {
-                        return@withContext Result.failure(Exception("Failed to exec rm command"))
-                    }
-                    // Drain stdout to EOF. Bounded by EXEC_COMMAND_TIMEOUT_MS — see the
-                    // matching comment in copyFileViaSsh (bug-015) for why this can't be
-                    // allowed to block forever.
-                    try {
-                        withTimeout(EXEC_COMMAND_TIMEOUT_MS) {
-                            while (true) {
-                                s.read() ?: break
-                            }
-                        }
-                    } catch (e: TimeoutCancellationException) {
-                        DebugLogger.e("SftpClient2", "⏱️ deleteDirectoryViaSsh timed out: $command")
-                        return@withContext Result.failure(
-                            IOException("Delete timed out after ${EXEC_COMMAND_TIMEOUT_MS / 1000}s: $remotePath"),
-                        )
-                    }
-                    s.sendEof()
-                    DebugLogger.i("SftpClient2", "✅ delete OK: $remotePath")
-                    Result.success(Unit)
+            val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
+            DebugLogger.d("SftpClient2", "deleteDirectoryRecursive: $remotePath (waiting for lock)")
+            // See managementOpMutex kdoc: serialize concurrent recursive deletes against
+            // this client so quick successive delete taps queue instead of interleaving
+            // their listdir/remove/rmdir requests.
+            val result =
+                managementOpMutex.withLock {
+                    DebugLogger.d("SftpClient2", "deleteDirectoryRecursive: $remotePath (lock acquired)")
+                    deleteDirectoryRecursive(client, remotePath)
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to delete directory via SSH: $remotePath")
-                DebugLogger.e("SftpClient2", "❌ delete falló: $remotePath: ${e.message}")
-                Result.failure(e)
+            if (result.isSuccess) {
+                DebugLogger.i("SftpClient2", "✅ delete OK: $remotePath")
+            } else {
+                DebugLogger.e("SftpClient2", "❌ delete falló: $remotePath: ${result.exceptionOrNull()?.message}")
             }
+            result
         }
+
+    private suspend fun deleteDirectoryRecursive(
+        client: SftpClient,
+        path: String,
+    ): Result<Unit> {
+        val entries =
+            when (val r = client.listdir(path)) {
+                is SftpResult.Success -> r.value
+                else -> return mapResult(r)
+            }
+
+        for (entry in entries) {
+            if (entry.filename == "." || entry.filename == "..") continue
+            val childPath = "${path.trimEnd('/')}/${entry.filename}"
+            val result =
+                if (isDirectoryFromPermissions(entry.attrs.permissions)) {
+                    deleteDirectoryRecursive(client, childPath)
+                } else {
+                    mapResult(client.remove(childPath))
+                }
+            if (result.isFailure) return result
+        }
+
+        return mapResult(client.rmdir(path))
+    }
 }
 
 /**

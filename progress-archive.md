@@ -93,3 +93,21 @@
 **Summary**: Fix crítico: close-others/close-all dejaban conexiones SSH/SFTP huérfanas. Extraído closeTab() como función privada con cleanup completo. TabManager.closeOtherTabs/closeAllTabs eliminados — cleanup no pertenece al ViewModel.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-10 04:30 — ClientSSH
+**Summary**: Fix triple bug SSH: (1) crash al cerrar tab durante conexión: isClosed guard en TerminalBridge, Relay e SSH.connect() chequean bridge.isClosed antes de dispatchDisconnect, onBridgeDisconnected siempre en serviceScope(Main); (2) icono OS tarda: TabBar usa tab.osType como fallback inmediato; (3) perf: onConnected salta OS detection si osType ya cached.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none
+---
+---
+## 2026-07-08 21:21 — ClientSSH
+**Summary**: Fix crash Hilt NoClassDefFoundError SingletonCImpl: causa era clases stale en transformDebugClassesWithAsm del 5 julio, hiltJavaCompileDebug ya era del 8 julio. Gradle no re-transformó al fallar/corregir la compilación Hilt. gradlew clean + assembleDebug resolvió. APK 52MB listo en outputs/apk/debug.
+**Verified**: BUILD SUCCESSFUL, SingletonCImpl en DEX verificado con unzip+strings, timestamps consistentes post-clean
+**Completed**: none
+---
+---
+## 2026-07-08 21:12 — ClientSSH
+**Summary**: Tres bugs corregidos: (1) rename host actualiza tabs abiertos via SharedFlow savedHost + TabManager.updateTabsForHost, (2) icono SFTP reemplazado por candy-icons/folder-remote (era un SVG complejo que no se veía), (3) prefijo 'SFTP:' redundante eliminado. Hilt prohíbe inyectar @HiltViewModel en otro — solucionado con callback via UI layer.
+**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
+**Completed**: none

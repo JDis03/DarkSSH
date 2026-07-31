@@ -139,8 +139,12 @@ interface ISftpClient {
     ): Result<Unit>
 
     /**
-     * Recursively delete a directory via SSH rm -rf.
-     * SFTP rmdir only works on empty directories — this handles non-empty ones.
+     * Recursively delete a directory using pure SFTP protocol operations.
+     *
+     * SFTP rmdir only works on empty directories — this handles non-empty ones by
+     * recursively deleting all files and subdirectories first, then removing the
+     * emptied directory with rmdir. Works for any SFTP server, including
+     * `internal-sftp`-only accounts with no shell access.
      */
     suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit>
 }

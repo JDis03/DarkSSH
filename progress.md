@@ -1,8 +1,19 @@
+## 2026-07-31 05:31 — ClientSSH
+**Summary**: Fix bug-018: usuario reportó 'eliminar carpetas no funciona' en SFTP. Dos partes. (1) SftpClient2.deleteDirectoryViaSsh usaba SSH exec `rm -rf` sin chequear exit status ni stderr — si fallaba, devolvía success igual con la carpeta intacta. Reemplazado por recursión pura SFTP (deleteDirectoryRecursive: listdir + recurse + remove + rmdir), el estándar moderno, funciona incluso en cuentas internal-sftp sin shell. (2) El usuario compartió un debug log real que reveló la causa de fondo: al tocar delete en varias carpetas casi seguidas (~4-9s entre cada una), los deletes corrían en paralelo como coroutines independientes sobre el mismo SftpClient2 compartido (activeClients por hostId) — uno de tres quedó sin efecto por 9+ segundos sin ningún error visible, porque deleteEntry() solo escribe a _uiState.error, nunca a DebugLogger. Fix: agregado managementOpMutex (Mutex) en SftpClient2 que serializa deletes recursivos concurrentes, más logging real de éxito/fallo (antes solo logueaba el inicio). Agregada entrada bug-018 en feature_list.json, decisión+aprendizaje en memoria, y TODO de seguimiento (loguear rename/mkdir también, y revisar botón muerto 'Delete selected' en SftpScreen.kt).
+**Verified**: ./init.sh BUILD SUCCESSFUL después de cada cambio. NO reverificado aún en el dispositivo físico del usuario contra el escenario exacto de deletes rápidos en paralelo del log — recomendado reintentar y confirmar que todas las carpetas desaparecen, compartiendo un log nuevo si alguna sigue fallando.
+**Completed**: none
+---
+---
+## 2026-07-27 18:24 — ClientSSH
+**Summary**: Fixed bug-017: MainScreen BackHandler now resets showServerSettings and showDebugLogs when pressing back from those sub-screens, matching the existing showSshKeys/showGenerateKey pattern. Also discarded refactor-001 (activeClients by tabId) as not useful. Verified with ./init.sh. Committed to contrib/cbssh-sftp.
+**Verified**: ran init.sh BUILD SUCCESSFUL
+**Completed**: none
+---
+---
 ## 2026-07-27 18:09 — ClientSSH
 **Summary**: Fix bug-017: en MainScreen.kt, el BackHandler no reseteaba `showServerSettings` ni `showDebugLogs` al apretar back desde esos sub-screens dentro de la pestaña Settings. Eso hacía que `selectedTab` volviera a 0 pero los flags quedaran `true`, entonces al volver a tocar Settings se re-abría el sub-screen en lugar de mostrar la lista de opciones. Fix: agregados los dos casos en el `BackHandler` siguiendo el mismo patrón que `showSshKeys` y `showGenerateKey`. También se descartó `refactor-001` (activeClients keyed by tabId) por falta de utilidad real para el usuario — se actualizó su estado a `resolved` en feature_list.json.
 **Verified**: ./init.sh BUILD SUCCESSFUL.
 **Completed**: Bug: showServerSettings/showDebugLogs no se resetean en BackHandler de MainScreen.kt
-
 ---
 ---
 ## 2026-07-24 02:38 — ClientSSH
@@ -184,22 +195,4 @@
 ## 2026-07-10 04:45 — ClientSSH
 **Summary**: Revisión rama contrib/cbssh-sftp: Fases 1-4 completadas (CbsshTransfer, SftpClient2, SCP fallback, feature flag). Gap principal: rmdir solo borra dirs vacíos, falta deleteDirectoryViaSsh en ISftpClient+SftpClient2. Pipeline depth: 32 → 8 revertido por timeouts en VPN. tasks.md desactualizado.
 **Verified**: BUILD SUCCESSFUL en cbssh-sftp
-**Completed**: none
----
----
-## 2026-07-10 04:30 — ClientSSH
-**Summary**: Fix triple bug SSH: (1) crash al cerrar tab durante conexión: isClosed guard en TerminalBridge, Relay e SSH.connect() chequean bridge.isClosed antes de dispatchDisconnect, onBridgeDisconnected siempre en serviceScope(Main); (2) icono OS tarda: TabBar usa tab.osType como fallback inmediato; (3) perf: onConnected salta OS detection si osType ya cached.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
-**Completed**: none
----
----
-## 2026-07-08 21:21 — ClientSSH
-**Summary**: Fix crash Hilt NoClassDefFoundError SingletonCImpl: causa era clases stale en transformDebugClassesWithAsm del 5 julio, hiltJavaCompileDebug ya era del 8 julio. Gradle no re-transformó al fallar/corregir la compilación Hilt. gradlew clean + assembleDebug resolvió. APK 52MB listo en outputs/apk/debug.
-**Verified**: BUILD SUCCESSFUL, SingletonCImpl en DEX verificado con unzip+strings, timestamps consistentes post-clean
-**Completed**: none
----
----
-## 2026-07-08 21:12 — ClientSSH
-**Summary**: Tres bugs corregidos: (1) rename host actualiza tabs abiertos via SharedFlow savedHost + TabManager.updateTabsForHost, (2) icono SFTP reemplazado por candy-icons/folder-remote (era un SVG complejo que no se veía), (3) prefijo 'SFTP:' redundante eliminado. Hilt prohíbe inyectar @HiltViewModel en otro — solucionado con callback via UI layer.
-**Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
