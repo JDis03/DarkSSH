@@ -1,3 +1,15 @@
+## 2026-07-31 10:34 — ClientSSH
+**Summary**: bug-018 segunda iteración: el usuario reportó que seguía sin funcionar y compartió un SEGUNDO log de dispositivo real que reveló que mi diagnóstico anterior (bug de concurrencia entre deletes independientes) era INCORRECTO. El log mostró: delete de DarkDM (carpeta grande con varias subcarpetas anidadas) adquirió el managementOpMutex, y un segundo delete (MediaFire) quedó esperando el lock por 28+ segundos sin completarse nunca — mientras que llamadas `ls` a OTRAS rutas seguían funcionando con total normalidad en paralelo, lo que descarta un cuelgue de la conexión/dispatcher. Conclusión correcta: deleteDirectoryRecursive borraba una entrada a la vez, 100% secuencial — para un árbol con varias docenas de archivos anidados a ~300-700ms de RTT (observado en el mismo log vía otros `ls`), eso son 20-40+ segundos de espera pura, sin ningún feedback, indistinguible de un cuelgue para un usuario impaciente. El Mutex de la sesión anterior EMPEORABA esto al bloquear deletes independientes entre sí en vez de dejarlos compartir la conexión (cbssh's SftpDispatcher ya correlaciona requests concurrentes correctamente por ID único, re-confirmado leyendo su código). Fix: eliminado managementOpMutex por completo; deleteDirectoryRecursive reescrito para borrar todas las entradas de un nivel de directorio EN PARALELO, acotado por un Semaphore compartido (DELETE_PIPELINE_DEPTH=8) a través de todo el walk recursivo (no solo un nivel) — mismo patrón de pipelining que ya usan TransferEngine y CbsshTransfer para uploads. Actualizada la entrada bug-018 en feature_list.json con la Parte 3 (corrige la Parte 2), decisión y aprendizaje en memoria sobre distinguir 'lento sin feedback' de 'realmente colgado' antes de aplicar un fix de concurrencia.
+**Verified**: ./init.sh BUILD SUCCESSFUL y ./gradlew assembleDebug BUILD SUCCESSFUL. NO verificado aún en el dispositivo físico del usuario contra el escenario real de borrar carpetas grandes anidadas — recomendado reintentar y confirmar que ahora es notablemente más rápido y que las carpetas efectivamente desaparecen.
+**Completed**: none
+---
+---
+## 2026-07-31 05:31 — ClientSSH
+**Summary**: Fixed bug-018 (SFTP delete folders): replaced SSH-exec 'rm -rf' with pure SFTP recursive delete (modern standard, no exit-status blind spot), and fixed a real concurrency bug found via device log — concurrent delete taps ran unserialized against the shared SftpClient2, causing intermittent no-op deletes. Added managementOpMutex + real success/failure logging. Verified with ./init.sh, committed dcdfbd4c to contrib/cbssh-sftp.
+**Verified**: ran init.sh BUILD SUCCESSFUL after each change
+**Completed**: none
+---
+---
 ## 2026-07-31 05:31 — ClientSSH
 **Summary**: Fix bug-018: usuario reportó 'eliminar carpetas no funciona' en SFTP. Dos partes. (1) SftpClient2.deleteDirectoryViaSsh usaba SSH exec `rm -rf` sin chequear exit status ni stderr — si fallaba, devolvía success igual con la carpeta intacta. Reemplazado por recursión pura SFTP (deleteDirectoryRecursive: listdir + recurse + remove + rmdir), el estándar moderno, funciona incluso en cuentas internal-sftp sin shell. (2) El usuario compartió un debug log real que reveló la causa de fondo: al tocar delete en varias carpetas casi seguidas (~4-9s entre cada una), los deletes corrían en paralelo como coroutines independientes sobre el mismo SftpClient2 compartido (activeClients por hostId) — uno de tres quedó sin efecto por 9+ segundos sin ningún error visible, porque deleteEntry() solo escribe a _uiState.error, nunca a DebugLogger. Fix: agregado managementOpMutex (Mutex) en SftpClient2 que serializa deletes recursivos concurrentes, más logging real de éxito/fallo (antes solo logueaba el inicio). Agregada entrada bug-018 en feature_list.json, decisión+aprendizaje en memoria, y TODO de seguimiento (loguear rename/mkdir también, y revisar botón muerto 'Delete selected' en SftpScreen.kt).
 **Verified**: ./init.sh BUILD SUCCESSFUL después de cada cambio. NO reverificado aún en el dispositivo físico del usuario contra el escenario exacto de deletes rápidos en paralelo del log — recomendado reintentar y confirmar que todas las carpetas desaparecen, compartiendo un log nuevo si alguna sigue fallando.
@@ -183,16 +195,4 @@
 ## 2026-07-14 23:23 — ClientSSH
 **Summary**: Implementado bug-010: bracketed paste fix en TerminalView.java (commitText detecta paste real via codePointCount>1, no length<=1, evitando falso positivo con emoji) y arreglado onPasteTextFromClipboard() en TerminalBridge.kt que era stub vacío (long-press Paste no funcionaba). BUILD SUCCESSFUL, sin tests unitarios en el proyecto (verificación = compilación).
 **Verified**: ./init.sh -> BUILD SUCCESSFUL (compilación Kotlin+Java OK, no hay unit tests en el proyecto)
-**Completed**: none
----
----
-## 2026-07-10 05:02 — ClientSSH
-**Summary**: Análisis puro cbssh vs sshj: 8 gaps identificados (~20h trabajo). Lo implementado en cbssh irá como PR a connectbot/cbssh. De vuelta en feature/ui-modernization-vivaldi-tabs.
-**Verified**: git checkout feature/ui-modernization-vivaldi-tabs OK
-**Completed**: none
----
----
-## 2026-07-10 04:45 — ClientSSH
-**Summary**: Revisión rama contrib/cbssh-sftp: Fases 1-4 completadas (CbsshTransfer, SftpClient2, SCP fallback, feature flag). Gap principal: rmdir solo borra dirs vacíos, falta deleteDirectoryViaSsh en ISftpClient+SftpClient2. Pipeline depth: 32 → 8 revertido por timeouts en VPN. tasks.md desactualizado.
-**Verified**: BUILD SUCCESSFUL en cbssh-sftp
 **Completed**: none

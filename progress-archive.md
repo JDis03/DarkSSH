@@ -111,3 +111,15 @@
 **Summary**: Tres bugs corregidos: (1) rename host actualiza tabs abiertos via SharedFlow savedHost + TabManager.updateTabsForHost, (2) icono SFTP reemplazado por candy-icons/folder-remote (era un SVG complejo que no se veía), (3) prefijo 'SFTP:' redundante eliminado. Hilt prohíbe inyectar @HiltViewModel en otro — solucionado con callback via UI layer.
 **Verified**: BUILD SUCCESSFUL, pushed a feature/master/dev
 **Completed**: none
+---
+---
+## 2026-07-10 05:02 — ClientSSH
+**Summary**: Análisis puro cbssh vs sshj: 8 gaps identificados (~20h trabajo). Lo implementado en cbssh irá como PR a connectbot/cbssh. De vuelta en feature/ui-modernization-vivaldi-tabs.
+**Verified**: git checkout feature/ui-modernization-vivaldi-tabs OK
+**Completed**: none
+---
+---
+## 2026-07-10 04:45 — ClientSSH
+**Summary**: Revisión rama contrib/cbssh-sftp: Fases 1-4 completadas (CbsshTransfer, SftpClient2, SCP fallback, feature flag). Gap principal: rmdir solo borra dirs vacíos, falta deleteDirectoryViaSsh en ISftpClient+SftpClient2. Pipeline depth: 32 → 8 revertido por timeouts en VPN. tasks.md desactualizado.
+**Verified**: BUILD SUCCESSFUL en cbssh-sftp
+**Completed**: none

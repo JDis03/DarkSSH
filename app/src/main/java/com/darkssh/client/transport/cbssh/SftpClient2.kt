@@ -23,8 +23,11 @@ import com.darkssh.client.util.DebugLogger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.connectbot.sshlib.AuthResult
@@ -76,24 +79,21 @@ class SftpClient2(
     private var transferEngine: TransferEngine? = null
     private var keepAliveJob: kotlinx.coroutines.Job? = null
 
-    /**
-     * Serializes multi-request "management" operations (recursive directory delete, for
-     * now) against this client. Rapid UI actions — e.g. tapping delete on several folders
-     * within a few seconds, before each one's own confirmation dialog/refresh completes —
-     * launch independent coroutines that all share this single [SftpClient2] instance
-     * (recall `activeClients` is keyed by hostId, so multiple tabs/taps to the same host
-     * reuse it). Each recursive delete is itself a multi-round-trip walk (listdir + remove
-     * per entry + rmdir); running several of those walks concurrently was observed in a
-     * real device log to intermittently drop or delay individual remove()/rmdir() calls —
-     * a directory the user deleted stayed on disk with all its original contents even
-     * though no error was ever raised. Wrapping the whole recursive walk in a mutex makes
-     * concurrent delete taps queue instead of interleave, at the cost of running them one
-     * at a time instead of in parallel — an acceptable tradeoff for a destructive,
-     * infrequent operation like delete.
-     */
-    private val managementOpMutex = Mutex()
-
     companion object {
+        /**
+         * Max concurrent SFTP requests in flight per recursive-delete directory level (see
+         * [deleteDirectoryRecursive]). A naive one-request-at-a-time walk over a directory
+         * tree with many files takes one full network round trip *per file*, which on a
+         * real device (observed ~300-700ms RTT) made deleting a directory with a few dozen
+         * nested files take 20-40+ seconds with zero UI feedback — indistinguishable from a
+         * hang to the user. Firing several remove()/recurse calls concurrently, bounded by
+         * this limit, is the same pipelining technique [TransferEngine] and
+         * [CbsshTransfer]'s parallel upload already use elsewhere in this file for the same
+         * reason. The dispatcher underneath (cbssh's SftpDispatcher) already correlates
+         * concurrent requests correctly via unique per-request IDs, so this is safe.
+         */
+        private const val DELETE_PIPELINE_DEPTH = 8
+
         /**
          * Feature flag: use new TransferEngine instead of CbsshTransfer.
          * TransferEngine has adaptive pipeline, retry, timeouts, resume support.
@@ -1076,18 +1076,34 @@ class SftpClient2(
      * accounts restricted to `internal-sftp` with no shell access (where an SSH-exec-based
      * `rm -rf` cannot run at all), and surfaces real SFTP server error messages instead of
      * silently succeeding when a remote exec fails.
+     *
+     * Deletes within each directory level run concurrently (bounded by
+     * [DELETE_PIPELINE_DEPTH] via a [kotlinx.coroutines.sync.Semaphore]) rather than one
+     * request at a time — a purely sequential walk was measured on a real device taking
+     * 20-40+ seconds for a directory with a few dozen nested files (one full network round
+     * trip per file), which looked exactly like a hang with zero progress feedback. An
+     * earlier attempt fixed a suspected concurrency bug (multiple *separate* top-level
+     * deletes appearing to interfere with each other) by serializing all deletes behind a
+     * single mutex — but that diagnosis was wrong: cbssh's SftpDispatcher already
+     * correlates concurrent requests correctly via unique per-request IDs, and a repeat
+     * device test with the mutex in place showed a second delete queued for 28+ seconds
+     * behind a large first delete with no error — i.e. the mutex just made the perceived
+     * "not working" worse by fully serializing independent slow operations instead of
+     * letting them share the connection. Pipelining within a single recursive walk (not
+     * across independent top-level deletes) is the actual fix for the slowness.
      */
     override suspend fun deleteDirectoryViaSsh(remotePath: String): Result<Unit> =
         withContext(Dispatchers.IO) {
             val client = sftpClient ?: return@withContext Result.failure(Exception("SFTP not connected"))
-            DebugLogger.d("SftpClient2", "deleteDirectoryRecursive: $remotePath (waiting for lock)")
-            // See managementOpMutex kdoc: serialize concurrent recursive deletes against
-            // this client so quick successive delete taps queue instead of interleaving
-            // their listdir/remove/rmdir requests.
+            DebugLogger.d("SftpClient2", "deleteDirectoryRecursive: $remotePath")
+            val semaphore = Semaphore(DELETE_PIPELINE_DEPTH)
             val result =
-                managementOpMutex.withLock {
-                    DebugLogger.d("SftpClient2", "deleteDirectoryRecursive: $remotePath (lock acquired)")
-                    deleteDirectoryRecursive(client, remotePath)
+                try {
+                    coroutineScope { deleteDirectoryRecursive(client, remotePath, semaphore) }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Result.failure(e)
                 }
             if (result.isSuccess) {
                 DebugLogger.i("SftpClient2", "✅ delete OK: $remotePath")
@@ -1097,27 +1113,46 @@ class SftpClient2(
             result
         }
 
+    /**
+     * One directory level of the recursive delete: lists [path], then deletes every entry
+     * (file removal or recursive subdirectory delete) concurrently — each acquiring
+     * [semaphore] first so the total number of in-flight SFTP requests across the *entire*
+     * recursive walk (not just this level) stays bounded, regardless of how wide or deep
+     * the tree is. If any entry fails, the first failure encountered is returned (siblings
+     * already in flight are still awaited via [kotlinx.coroutines.awaitAll] so the
+     * coroutineScope doesn't leak jobs, but their individual results beyond the first
+     * failure are not surfaced separately).
+     */
     private suspend fun deleteDirectoryRecursive(
         client: SftpClient,
         path: String,
+        semaphore: Semaphore,
     ): Result<Unit> {
         val entries =
             when (val r = client.listdir(path)) {
                 is SftpResult.Success -> r.value
                 else -> return mapResult(r)
             }
+            .filter { it.filename != "." && it.filename != ".." }
 
-        for (entry in entries) {
-            if (entry.filename == "." || entry.filename == "..") continue
-            val childPath = "${path.trimEnd('/')}/${entry.filename}"
-            val result =
-                if (isDirectoryFromPermissions(entry.attrs.permissions)) {
-                    deleteDirectoryRecursive(client, childPath)
-                } else {
-                    mapResult(client.remove(childPath))
-                }
-            if (result.isFailure) return result
-        }
+        val results =
+            coroutineScope {
+                entries
+                    .map { entry ->
+                        async {
+                            semaphore.withPermit {
+                                val childPath = "${path.trimEnd('/')}/${entry.filename}"
+                                if (isDirectoryFromPermissions(entry.attrs.permissions)) {
+                                    deleteDirectoryRecursive(client, childPath, semaphore)
+                                } else {
+                                    mapResult(client.remove(childPath))
+                                }
+                            }
+                        }
+                    }.awaitAll()
+            }
+
+        results.firstOrNull { it.isFailure }?.let { return it }
 
         return mapResult(client.rmdir(path))
     }
