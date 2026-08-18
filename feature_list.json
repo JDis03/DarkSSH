@@ -410,6 +410,16 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Timestamp movido DENTRO del async (justo antes del sftp.read/write): PipelineRequest/PipelineWriteRequest ahora llevan Deferred<Pair<resultado, nanoTimeInicio>> y el RTT se mide desde ahí (tiempo real de red, sin cola de thread). Recalibrados los buckets: <30→12, <60→16, <120→24, else→max; maxPipelineDepth 16→32 (el motivo del downgrade a 16 — panic en depth 32 del 23-jul — era un artefacto de esta misma medición corrupta; depth 32×32KB = 1MB en vuelo llena un link de 7MB/s hasta ~150ms RTT). Tests actualizados (AdaptiveTest buckets/recovery, TransferConfigTest default 32). Verificado: testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE retest en dispositivo real: con el fix, la descarga de 712MB debería ir a ~7MB/s estable sin sawtooth ni panic. | Iteración 2 (log real VPN 2026-08-18): medición corregida funcionó (depth estable en 32, descarga 204s→136s = 3.4→5.1MB/s, 1 solo panic), pero el throughput seguía limitado. Causa: usuario en VPN con RTT real ~200-300ms — BDP de 7MB/s×250ms = 1.75MB en vuelo; 32×32KB=1MB no alcanzaba (throughput = depth×chunk/RTT = 4.2MB/s teórico ≈ lo medido). Fix: chunkSize 32KB→128KB (32×128KB=4MB en vuelo = ~16MB/s teórico a 250ms) + panicRttMs 2000→4000 (los picos VPN de 2-3s son transitorios; el breaker colapsaba el pipeline innecesariamente). Tests actualizados (TransferConfigTest: chunkSize 128KB, panic 4000). Verificado: testDebugUnitTest + ./init.sh + assembleDebug OK. PENDIENTE retest en dispositivo con VPN."
+    },
+    {
+      "id": "quality-008",
+      "name": "SFTP channel window 64KB stalls throughput (round-trip per 64KB) — LAN y VPN dan el mismo RTT medido de 400-3000ms",
+      "description": "El log LAN (10:01) mostró RTT medido 400-3000ms contra 192.168.50.45 (IP local) — imposible para red LAN: el cuello es interno. openSessionChannel() de cbssh usa initialWindowSize=64KB: el servidor envía 64KB y pausa esperando SSH_MSG_CHANNEL_WINDOW_ADJUST → un round-trip por cada 64KB. Eso clavaba DL en 6.4MB/s y UL en 3.2MB/s igual en LAN que en VPN (el RTT 'medido' era stall de ventana, no red).",
+      "dependencies": [
+        "quality-007"
+      ],
+      "status": "done",
+      "evidence": "Fix en cbssh (fork): openSftp() ahora abre el canal con initialWindowSize=16MB (maxPacketSize 32KB — 256KB rompía SftpPacketIO con ChannelClosedException, lección del fork local commit ea1f04b). Commit a3a7cb0 en JDis03/cbssh feat/copy-data-extension, publicado a mavenLocal 0.3.3-SNAPSHOT, DarkSSH recompilado OK. Verificado: tests + init.sh BUILD SUCCESSFUL. PENDIENTE retest en dispositivo (LAN + VPN): el RTT medido debería bajar a valores reales (LAN 2-10ms) y el throughput subir a ~7MB/s+."
     }
   ]
 }
