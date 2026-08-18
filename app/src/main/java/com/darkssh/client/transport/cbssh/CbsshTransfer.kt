@@ -406,116 +406,6 @@ class CbsshTransfer(
         }
 
     /**
-     * Upload a local file to the remote server using parallel chunks.
-     * Faster for large files but uses more bandwidth.
-     *
-     * @param chunkSize Size of each chunk (default: 10MB)
-     * @param parallelChunks Number of concurrent chunks (default: 4)
-     */
-    suspend fun uploadParallel(
-        localFile: File,
-        remotePath: String,
-        onProgress: ((TransferProgress) -> Unit)? = null,
-        chunkSize: Long = DEFAULT_CHUNK_SIZE,
-        parallelChunks: Int = DEFAULT_PARALLEL_CHUNKS,
-    ): SftpResult<Unit> =
-        withContext(Dispatchers.IO) {
-            if (!localFile.exists()) {
-                return@withContext SftpResult.IoError(
-                    IllegalArgumentException("Local file does not exist: ${localFile.absolutePath}"),
-                )
-            }
-
-            val totalBytes = localFile.length()
-            val startTime = System.currentTimeMillis()
-            val totalProgress =
-                java.util.concurrent.atomic
-                    .AtomicLong(0)
-            val reportInterval = UPLOAD_REPORT_INTERVAL
-
-            // Open remote file for writing (no TRUNCATE for parallel writes)
-            val handle =
-                when (
-                    val result =
-                        sftp.open(
-                            remotePath,
-                            setOf(
-                                org.connectbot.sshlib.SftpOpenFlag.WRITE,
-                                org.connectbot.sshlib.SftpOpenFlag.CREATE,
-                                org.connectbot.sshlib.SftpOpenFlag.TRUNCATE,
-                            ),
-                        )
-                ) {
-                    is SftpResult.Success -> result.value
-                    else -> return@withContext result.toUnit()
-                }
-
-            try {
-                // Calculate chunk ranges
-                val chunks =
-                    (0 until ((totalBytes + chunkSize - 1) / chunkSize).toInt()).map { i ->
-                        val start = i * chunkSize
-                        val end = minOf(start + chunkSize, totalBytes)
-                        start until end
-                    }
-
-                // Upload chunks concurrently
-                coroutineScope {
-                    chunks
-                        .map { chunk ->
-                            async(Dispatchers.IO) {
-                                val buffer = ByteArray(BUFFER_SIZE)
-                                localFile.inputStream().use { input ->
-                                    input.skip(chunk.first)
-                                    var pos = chunk.first
-                                    while (pos < chunk.last) {
-                                        coroutineContext.ensureActive() // Check for cancellation
-                                        val toRead = minOf(buffer.size.toLong(), chunk.last - pos).toInt()
-                                        val read = input.read(buffer, 0, toRead)
-                                        if (read == -1) break
-
-                                        val writeResult = sftp.write(handle, pos, buffer.copyOf(read))
-                                        when (writeResult) {
-                                            is SftpResult.Success -> { /* continue */ }
-
-                                            else -> {
-                                                throw writeResult.toException()
-                                            }
-                                        }
-                                        pos += read
-
-                                        val written = totalProgress.addAndGet(read.toLong())
-                                        if (written % reportInterval < read || written >= totalBytes) {
-                                            onProgress?.invoke(
-                                                TransferProgress(
-                                                    transferred = written,
-                                                    total = totalBytes,
-                                                    filePath = localFile.name,
-                                                    startTime = startTime,
-                                                    currentTime = System.currentTimeMillis(),
-                                                ),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }.awaitAll()
-                }
-
-                Timber.d("Parallel upload completed: $totalBytes bytes to $remotePath")
-                return@withContext SftpResult.Success(Unit)
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                Timber.d("[UL-PARALLEL] cancelled: $remotePath")
-                throw e
-            } catch (e: Exception) {
-                Timber.e(e, "Parallel upload failed: $remotePath")
-                return@withContext SftpResult.IoError(e)
-            } finally {
-                sftp.close(handle)
-            }
-        }
-
-    /**
      * Server-side file copy using SFTP streams.
      * No data is transferred through the client - efficient for same-server copies.
      */
@@ -668,12 +558,6 @@ class CbsshTransfer(
 
         /** Copy progress report interval (5MB) */
         private const val COPY_REPORT_INTERVAL = 5L * 1024 * 1024
-
-        /** Default chunk size for parallel uploads (10MB) */
-        private const val DEFAULT_CHUNK_SIZE = 10L * 1024 * 1024
-
-        /** Default number of parallel chunks */
-        private const val DEFAULT_PARALLEL_CHUNKS = 4
 
         // === Resilience settings ===
 

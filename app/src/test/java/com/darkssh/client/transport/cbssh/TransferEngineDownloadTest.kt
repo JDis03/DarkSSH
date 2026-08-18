@@ -8,8 +8,10 @@
 
 package com.darkssh.client.transport.cbssh
 
+import com.darkssh.client.transport.TransferProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
 import org.connectbot.sshlib.SftpAttributes
 import org.connectbot.sshlib.SftpClient
@@ -301,5 +303,38 @@ class TransferEngineDownloadTest {
         assertTrue(!result.canResume)
         // el handle remoto se cerró aunque el local falló
         verify(sftp).close(handle)
+    }
+
+    @Test
+    fun `downloadWithProgress completes (does not hang) on success`() = runTest {
+        stubOpenAndCloseSucceed()
+        val engine = TransferEngine(sftp, TransferConfig(chunkSize = 1024))
+        val data = ByteArray(100) { 7 }
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 100L)))
+        whenever(sftp.read(handle, 0L, 1024)).thenReturn(SftpResult.Success(data))
+        whenever(sftp.read(handle, 100L, 1024)).thenReturn(SftpResult.Success(null)) // EOF
+
+        val progresses = mutableListOf<TransferProgress>()
+        engine.downloadWithProgress("remote.bin", localFile).collect { progresses.add(it) }
+
+        assertTrue("flow must emit progress", progresses.isNotEmpty())
+        assertEquals(data.toList(), localFile.readBytes().toList())
+    }
+
+    @Test
+    fun `downloadWithProgress propagates failure to the collector`() = runTest {
+        val engine = TransferEngine(sftp, TransferConfig())
+
+        whenever(sftp.stat("remote.bin"))
+            .thenReturn(SftpResult.ServerError(SftpStatusCode.NO_SUCH_FILE, "not found"))
+
+        var thrown: Throwable? = null
+        try {
+            engine.downloadWithProgress("remote.bin", localFile).collect { }
+        } catch (e: Exception) {
+            thrown = e
+        }
+        assertTrue("Expected exception from flow, got none", thrown != null)
     }
 }

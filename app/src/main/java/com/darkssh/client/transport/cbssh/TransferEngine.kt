@@ -193,6 +193,10 @@ class TransferEngine(
      * Download with Flow-based progress.
      * Returns a Flow that emits progress updates.
      * Collect the flow to drive the download; it completes when transfer finishes.
+     *
+     * quality-005: el channel se cierra SIEMPRE (éxito, fallo o cancelación) para que el
+     * collector nunca quede colgado, y el resultado de la transferencia se propaga
+     * (Failed/Cancelled se lanzan al collector).
      */
     fun downloadWithProgress(
         remotePath: String,
@@ -206,8 +210,12 @@ class TransferEngine(
                 // Launch download in background, sending progress to channel
                 val job =
                     async {
-                        downloadInternal(remotePath, localFile, resumeFrom) { progress ->
-                            channel.trySend(progress)
+                        try {
+                            downloadInternal(remotePath, localFile, resumeFrom) { progress ->
+                                channel.trySend(progress)
+                            }
+                        } finally {
+                            channel.close()
                         }
                     }
 
@@ -216,8 +224,16 @@ class TransferEngine(
                     for (progress in channel) {
                         emit(progress)
                     }
+                    // Channel closed: propagate the transfer result to the collector.
+                    when (val result = job.await()) {
+                        is TransferResult.Success -> Unit
+                        is TransferResult.Failed -> throw result.error
+                        is TransferResult.Cancelled ->
+                            throw kotlinx.coroutines.CancellationException("Transfer cancelled")
+                    }
                 } finally {
-                    job.await()
+                    // If the collector cancels, cancel the in-flight transfer.
+                    job.cancel()
                 }
             }
         }.flowOn(Dispatchers.IO)
@@ -250,6 +266,10 @@ class TransferEngine(
     /**
      * Upload with Flow-based progress.
      * Collect the flow to drive the upload; it completes when transfer finishes.
+     *
+     * quality-005: el channel se cierra SIEMPRE (éxito, fallo o cancelación) para que el
+     * collector nunca quede colgado, y el resultado de la transferencia se propaga
+     * (Failed/Cancelled se lanzan al collector).
      */
     fun uploadWithProgress(
         localFile: File,
@@ -262,14 +282,25 @@ class TransferEngine(
             coroutineScope {
                 val job =
                     async {
-                        uploadInternal(localFile, remotePath, resumeFrom) { progress ->
-                            channel.trySend(progress)
+                        try {
+                            uploadInternal(localFile, remotePath, resumeFrom) { progress ->
+                                channel.trySend(progress)
+                            }
+                        } finally {
+                            channel.close()
                         }
                     }
 
                 try {
                     for (progress in channel) {
                         emit(progress)
+                    }
+                    // Channel closed: propagate the transfer result to the collector.
+                    when (val result = job.await()) {
+                        is TransferResult.Success -> Unit
+                        is TransferResult.Failed -> throw result.error
+                        is TransferResult.Cancelled ->
+                            throw kotlinx.coroutines.CancellationException("Transfer cancelled")
                     }
                 } finally {
                     job.await()

@@ -8,7 +8,9 @@
 
 package com.darkssh.client.transport.cbssh
 
+import com.darkssh.client.transport.TransferProgress
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.test.runTest
 import org.connectbot.sshlib.SftpAttributes
 import org.connectbot.sshlib.SftpClient
@@ -278,5 +280,18 @@ class TransferEngineUploadTest {
         assertTrue(!result.canResume)
         // no debe abrir el remoto si el remoto es más chico que el punto de reanudación
         verify(sftp, never()).open(any(), any(), any())
+    }
+
+    @Test
+    fun `uploadWithProgress completes (does not hang) on success`() = runTest {
+        stubOpenAndCloseSucceed()
+        localFile.writeBytes(ByteArray(50) { 3 })
+        whenever(sftp.write(eq(handle), any(), any())).thenReturn(SftpResult.Success(Unit))
+
+        val engine = TransferEngine(sftp, TransferConfig(chunkSize = 1024))
+        val progresses = mutableListOf<TransferProgress>()
+        engine.uploadWithProgress(localFile, "remote.bin").collect { progresses.add(it) }
+
+        assertTrue("flow must emit progress", progresses.isNotEmpty())
     }
 }

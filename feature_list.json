@@ -384,6 +384,24 @@
       ],
       "status": "done",
       "evidence": "download: openResumableOutputStream() usa RandomAccessFile (setLength recorta cola basura + seek a resumeFrom), falla claro si el local no existe. upload: skipFully() salta exactamente N bytes (EOFException si el local es más corto) + validación stat del remoto cuando resumeFrom>0 (Failed si el remoto es más chico, sin abrir handle). 6 tests nuevos/actualizados: 3 de download resume (prefix preservado, cola recortada, local inexistente) y 3 de upload (flags WRITE-only con stat stub, write desde offset de resume, remoto más chico → Failed sin open). Verificado: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK."
+    },
+    {
+      "id": "quality-005",
+      "name": "downloadWithProgress/uploadWithProgress hang forever (channel never closed, result discarded)",
+      "description": "Las Flow APIs del engine nunca cerraban el Channel al terminar: el collector se colgaba para siempre en for(progress in channel) y el TransferResult del async se descartaba (fallo invisible). Sin callers en la app pero API pública.",
+      "dependencies": [
+        "quality-003"
+      ],
+      "status": "done",
+      "evidence": "El job ahora cierra el channel SIEMPRE (try/finally alrededor de downloadInternal/uploadInternal — cubre éxito, fallo y cancelación, incluyendo el rethrow de quality-003), después del for se propaga el resultado (Failed/Cancelled se lanzan al collector vía job.await()), y si el collector cancela se cancela la transferencia (job.cancel() en finally). 3 tests nuevos: downloadWithProgress completa sin colgarse, downloadWithProgress propaga el fallo, uploadWithProgress completa. Verificado: testDebugUnitTest + ./init.sh + assembleDebug OK."
+    },
+    {
+      "id": "quality-006",
+      "name": "CbsshTransfer.uploadParallel off-by-one drops last byte of each chunk (dead code)",
+      "description": "uploadParallel construía chunks como start until end pero el loop era while(pos < chunk.last) con toRead = chunk.last - pos: el byte en end-1 nunca se transfería (corrupción). Además ignoraba parallelChunks (async sin límite, un FileInputStream por chunk). Sin callers: ni upload() ni tests la usaban.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Decisión con ojo crítico: eliminar en vez de arreglar — dead code con bugs reales = superficie de riesgo (lección de la review: uploadParallel era código muerto mantenido). Eliminada la función completa (110 líneas) + las constantes muertas DEFAULT_CHUNK_SIZE/DEFAULT_PARALLEL_CHUNKS. Verificado: testDebugUnitTest + ./init.sh + assembleDebug OK."
     }
   ]
 }

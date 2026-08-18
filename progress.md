@@ -1,3 +1,15 @@
+## 2026-08-18 12:03 — ClientSSH
+**Summary**: Implementados quality-005 y quality-006 (ambos dead code, decisiones opuestas con ojo crítico). quality-005 — Flow APIs ARREGLADAS (son API pública útil): el job cierra el channel SIEMPRE (try/finally cubre éxito/fallo/cancelación incl. rethrow de quality-003), el resultado se propaga al collector (Failed/Cancelled lanzados vía job.await()) y job.cancel() si el collector cancela. 3 tests nuevos (completa sin colgarse, propaga fallo, upload completa). quality-006 — uploadParallel ELIMINADA (110 líneas + constantes muertas DEFAULT_CHUNK_SIZE/DEFAULT_PARALLEL_CHUNKS): dead code con off-by-one (perdía el último byte de cada chunk) y sin límite de concurrencia; arreglar código sin callers solo agrega superficie de bugs. Verificado todo verde.
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: quality-005, quality-006
+---
+---
+## 2026-08-18 11:52 — ClientSSH
+**Summary**: Implementado quality-004 (resume de transfers): download resume con RandomAccessFile (setLength recorta cola + seek), upload con skipFully (skip exacto, EOFException si local corto) + validación stat del remoto para evitar gaps. 6 tests nuevos/actualizados cubriendo los casos borde, todos verdes. Commit 0daae371 pusheado a contrib/cbssh-sftp.
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: none
+---
+---
 ## 2026-08-18 11:52 — ClientSSH
 **Summary**: Implementado quality-004 (resume real): download resume ya no trunca el local — openResumableOutputStream() con RandomAccessFile (setLength recorta cola basura + seek a resumeFrom, fallo claro si el local no existe). Upload resume: skipFully() salta exactamente N bytes (EOFException si el local es más corto) + validación stat del remoto cuando resumeFrom>0 (Failed sin abrir handle si el remoto es más chico que el punto de reanudación — evita gap de ceros). 6 tests nuevos/actualizados: 3 de download resume (prefix preservado, cola recortada, local inexistente → handle cerrado) y 3 de upload (flags WRITE-only, write desde offset 20, remoto más chico → Failed sin open). El test existente de flags WRITE-only se actualizó con stub de stat (contrato nuevo del fix).
 **Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
@@ -169,16 +181,4 @@
 ## 2026-07-22 02:56 — ClientSSH
 **Summary**: Refactor: extraje TransferProgress de SftpClient.kt (legacy sshj) a su propio archivo TransferProgress.kt en el package com.darkssh.client.transport. Agregué 15 tests unitarios (TransferProgressTest) cubriendo percentage, elapsedSeconds, speed, speedFormatted con edge cases (zero total, backwards clock, etc.). Todos los call sites (7 archivos) ya importaban desde el package correcto, así que el refactor fue transparente sin tocar imports. Verificación: 33 tests total (era 18), 0 failures, ./init.sh verde, compilación limpia sin warnings. Pre-requisito para eventual eliminación de SftpClient.kt sshj legacy.
 **Verified**: ./init.sh pasó completo. 33 tests, 0 failures, 1.8s. Antes: 18 tests, 0 failures. +15 tests nuevos todos verdes.
-**Completed**: none
----
----
-## 2026-07-22 02:51 — ClientSSH
-**Summary**: Fix aplicado: TransferState.isComplete retorna false correctamente para archivos vacíos (totalBytes=0). Cambio mínimo 1 línea + 4 comentarios explicativos. Verificado: test rojo→verde, ./init.sh pasa completo, 18 tests 0 failures (1.7s), grep confirma no hay call sites de producción afectados (TransferState es interno, UI usa TransferInfo.isComplete basado en status, no bytes). Bug expost por TransferStateTest que escribí en sesión anterior (test rojo intencional). Commit f8d2b830 pusheado.
-**Verified**: ./init.sh pasó completo. 18 tests, 1 rojo→verde, 0 failures. Compilación limpia sin warnings nuevos relevantes.
-**Completed**: none
----
----
-## 2026-07-22 02:39 — ClientSSH
-**Summary**: Reporte formal de migración sshj→cbssh según estándar harness engineering. Resultado: PROBLEMÁTICO. Agregué 8 nuevos tests (TransferConfigTest x2, TransferStateTest x4, SftpClientFactoryTest x3) — 7 pasan, 1 falla porque expone un bug pre-existente en TransferState.isComplete (returns true cuando totalBytes=0). 17 tests totales, 16 passing. Hallazgos críticos: (H1) NO tests para SFTP existente, (H2) NO JaCoCo configurado, (H3) NO benchmark, (H4) bug isComplete para archivos vacíos, (H5-H7) deuda en eliminacion sshj/CbsshTransfer. Cobertura efectiva estimada <1% del módulo SFTP. 8 gaps explícitos listados. Esperando decisión del usuario sobre: fix del bug H4, agregar JaCoCo, y scope de próximos tests.
-**Verified**: ./gradlew testDebugUnitTest ejecutado: 17 tests, 1 failing (bug expuesto por test). Antes: 9 tests, 0 failures.
 **Completed**: none
