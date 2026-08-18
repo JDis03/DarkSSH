@@ -295,16 +295,67 @@ class TransferEngine(
         resumeFrom: Long,
         onProgress: ((TransferProgress) -> Unit)?,
     ): TransferResult {
-        // If resuming, append mode; otherwise truncate
+        val startTime = System.currentTimeMillis()
+
+        // quality-002: validar el remoto (stat) y abrirlo ANTES de truncar el archivo local,
+        // para que una descarga fallida (remoto inexistente, auth, permission) no destruya
+        // una copia local existente (FileOutputStream() trunca al abrir).
+        val totalBytes =
+            when (val result = statRemoteForDownload(remotePath)) {
+                is SftpResult.Success -> result.value
+                else ->
+                    return TransferResult.Failed(
+                        result.toException(),
+                        resumeFrom,
+                        canResume = false,
+                    )
+            }
+
+        // Sin trabajo pendiente: no abrir el handle ni tocar el archivo local (contrato
+        // verificado por TransferEngineDownloadTest). Único matiz: descargar un remoto de
+        // 0 bytes debe producir un archivo local vacío — comportamiento histórico del engine.
+        if (resumeFrom >= totalBytes) {
+            if (resumeFrom == 0L && totalBytes == 0L) {
+                try {
+                    localFile.outputStream().close()
+                } catch (e: Exception) {
+                    Timber.e(e, "[DL] Cannot create empty local file ${localFile.absolutePath}")
+                    return TransferResult.Failed(e, 0L, canResume = false)
+                }
+            }
+            return TransferResult.Success(0, 0, 0, 0, 0)
+        }
+
+        val handle =
+            when (val result = openRemoteForDownload(remotePath)) {
+                is SftpResult.Success -> result.value
+                else ->
+                    return TransferResult.Failed(
+                        result.toException(),
+                        resumeFrom,
+                        canResume = false,
+                    )
+            }
+
         val outputStream =
-            if (resumeFrom > 0) {
-                localFile.outputStream() // Will seek in downloadToStreamInternal
-            } else {
+            try {
                 localFile.outputStream()
+            } catch (e: Exception) {
+                Timber.e(e, "[DL] Cannot open local file ${localFile.absolutePath}")
+                runCatching { sftp.close(handle) }
+                return TransferResult.Failed(e, resumeFrom, canResume = false)
             }
 
         return try {
-            downloadToStreamInternal(remotePath, outputStream, resumeFrom, onProgress)
+            downloadChunksToStream(
+                handle = handle,
+                outputStream = outputStream,
+                remotePath = remotePath,
+                totalBytes = totalBytes,
+                resumeFrom = resumeFrom,
+                startTime = startTime,
+                onProgress = onProgress,
+            )
         } finally {
             runCatching { outputStream.close() }
         }
@@ -317,46 +368,84 @@ class TransferEngine(
         onProgress: ((TransferProgress) -> Unit)?,
     ): TransferResult {
         val startTime = System.currentTimeMillis()
-        var bytesWritten = resumeFrom
-        var chunksReceived = 0
-        var totalRetries = 0
 
-        // Get file size with retry
+        // quality-002: el remoto se valida/abre antes de escribir nada en el stream, de
+        // modo que un fallo (remoto inexistente, auth) no deja el destino a medio escribir.
         val totalBytes =
-            when (val result = withRetry("stat") { sftp.stat(remotePath) }) {
-                is SftpResult.Success -> result.value.size ?: 0L
-
-                else -> return TransferResult.Failed(
-                    result.toException(),
-                    bytesWritten,
-                    canResume = false,
-                )
+            when (val result = statRemoteForDownload(remotePath)) {
+                is SftpResult.Success -> result.value
+                else ->
+                    return TransferResult.Failed(
+                        result.toException(),
+                        resumeFrom,
+                        canResume = false,
+                    )
             }
 
         if (resumeFrom >= totalBytes) {
             return TransferResult.Success(0, 0, 0, 0, 0)
         }
 
-        Timber.d("[DL] Starting: $remotePath, total=$totalBytes, resume=$resumeFrom, pipeline=$currentPipelineDepth")
-
-        // Open file with retry
         val handle =
-            when (
-                val result =
-                    withRetry("open") {
-                        sftp.open(remotePath, setOf(SftpOpenFlag.READ))
-                    }
-            ) {
+            when (val result = openRemoteForDownload(remotePath)) {
                 is SftpResult.Success -> result.value
-
-                else -> return TransferResult.Failed(
-                    result.toException(),
-                    bytesWritten,
-                    canResume = false,
-                )
+                else ->
+                    return TransferResult.Failed(
+                        result.toException(),
+                        resumeFrom,
+                        canResume = false,
+                    )
             }
 
+        return downloadChunksToStream(
+            handle = handle,
+            outputStream = outputStream,
+            remotePath = remotePath,
+            totalBytes = totalBytes,
+            resumeFrom = resumeFrom,
+            startTime = startTime,
+            onProgress = onProgress,
+        )
+    }
+
+    /**
+     * stat del remoto para descarga (quality-002: validación previa a truncar el local).
+     */
+    private suspend fun statRemoteForDownload(remotePath: String): SftpResult<Long> =
+        when (val result = withRetry("stat") { sftp.stat(remotePath) }) {
+            is SftpResult.Success -> SftpResult.Success(result.value.size ?: 0L)
+            else -> SftpResult.IoError(result.toException())
+        }
+
+    /**
+     * open del remoto para descarga (solo después de que stat validó el archivo).
+     */
+    private suspend fun openRemoteForDownload(remotePath: String): SftpResult<SftpFileHandle> =
+        when (val result = withRetry("open") { sftp.open(remotePath, setOf(SftpOpenFlag.READ)) }) {
+            is SftpResult.Success -> SftpResult.Success(result.value)
+            else -> SftpResult.IoError(result.toException())
+        }
+
+    /**
+     * Sliding-window download loop escribiendo chunks a [outputStream].
+     * Owns closing [handle].
+     */
+    private suspend fun downloadChunksToStream(
+        handle: SftpFileHandle,
+        outputStream: OutputStream,
+        remotePath: String,
+        totalBytes: Long,
+        resumeFrom: Long,
+        startTime: Long,
+        onProgress: ((TransferProgress) -> Unit)?,
+    ): TransferResult {
+        var bytesWritten = resumeFrom
+        var chunksReceived = 0
+        var totalRetries = 0
+
         try {
+            Timber.d("[DL] Starting: $remotePath, total=$totalBytes, resume=$resumeFrom, pipeline=$currentPipelineDepth")
+
             var readOffset = resumeFrom
             var lastProgressBytes = resumeFrom
             val chunkSize = config.chunkSize

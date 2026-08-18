@@ -60,6 +60,13 @@ class CbsshTransfer(
         onProgress: ((TransferProgress) -> Unit)? = null,
     ): SftpResult<Unit> =
         withContext(Dispatchers.IO) {
+            // quality-002: validar/abrir el remoto ANTES de truncar el archivo local, para
+            // que una descarga fallida (remoto inexistente, auth, permission) no destruya
+            // una copia local existente (localFile.outputStream() trunca al abrir).
+            val preflight = preflightRemote(remotePath)
+            if (preflight != null) {
+                return@withContext preflight
+            }
             val outputStream = localFile.outputStream()
             try {
                 downloadToStreamInternal(remotePath, outputStream, onProgress)
@@ -67,6 +74,47 @@ class CbsshTransfer(
                 outputStream.close()
             }
         }
+
+    /**
+     * quality-002: verifica que el remoto exista y sea abrible (stat + open + close) sin
+     * tocar el archivo local. Devuelve un SftpResult de error si el remoto no es válido,
+     * o null si todo OK.
+     */
+    private suspend fun preflightRemote(remotePath: String): SftpResult<Unit>? {
+        when (val result = sftp.stat(remotePath)) {
+            is SftpResult.Success -> { /* sigue */ }
+            is SftpResult.ServerError -> {
+                Timber.e("[DL] preflight stat FAILED ServerError ${result.statusCode}: ${result.message}")
+                return SftpResult.ServerError(result.statusCode, result.message)
+            }
+            is SftpResult.ProtocolError -> {
+                Timber.e("[DL] preflight stat FAILED ProtocolError: ${result.message}")
+                return SftpResult.ProtocolError(result.message)
+            }
+            is SftpResult.IoError -> {
+                Timber.e(result.cause, "[DL] preflight stat FAILED IoError")
+                return SftpResult.IoError(result.cause)
+            }
+        }
+
+        when (val result = sftp.open(remotePath, setOf(org.connectbot.sshlib.SftpOpenFlag.READ))) {
+            is SftpResult.Success -> runCatching { sftp.close(result.value) }
+            is SftpResult.ServerError -> {
+                Timber.e("[DL] preflight open FAILED ServerError ${result.statusCode}: ${result.message}")
+                return SftpResult.ServerError(result.statusCode, result.message)
+            }
+            is SftpResult.ProtocolError -> {
+                Timber.e("[DL] preflight open FAILED ProtocolError: ${result.message}")
+                return SftpResult.ProtocolError(result.message)
+            }
+            is SftpResult.IoError -> {
+                Timber.e(result.cause, "[DL] preflight open FAILED IoError")
+                return SftpResult.IoError(result.cause)
+            }
+        }
+
+        return null
+    }
 
     /**
      * Download a file from the remote server to an OutputStream.

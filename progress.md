@@ -1,3 +1,15 @@
+## 2026-08-18 09:00 — ClientSSH
+**Summary**: Implementado quality-002 (protección de datos): las descargas ya NO destruyen la copia local cuando el remoto falla. TransferEngine: downloadInternal/downloadToStreamInternal ahora validan el remoto (statRemoteForDownload + openRemoteForDownload) ANTES de abrir/truncar el archivo local; el loop de chunks se extrajo a downloadChunksToStream sin cambios de lógica. El check resumeFrom>=totalBytes quedó ANTES del open (contrato de TransferEngineDownloadTest: verify never open). Caso 0-byte preservado (crea archivo local vacío). CbsshTransfer.download: preflight stat+open+close antes de truncar. Ojo crítico: los 2 tests rotos se verificaron con evidencia real (NoWhenBranchMatchedException por open sin stub + verify(never).open) antes de corregir — no se asumió.
+**Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: quality-002
+---
+---
+## 2026-08-18 08:25 — ClientSSH
+**Summary**: Review de robustez del transporte cbssh (TransferEngine/CbsshTransfer/SftpClient2): 24 hallazgos, 6 críticos. Implementado quality-001: TimeoutCancellationException ahora se captura antes de CancellationException en los 5 catch sites de TransferEngine, reactivando el retry-on-timeout (antes los stalls de red se reportaban como cancelación). Commit e807dc6a pusheado. Registrados TODOs quality-002..006 para el resto (truncar-antes-de-validar, cancellation swallow, resume roto, Flow hang, off-by-one uploadParallel).
+**Verified**: ./init.sh BUILD SUCCESSFUL + compileDebugKotlin OK; sin tests de timeout (bloqueo infra Docker, TODOs 225/226)
+**Completed**: none
+---
+---
 ## 2026-08-18 — ClientSSH
 **Summary**: quality-001 (review de robustez del transporte cbssh): review completo de TransferEngine.kt/CbsshTransfer.kt/SftpClient2.kt identificó 24 hallazgos (6 críticos). El más impactante del path activo: en TransferEngine.kt los 5 catch sites tenían catch(CancellationException){throw e} ANTES de manejar timeouts, así que un TimeoutCancellationException de withTimeout (que extiende CancellationException) escapaba como 'cancelación de usuario' — el retry-on-timeout nunca corría y los stalls de red se reportaban como cancelados. Fix: catch(TimeoutCancellationException) explícito antes en download loop, upload loop, withRetry, retryChunk y retryWriteChunk; la cancelación real sigue re-lanzándose. Se registraron TODOs para los demás hallazgos: quality-002 (truncar local antes de validar remoto), quality-003 (CancellationException convertida a Cancelled), quality-004 (resume roto), quality-005 (Flow con channel nunca cerrado), quality-006 (off-by-one en CbsshTransfer.uploadParallel).
 **Verified**: ./init.sh BUILD SUCCESSFUL + compileDebugKotlin OK. Sin tests dedicados para timeouts (mismo bloqueo de infra Docker de TODOs 225/226).
@@ -183,16 +195,4 @@
 ## 2026-07-18 20:29 — ClientSSH
 **Summary**: Refactor completo del código de tabs (refactor-002). Bugs corregidos: (1) Race condition en TabManager.closeTab() - ahora usa snapshot de tabs antes de modificaciones, (2) Flag shouldSwitchToNewTab no era thread-safe - ahora protegido por Mutex, (3) closeTab en TabbedMainScreen no esperaba cleanup - ahora usa try-finally y await. Mejoras: (1) Consolidé dos LaunchedEffects de bridge management en uno solo, (2) Extraje magic numbers a TabBarDefaults object, (3) Removí código muerto (widthFraction animation nunca usada), (4) Limpié imports FQN. También identifiqué bugs pendientes para futuro: SFTP activeClients usa hostId en vez de tabId (refactor-001 existente), y reorderTabs no tenía bounds checking (corregido).
 **Verified**: ./init.sh BUILD SUCCESSFUL (29 tasks)
-**Completed**: none
----
----
-## 2026-07-18 06:34 — ClientSSH
-**Summary**: Implementado fix para conflicto de gestos scroll/swipe en terminal con múltiples tabs (ux-001). Problema: al hacer scroll vertical en el historial de la terminal, el movimiento natural del dedo tiene un componente horizontal mínimo que HorizontalPager interceptaba, causando cambios de tab accidentales durante el scroll. Solución: NestedScrollConnection en Terminal.kt que intercepta gestos en onPreScroll() y consume el componente horizontal cuando el gesto es predominantemente vertical (Y > X * 1.2). El scroll vertical ahora funciona limpio; swipes horizontales intencionales siguen cambiando tabs. También documenté mejoras futuras identificadas durante el análisis: drag-and-drop para reordenar tabs, restauración de sesiones al reiniciar app, y modernización del manejo de teclado (SHOW_FORCED deprecado).
-**Verified**: ./init.sh BUILD SUCCESSFUL (29 tasks)
-**Completed**: none
----
----
-## 2026-07-17 04:48 — ClientSSH
-**Summary**: Corregido bug-012 en su segunda iteración: el usuario confirmó que el fix anterior (blacklist de 6 caracteres invisibles) NO funcionó en su dispositivo real - mismo error DNS persistió incluso con el código nuevo corriendo (confirmado por line-number shift en el stacktrace). Solo funcionó al borrar y recrear el host. Root-caused sin acceso al dispositivo mediante un test Java standalone (javac/java) contra la lógica real de InetAddress.getAllByName(): confirmé que 17 caracteres invisibles distintos (no solo los 6 originales) producen el mismo fallo, probando que cualquier blacklist manual es insuficiente por diseño. Reescribí TextSanitizer.kt con un enfoque de categoría Unicode + whitelist de charset: sanitize() (liviano, preserva espacios legítimos, usado en nickname/username) y sanitizeStrict() (whitelist estricta [A-Za-z0-9.-:_[]], usado solo en hostname). Verificado con el mismo harness de test: sanitizeStrict() corrige el 100% de los 17 casos (vs 6/17 antes). Compilación limpia + ./init.sh OK. Commit 08404c85.
-**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL. Verificación adicional rigurosa fuera del build normal: test standalone javac/java (17 casos de caracteres invisibles distintos insertados alrededor de una IP válida) confirmando 0 fallos con sanitizeStrict() vs 11 fallos con el enfoque de blacklist anterior. NO reconfirmado en el dispositivo Xiaomi real del usuario porque ya borró el único host corrupto que tenía disponible para reproducir - la confianza en este fix viene de testing exhaustivo local del modo de fallo real, no de un solo reintento anecdótico en el device.
 **Completed**: none
