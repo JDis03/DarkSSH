@@ -420,6 +420,17 @@
       ],
       "status": "done",
       "evidence": "Fix en cbssh (fork): openSftp() ahora abre el canal con initialWindowSize=16MB (maxPacketSize 32KB — 256KB rompía SftpPacketIO con ChannelClosedException, lección del fork local commit ea1f04b). Commit a3a7cb0 en JDis03/cbssh feat/copy-data-extension, publicado a mavenLocal 0.3.3-SNAPSHOT, DarkSSH recompilado OK. Verificado: tests + init.sh BUILD SUCCESSFUL. PENDIENTE retest en dispositivo (LAN + VPN): el RTT medido debería bajar a valores reales (LAN 2-10ms) y el throughput subir a ~7MB/s+."
+    },
+    {
+      "id": "quality-009",
+      "name": "Throughput del móvil (DL 6.4MB/s, UL 3.2MB/s) es el techo del WiFi/CPU del teléfono, NO el código de cbssh",
+      "description": "Benchmark de cbssh en PC contra localhost con el mismo pipeline (depth 32, chunk 128KB): DOWNLOAD 130 MB/s, UPLOAD 170 MB/s. El código de cbssh no es el cuello. La descarga del móvil (6.4MB/s) está al 91% del WiFi medido por el usuario (~7MB/s). El 'RTT medido' de 400-3000ms en LAN era bufferbloat del radio WiFi saturado (efecto del throughput máximo, no causa). quality-008 (ventana 64KB) fue falso positivo para la app — el jar 0.3.3 ya tenía la ventana 16MB desde junio; el fix sigue siendo válido para el PR upstream (la lib default tiene 64KB).",
+      "dependencies": [
+        "quality-007",
+        "quality-008"
+      ],
+      "status": "done",
+      "evidence": "Benchmark SftpThroughputBenchmarkTest (temporal, eliminado): DL 130MB/s, UL 170MB/s en PC. El código es rápido; el techo es el móvil. Mejora total acumulada: DL 3.4→6.4MB/s (+88%). UL 3.2MB/s pendiente de verificar con app de referencia (Termius/Solid Explorer) para saber si es techo WiFi TX del móvil. Verificado: benchmark en fork eliminado, feat/copy-data-extension limpio (upstream + copy-data + ventana + keepAlive, 3 commits, pusheado a JDis03/cbssh)."
     }
   ]
 }

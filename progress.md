@@ -1,3 +1,9 @@
+## 2026-08-18 14:13 — ClientSSH
+**Summary**: quality-008: el log LAN con RTT de 400-3000ms contra IP local delató el cuello interno — openSessionChannel() de cbssh abre el canal SFTP con ventana de 64KB (round-trip stall por cada 64KB). Fix en el fork: ventana 16MB + packet 32KB (a3a7cb0), publicado a mavenLocal, DarkSSH recompilado. El jar publicado antes no incluía los fixes de ventana de junio (49af22a/ea1f04b). Pendiente retest del usuario en LAN/VPN.
+**Verified**: publishToMavenLocal OK + testDebugUnitTest OK + ./init.sh BUILD SUCCESSFUL en DarkSSH; pendiente retest en dispositivo
+**Completed**: none
+---
+---
 ## 2026-08-18 12:46 — ClientSSH
 **Summary**: quality-007 iteración 2 con el dato clave "VPN": el RTT real de 200-300ms explicaba el límite de 4-5MB/s (BDP 1.75MB vs 1MB en vuelo con 32×32KB). Fix: chunkSize 128KB (4MB en vuelo = 16MB/s teórico) + panicRttMs 4000 (picos VPN transitorios). Commit e45a15a9. Pendiente retest del usuario con VPN — si da ~7MB/s, queda listo el device testing para el PR de copy-data.
 **Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK; pendiente retest en dispositivo con VPN
@@ -8,6 +14,12 @@
 **Summary**: Diagnosticado con el log real del dispositivo y arreglado quality-007: el throughput de 3.4MB/s (link de ~7MB/s) era causado por medir el RTT desde el ENCOLADO del async — la espera de thread del pool inflaba el 'RTT' → sawtooth depth 12↔16 + panic + auto-congestión medida. Fix: timestamp dentro del async, buckets recalibrados, maxPipelineDepth 32. Commit 47a9b00c. Pendiente: retest en dispositivo.
 **Verified**: testDebugUnitTest BUILD SUCCESSFUL (100 tests) + ./init.sh BUILD SUCCESSFUL; pendiente retest en dispositivo real
 **Completed**: none
+---
+---
+## 2026-08-18 14:00 — ClientSSH
+**Summary**: quality-009 — benchmark decisivo de cbssh en PC (mismo pipeline depth 32 chunk 128KB): DL 130MB/s, UL 170MB/s contra localhost. El código de cbssh NO es el cuello — el throughput del móvil (DL 6.4MB/s = 91% del WiFi ~7, UL 3.2MB/s) es el techo del WiFi/CPU del teléfono. El 'RTT medido' de 400-3000ms en LAN era bufferbloat del radio saturado (efecto, no causa). quality-008 fue falso positivo para la app: el jar 0.3.3 YA tenía ventana 16MB desde junio — el fix sigue siendo válido para el PR upstream (lib default 64KB). keepAlive cherry-picked a feat/copy-data-extension (76ad956). DarkSSH sigue en cbssh 0.3.3-SNAPSHOT (0.4.3 rompe Hilt por metadatos Kotlin 2.4 vs 2.3 — no subir). Benchmark temporal eliminado; fork limpio con 3 commits para el PR.
+**Verified**: benchmark en PC (DL 130 / UL 170 MB/s) + fork limpio + DarkSSH assembleDebug OK con 0.3.3.
+**Completed**: quality-009
 ---
 ---
 ## 2026-08-18 13:10 — ClientSSH
@@ -169,16 +181,4 @@
 ## 2026-07-23 23:30 — ClientSSH
 **Summary**: Sesión completa: cerró la migración SFTP sshj→cbssh de punta a punta. Arrancó terminando gaps de auth (host-key TOFU real + key-based auth wiring, con fix de detección Ed25519 en Android/Conscrypt via OID-sniffing). Diagnosticó y arregló bug de UX en copy-paste (progreso falso '0 B/1 B'). Diagnosticó y arregló performance real: upload sin pipelining (100% serial), circuit breaker de RTT en TransferEngine (bug de auto-congestión sin backoff), y tuning de maxPipelineDepth 32→16 — confirmado en dispositivo real (+77% descarga, +377% subida). Con evidencia funcional+performance suficiente, el usuario confirmó explícitamente eliminar sshj por completo: borrado SftpClient.kt, SftpClientFactory.kt, preference useCbsshSftp, dependencia gradle — SftpClient2 (cbssh) es ahora el único backend SFTP. Cerró Fase 7 (housekeeping): archivó migrate-sftp-to-cbssh y refactor-sftp-client-sshj en openspec, actualizó docs/MIGRATION_TO_CBSSH.md y contrib/cbssh-sftp/README.md, agregó entrada cbssh-002 en feature_list.json.
 **Verified**: ./init.sh verde en cada commit (92/92 unit tests finales, bajó de 95 tras remover tests de la bifurcación sshj/cbssh que ya no aplica). assembleDebug compila. APK debug: 56.07MB→52.07MB (-4.0MB). Verificado en dispositivo real (Xiaomi 25069PTEBG, Android 16): auth por password y por llave, host-key TOFU, ls, download, upload, copy server-side — todo funcionando. Mejora de throughput confirmada en logs reales de dos rondas de retest (+77% descarga, +377% subida). openspec validate pasó para cbssh-migration-strategy; migrate-sftp-to-cbssh y refactor-sftp-client-sshj archivados con --skip-specs (legacy, sin formato de deltas). 8 commits pusheados a contrib/cbssh-sftp.
-**Completed**: none
----
----
-## 2026-07-22 15:45 — ClientSSH
-**Summary**: Agregué DebugLogger tracing detallado (tags 'SftpHostKey' y 'SftpKeyAuth') a todo el flujo nuevo de host-key-verification y key-based-auth de SftpClient2/SftpViewModel, aprovechando la infraestructura de logging ya existente en la app (FileLoggingTree siempre activo + pantalla Settings→Debug Logs con Copy/Share). No hizo falta construir infra nueva. Pusheado 2 commits nuevos (a98905a1 el feature, 8df90084 el logging) a contrib/cbssh-sftp. Le expliqué al usuario cómo probar manualmente: activar 'Use cbssh SFTP (experimental)' en Settings, conectar a un host, y usar Settings→Debug Logs para copiarme el resultado.
-**Verified**: ./init.sh verde (90 tests sin cambios), assembleDebug exitoso, compileDebugKotlin limpio tras agregar los imports/logs.
-**Completed**: none
----
----
-## 2026-07-22 15:35 — ClientSSH
-**Summary**: Apliqué el openspec change 'cbssh-migration-strategy' (creado en el turno anterior): implementé los 2 fixes de auth que había identificado como TODOs. (1) Host key verification real: DarkSshHostKeyVerifier.kt implementa la interfaz suspend HostKeyVerifier de cbssh contra KnownHostRepository con la misma semántica TOFU que SSH.kt (prompt+persist en key desconocida, reject silencioso en mismatch), reemplazando el hardcoded 'return true'. Extraje SshFingerprint.kt compartido entre terminal y SFTP. SftpClient2 ahora recibe knownHostRepository+onUnknownHostKey opcionales con fail-closed si faltan. SftpViewModel expone HostKeyPrompt vía StateFlow+CompletableDeferred y SftpScreen renderiza el dialog de confirmación. (2) Key-based auth wiring: SftpViewModel ahora resuelve Host.pubkeyId → Pubkey → KeyPair (con passphrase prompt propio KeyPassphrasePrompt si está encriptada, cache en memoria tipo TerminalService.loadedKeypairs) y llama connectWithKey en vez de siempre password — wireado en initialize/tryReconnectIfNeeded/dismissAuthError, nunca cae a password para un host con key asignada (igual que SSH.kt). (3) Cleanup: eliminé transport/cbssh/PENDING/ (leftover obsoleto). Agregué DarkSshHostKeyVerifierTest.kt (4 tests, mocks, sin Docker) cubriendo los 4 escenarios TOFU. tasks.md del change actualizado a 15/21 (los 6 pendientes son Docker E2E tests + verificación manual + sync de otro change, registrados como TODOs de proyecto). 1 commit local en contrib/cbssh-sftp (NO pusheado, no se pidió explícitamente).
-**Verified**: ./init.sh verde: 90 tests (86 previos + 4 nuevos), 0 failures, sin Docker. ./gradlew integrationTest verde: los 7 Docker tests preexistentes siguen pasando sin regresión. assembleDebug exitoso. openspec validate cbssh-migration-strategy pasa. git status limpio tras commit.
 **Completed**: none
