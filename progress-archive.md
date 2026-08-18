@@ -159,3 +159,53 @@
 **Summary**: Corregido bug-012 en su segunda iteración: el usuario confirmó que el fix anterior (blacklist de 6 caracteres invisibles) NO funcionó en su dispositivo real - mismo error DNS persistió incluso con el código nuevo corriendo (confirmado por line-number shift en el stacktrace). Solo funcionó al borrar y recrear el host. Root-caused sin acceso al dispositivo mediante un test Java standalone (javac/java) contra la lógica real de InetAddress.getAllByName(): confirmé que 17 caracteres invisibles distintos (no solo los 6 originales) producen el mismo fallo, probando que cualquier blacklist manual es insuficiente por diseño. Reescribí TextSanitizer.kt con un enfoque de categoría Unicode + whitelist de charset: sanitize() (liviano, preserva espacios legítimos, usado en nickname/username) y sanitizeStrict() (whitelist estricta [A-Za-z0-9.-:_[]], usado solo en hostname). Verificado con el mismo harness de test: sanitizeStrict() corrige el 100% de los 17 casos (vs 6/17 antes). Compilación limpia + ./init.sh OK. Commit 08404c85.
 **Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL. Verificación adicional rigurosa fuera del build normal: test standalone javac/java (17 casos de caracteres invisibles distintos insertados alrededor de una IP válida) confirmando 0 fallos con sanitizeStrict() vs 11 fallos con el enfoque de blacklist anterior. NO reconfirmado en el dispositivo Xiaomi real del usuario porque ya borró el único host corrupto que tenía disponible para reproducir - la confianza en este fix viene de testing exhaustivo local del modo de fallo real, no de un solo reintento anecdótico en el device.
 **Completed**: none
+---
+---
+## 2026-07-19 06:27 — ClientSSH
+**Summary**: Sesión cbssh SFTP: (1) Arreglé errores de compilación post-rebase (ISftpClient interface, SftpClient/SftpClient2 signatures, ConsoleScreen duplicate param). (2) Fix bug-013: cancellation en cbssh - agregué CancellationException handling y ensureActive() en todos los loops de CbsshTransfer. (3) Creé TransferEngine.kt - nuevo motor Kotlin-first con adaptive pipeline (2-32 basado en RTT), retry con exponential backoff, timeouts por operación, resume support, y Flow-based progress. NO integrado aún en SftpClient2. Próximos pasos: integrar TransferEngine, testear cbssh con switch ON, investigar bug de paste yendo a tab incorrecto.
+**Verified**: ./init.sh BUILD SUCCESSFUL
+**Completed**: none
+---
+---
+## 2026-07-18 20:29 — ClientSSH
+**Summary**: Refactor completo del código de tabs (refactor-002). Bugs corregidos: (1) Race condition en TabManager.closeTab() - ahora usa snapshot de tabs antes de modificaciones, (2) Flag shouldSwitchToNewTab no era thread-safe - ahora protegido por Mutex, (3) closeTab en TabbedMainScreen no esperaba cleanup - ahora usa try-finally y await. Mejoras: (1) Consolidé dos LaunchedEffects de bridge management en uno solo, (2) Extraje magic numbers a TabBarDefaults object, (3) Removí código muerto (widthFraction animation nunca usada), (4) Limpié imports FQN. También identifiqué bugs pendientes para futuro: SFTP activeClients usa hostId en vez de tabId (refactor-001 existente), y reorderTabs no tenía bounds checking (corregido).
+**Verified**: ./init.sh BUILD SUCCESSFUL (29 tasks)
+**Completed**: none
+---
+---
+## 2026-07-19 19:17 — ClientSSH
+**Summary**: Sesión de INVESTIGACIÓN/VALIDACIÓN antes de migración cbssh + extensions SFTP modernas. SIN código de producción modificado. Validado: (1) cbssh 0.3.2-SNAPSHOT compila, (2) Docker integration tests PASAN contra OpenSSH 9.9p2, (3) OpenSSH 10.3 local anuncia todas las extensions (posix-rename, statvfs, fsync, hardlink, limits, copy-data, etc), (4) APK debug compila, (5) SSH key auth a localhost funciona. BLOQUEADOR identificado: unit test pre-existente SshClientTest.openSftp maps... falla en cbssh main - debe arreglarse ANTES de cualquier PR. Reglas estrictas registradas: ningún PR sin prueba real, ningún adoption sin soak test, toda extension nueva debe tener integration test Docker.
+**Verified**: cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv, DarkSSH ./init.sh passed
+**Completed**: none
+---
+---
+## 2026-07-19 13:00 — ClientSSH
+**Summary**: Sesión de INVESTIGACIÓN previa a migración cbssh + extensions modernas. VALIDACIONES COMPLETADAS:
+1. ✅ cbssh 0.3.2-SNAPSHOT compila limpio
+2. ✅ cbssh Docker integration tests PASAN contra OpenSSH 9.9p2
+3. ⚠️ BLOQUEADOR: 1 unit test pre-existente falla en cbssh main (SshClientTest.openSftp maps...) - NO relacionado con mi trabajo
+4. ✅ OpenSSH 10.3 local anuncia extensions: posix-rename, statvfs, fstatvfs, hardlink, fsync, lsetstat, limits, expand-path, copy-data, users-groups-by-id
+5. ✅ APK debug compila (55MB)
+6. ✅ SSH key-based auth a localhost funciona
+
+**Verified**: ./init.sh passed (DarkSSH tests), cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv
+**Next**: REGLAS ESTRICTAS: (a) Ningún PR a cbssh sin antes arreglar test unit roto, (b) Toda extension nueva debe tener test integración con Docker, (c) Toda adoption en DarkSSH debe probarse con app real contra localhost antes de commit, (d) Soak test 24h antes de cualquier cambio default useCbsshSftp=true
+
+**Bloqueador para arrancar**: Arreglar SshClientTest línea 386 (test unit cbssh)
+
+## 2026-07-19 07:03 — ClientSSH
+**Summary**: Sesión productiva con 3 fixes/features completados: (1) Integración de TransferEngine en SftpClient2 - ahora cbssh usa el nuevo motor de transferencia con adaptive pipeline, retry, timeouts. (2) Fix bug Ctrl+Shift+V que enviaba paste a todos los tabs en vez del activo. (3) Fix bug scroll vertical en terminal que cambiaba tabs accidentalmente - agregado requestDisallowInterceptTouchEvent en TerminalView.onScroll. (4) Pinch zoom ahora cambia font size en vez de no hacer nada - conectado onScale callback con increaseFontSize/decreaseFontSize del bridge.
+**Verified**: ./init.sh passed - all tests green
+**Completed**: none
+---
+---
+## 2026-07-22 02:51 — ClientSSH
+**Summary**: Fix aplicado: TransferState.isComplete retorna false correctamente para archivos vacíos (totalBytes=0). Cambio mínimo 1 línea + 4 comentarios explicativos. Verificado: test rojo→verde, ./init.sh pasa completo, 18 tests 0 failures (1.7s), grep confirma no hay call sites de producción afectados (TransferState es interno, UI usa TransferInfo.isComplete basado en status, no bytes). Bug expost por TransferStateTest que escribí en sesión anterior (test rojo intencional). Commit f8d2b830 pusheado.
+**Verified**: ./init.sh pasó completo. 18 tests, 1 rojo→verde, 0 failures. Compilación limpia sin warnings nuevos relevantes.
+**Completed**: none
+---
+---
+## 2026-07-22 02:39 — ClientSSH
+**Summary**: Reporte formal de migración sshj→cbssh según estándar harness engineering. Resultado: PROBLEMÁTICO. Agregué 8 nuevos tests (TransferConfigTest x2, TransferStateTest x4, SftpClientFactoryTest x3) — 7 pasan, 1 falla porque expone un bug pre-existente en TransferState.isComplete (returns true cuando totalBytes=0). 17 tests totales, 16 passing. Hallazgos críticos: (H1) NO tests para SFTP existente, (H2) NO JaCoCo configurado, (H3) NO benchmark, (H4) bug isComplete para archivos vacíos, (H5-H7) deuda en eliminacion sshj/CbsshTransfer. Cobertura efectiva estimada <1% del módulo SFTP. 8 gaps explícitos listados. Esperando decisión del usuario sobre: fix del bug H4, agregar JaCoCo, y scope de próximos tests.
+**Verified**: ./gradlew testDebugUnitTest ejecutado: 17 tests, 1 failing (bug expuesto por test). Antes: 9 tests, 0 failures.
+**Completed**: none
