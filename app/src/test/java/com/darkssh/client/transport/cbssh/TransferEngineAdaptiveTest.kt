@@ -27,7 +27,7 @@ import org.mockito.Mockito.mock
  * - Pipeline depth adjusts gradually toward target based on RTT buckets
  *   (2026-08-18 calibration): <30ms = 12, <60ms = 16, <120ms = 24, else = max (default 32)
  * - Adjustments are ±1 per sample (gradual), clamped to [min, max]
- * - Circuit breaker: avgRttMs >= panicRttMs (default 2000ms) snaps depth straight
+ * - Circuit breaker: avgRttMs >= panicRttMs (default 4000ms, VPN-friendly) snaps depth straight
  *   to min instead of the gradual step — see [TransferConfig.panicRttMs]
  */
 class TransferEngineAdaptiveTest {
@@ -140,7 +140,7 @@ class TransferEngineAdaptiveTest {
 
     @Test
     fun `panic threshold snaps depth straight down instead of gradual step`() {
-        // Default panicRttMs = 2000. A single very-high sample (first sample sets the
+        // Default panicRttMs = 4000. A single very-high sample (first sample sets the
         // average directly, no EMA smoothing needed) should snap depth to min immediately
         // — not the usual -1-per-sample crawl the normal branch uses.
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 32))
@@ -154,7 +154,7 @@ class TransferEngineAdaptiveTest {
     fun `just below panic threshold still uses the normal gradual ramp`() {
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
 
-        // 1999ms is just under the default 2000ms panic threshold — should follow the
+        // 1999ms is just under the default 4000ms panic threshold — should follow the
         // normal "else" bucket (target = max) with a gradual +1 step, not snap anywhere.
         engine.updateRttForTest(1999L)
 

@@ -28,16 +28,21 @@ class TransferConfigTest {
         // maxPipelineDepth: 32 desde 2026-08-18 (medición de RTT corregida dentro del
         // async; depth 16 dejaba el pipeline corto para llenar un link de ~7MB/s a RTT
         // ~60ms: BDP ≈ 420KB = 14 chunks de 32KB).
+        // chunkSize: 128KB desde 2026-08-18 (usuario en VPN con RTT ~250ms: BDP de un
+        // link de 7MB/s = 1.75MB en vuelo; 32×32KB=1MB no alcanzaba → 4-5MB/s reales.
+        // 32×128KB=4MB en vuelo → ~16MB/s teórico).
+        // panicRttMs: 4000 desde 2026-08-18 (con VPN los picos de RTT de 2-3s son
+        // transitorios; 2000ms provocaba colapsos innecesarios del pipeline).
         assertEquals(12, config.initialPipelineDepth)
         assertEquals(6, config.minPipelineDepth)
         assertEquals(32, config.maxPipelineDepth)
-        assertEquals(32 * 1024, config.chunkSize)
+        assertEquals(128 * 1024, config.chunkSize)
         assertEquals(3, config.maxRetries)
         assertEquals(1000L, config.retryDelayMs)
         assertEquals(60_000L, config.operationTimeoutMs)
         assertEquals(256L * 1024, config.progressIntervalBytes)
         assertEquals(100L, config.targetRttMs)
-        assertEquals(2000L, config.panicRttMs)
+        assertEquals(4000L, config.panicRttMs)
     }
 
     @Test

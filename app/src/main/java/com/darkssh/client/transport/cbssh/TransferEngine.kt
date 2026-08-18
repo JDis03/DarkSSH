@@ -117,8 +117,17 @@ data class TransferConfig(
      * and a panic snap, on a link capable of ~7MB/s.
      */
     val maxPipelineDepth: Int = 32,
-    /** Chunk size for reads/writes */
-    val chunkSize: Int = 32 * 1024,
+    /**
+     * Chunk size for reads/writes.
+     *
+     * 32KB era el default original. Log real 2026-08-18 (VPN, RTT ~200-300ms): con
+     * 32KB el pipeline máximo (32×32KB = 1MB en vuelo) no llenaba el enlace — BDP de un
+     * link de ~7MB/s a 250ms de RTT = 1.75MB en vuelo — y el throughput quedaba clavado
+     * en ~4-5MB/s (throughput = depth×chunk/RTT). Subido a 128KB: 32×128KB = 4MB en
+     * vuelo = ~16MB/s teórico a 250ms RTT, suficiente para llenar el enlace real.
+     * Coste: 4MB de buffers en vuelo (ByteArray por chunk en upload) y retries de 128KB.
+     */
+    val chunkSize: Int = 128 * 1024,
     /** Max retries per chunk */
     val maxRetries: Int = 3,
     /** Initial retry delay (doubles each retry) */
@@ -131,15 +140,17 @@ data class TransferConfig(
     val targetRttMs: Long = 100,
     /**
      * Circuit-breaker threshold (ms). A healthy link/server never takes multiple
-     * *seconds* to answer a single [chunkSize] read/write — an average RTT this high is
-     * the signature of self-induced congestion (our own pipeline depth overwhelming the
-     * phone's WiFi radio / CPU / coroutine dispatcher), not real network latency that
-     * deeper pipelining would help with. Above this threshold [updateRtt] snaps the
-     * depth straight down to [minPipelineDepth] instead of the normal gradual ±1 step,
-     * so a runaway (depth pinned at max while RTT climbs into the seconds/tens-of-seconds)
-     * actually recovers instead of digging in.
+     * *seconds* to answer a single [chunkSize] read/write. Above this threshold
+     * [updateRtt] snaps the depth straight down to [minPipelineDepth] instead of the
+     * normal gradual ±1 step, so a runaway actually recovers instead of digging in.
+     *
+     * 4000ms (subido de 2000ms el 2026-08-18): el usuario usa VPN, donde picos de
+     * congestión de 2-3s en el RTT son reales y transitorios — con 2000ms el breaker
+     * disparaba por picos VPN y el pipeline colapsaba a depth 6, perdiendo 10-15s de
+     * throughput en cada recuperación. 4000ms solo dispara ante una degradación real
+     * de la conexión.
      */
-    val panicRttMs: Long = 2000,
+    val panicRttMs: Long = 4000,
 )
 
 /**

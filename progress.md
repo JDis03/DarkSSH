@@ -1,3 +1,15 @@
+## 2026-08-18 12:24 — ClientSSH
+**Summary**: Diagnosticado con el log real del dispositivo y arreglado quality-007: el throughput de 3.4MB/s (link de ~7MB/s) era causado por medir el RTT desde el ENCOLADO del async — la espera de thread del pool inflaba el 'RTT' → sawtooth depth 12↔16 + panic + auto-congestión medida. Fix: timestamp dentro del async, buckets recalibrados, maxPipelineDepth 32. Commit 47a9b00c. Pendiente: retest en dispositivo.
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL (100 tests) + ./init.sh BUILD SUCCESSFUL; pendiente retest en dispositivo real
+**Completed**: none
+---
+---
+## 2026-08-18 12:50 — ClientSSH
+**Summary**: quality-007 iteración 2 — el retest con VPN reveló el límite restante: RTT real ~200-300ms (VPN, no LAN) → BDP de 7MB/s×250ms = 1.75MB en vuelo; 32×32KB = 1MB no alcanzaba → throughput = depth×chunk/RTT = 4.2MB/s teórico (descarga real 5.1MB/s, upload 3.07MB/s). Fix: chunkSize 32KB→128KB (32×128KB=4MB en vuelo = ~16MB/s teórico a 250ms) y panicRttMs 2000→4000 (picos VPN de 2-3s son transitorios; el breaker colapsaba el pipeline innecesariamente). La medición de RTT corregida de la iteración 1 ya estabilizó el depth en 32 (3.4→5.1MB/s, 1 solo panic vs sawtooth permanente).
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK. PENDIENTE retest en dispositivo con VPN.
+**Completed**: quality-007 (iteración 2)
+---
+---
 ## 2026-08-18 12:25 — ClientSSH
 **Summary**: quality-007 — el log real del dispositivo reveló la causa del throughput bajo (3.4MB/s en un link de ~7MB/s): la medición de RTT usaba el timestamp de ENCOLADO del async, incluyendo la espera de thread del pool de coroutines → el adaptativo se auto-congestionaba por medición (sawtooth depth 12↔16 toda la descarga, panic 2056ms→6, avgRtt 50-400ms). Fix: timestamp movido DENTRO del async (justo antes del sftp.read/write), buckets recalibrados (<30→12, <60→16, <120→24, else→max) y maxPipelineDepth restaurado a 32 (el downgrade a 16 del 23-jul era artefacto de la misma medición). Tests actualizados (AdaptiveTest, TransferConfigTest). PENDIENTE retest en dispositivo: la descarga de 712MB debería ir a ~7MB/s estable.
 **Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL
@@ -169,16 +181,4 @@
 ## 2026-07-22 11:43 — ClientSSH
 **Summary**: Camino C completado: 22 tests end-to-end nuevos en 1 commit cubriendo TransferEngine.download() y .upload() (los pipelines completos de lectura/escritura, no solo helpers aislados). Testeados vía sus wrappers públicos con SftpClient mockeado — sin necesitar accesores internal porque download/downloadToStream/upload ya son suspend fun públicas (a diferencia de withRetry/retryChunk que eran private en sesiones previas). Cobertura: happy path single/multi-chunk, fallos de stat/open, recovery via retry en chunk individual, agotamiento de retries, cierre de handle, resume-past-EOF short-circuit, flags CREATE+TRUNCATE vs WRITE-only según resumeFrom. Cero cambios a src/main — commit 100% de tests. Aprendizaje documentado sobre mockito-kotlin y parámetros default en funciones suspend (InvalidUseOfMatchersException si falta un matcher por parámetro real, incluso los con default value). Total acumulado en la rama: 86 tests, 0 failures (era 64).
 **Verified**: ./init.sh verde. 86 tests, 0 failures (era 64, +22). assembleDebug exitoso. git status confirmó cero cambios en src/main.
-**Completed**: none
----
----
-## 2026-07-22 11:37 — ClientSSH
-**Summary**: Camino B completado: refactor estructural pre-requisito para eliminar sshj. Extraídos SftpEntry y SftpAuthState de SftpClient.kt (legacy sshj) a SftpTypes.kt propio, mismo patrón que TransferProgress.kt. Move verbatim sin cambios de lógica, mismo package = cero cambios de import en los 4 consumidores (ISftpClient, SftpClient2, SftpViewModel, SftpScreen, SftpClipboard). También verificado manualmente que ISftpClient (17 miembros) está 100% implementado por ambos clientes sin gaps, confirmando que no falta portar funcionalidad legacy antes de poder eliminar sshj. No se agregaron tests para los tipos extraídos por ser value types puros sin lógica derivada (mismo criterio que TransferResult). 1 commit, 64 tests sin cambios (0 failures), ./init.sh verde, assembleDebug y assembleRelease compilan.
-**Verified**: ./init.sh verde. 64 tests, 0 failures (sin cambios respecto a antes, refactor puro). assembleDebug y assembleRelease ambos exitosos.
-**Completed**: none
----
----
-## 2026-07-22 08:24 — ClientSSH
-**Summary**: Camino A completado: 22 tests nuevos en 2 commits (retryChunk: 7 tests, mapResult: 6 tests, más ajuste de plan que descartó TransferResult por ser sealed class sin lógica). Total acumulado en la rama contrib/cbssh-sftp: 64 tests, 0 failures (era 42 al inicio de la sesión anterior). Aprendizajes clave documentados: SftpFileHandle (constructor internal en cbssh) se puede mockear con Mockito aunque no instanciar directamente; funs top-level internal colisionan por firma entre archivos del mismo package (a diferencia de private que es file-scoped) — encontrado con toException() duplicado, resuelto dejando la copia como private y testeando vía mapResult (misma lógica de ramas). Todos los cambios de producción son mínimos: accesores internal o cambios de visibilidad, cero refactors de lógica.
-**Verified**: ./init.sh verde en cada commit. Tests: 42→51→58→64, 0 failures en todo momento. APK debug compila en cada paso.
 **Completed**: none
