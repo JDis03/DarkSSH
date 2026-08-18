@@ -1,3 +1,15 @@
+## 2026-08-18 08:39 — ClientSSH
+**Summary**: Implementado quality-002 con verificación previa de la causa real: las descargas ya no destruyen la copia local si el remoto falla. TransferEngine valida stat+open antes de truncar (helpers statRemoteForDownload/openRemoteForDownload, loop extraído a downloadChunksToStream), check resume>=total antes del open (contrato de tests), caso 0-byte preservado. CbsshTransfer: preflight stat+open+close. Los 2 tests rotos se diagnosticaron con evidencia (NoWhenBranchMatchedException + verify never open), no por asunción. Commit f1e7ba6f pusheado.
+**Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: none
+---
+---
+## 2026-08-18 09:30 — ClientSSH
+**Summary**: Implementado quality-003 (structured concurrency): downloadChunksToStream y uploadInternal ya NO convierten la cancelación en TransferResult.Cancelled — ahora re-lanzan CancellationException (los finally cierran handle/stream). Verificado previamente que SftpViewModel captura CancellationException en su frontera en AMBOS flujos (download:759 limpia la notificación; upload:1166), así que el rethrow no rompe la UI y de paso arregla la notificación fantasma que quedaba colgada al cancelar una descarga. SftpClient2 ya re-lanzaba bien (828). Los 3 compat mantienen el branch Cancelled como defensivo (when exhaustivo, inalcanzable). Tests de propagación existentes (TransferEngineRetryTest:159, RetryChunkTest:144) siguen verdes.
+**Verified**: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK + assembleDebug OK
+**Completed**: quality-003
+---
+---
 ## 2026-08-18 09:00 — ClientSSH
 **Summary**: Implementado quality-002 (protección de datos): las descargas ya NO destruyen la copia local cuando el remoto falla. TransferEngine: downloadInternal/downloadToStreamInternal ahora validan el remoto (statRemoteForDownload + openRemoteForDownload) ANTES de abrir/truncar el archivo local; el loop de chunks se extrajo a downloadChunksToStream sin cambios de lógica. El check resumeFrom>=totalBytes quedó ANTES del open (contrato de TransferEngineDownloadTest: verify never open). Caso 0-byte preservado (crea archivo local vacío). CbsshTransfer.download: preflight stat+open+close antes de truncar. Ojo crítico: los 2 tests rotos se verificaron con evidencia real (NoWhenBranchMatchedException por open sin stub + verify(never).open) antes de corregir — no se asumió.
 **Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
@@ -183,16 +195,4 @@
 ## 2026-07-19 07:03 — ClientSSH
 **Summary**: Sesión productiva con 3 fixes/features completados: (1) Integración de TransferEngine en SftpClient2 - ahora cbssh usa el nuevo motor de transferencia con adaptive pipeline, retry, timeouts. (2) Fix bug Ctrl+Shift+V que enviaba paste a todos los tabs en vez del activo. (3) Fix bug scroll vertical en terminal que cambiaba tabs accidentalmente - agregado requestDisallowInterceptTouchEvent en TerminalView.onScroll. (4) Pinch zoom ahora cambia font size en vez de no hacer nada - conectado onScale callback con increaseFontSize/decreaseFontSize del bridge.
 **Verified**: ./init.sh passed - all tests green
-**Completed**: none
----
----
-## 2026-07-19 06:27 — ClientSSH
-**Summary**: Sesión cbssh SFTP: (1) Arreglé errores de compilación post-rebase (ISftpClient interface, SftpClient/SftpClient2 signatures, ConsoleScreen duplicate param). (2) Fix bug-013: cancellation en cbssh - agregué CancellationException handling y ensureActive() en todos los loops de CbsshTransfer. (3) Creé TransferEngine.kt - nuevo motor Kotlin-first con adaptive pipeline (2-32 basado en RTT), retry con exponential backoff, timeouts por operación, resume support, y Flow-based progress. NO integrado aún en SftpClient2. Próximos pasos: integrar TransferEngine, testear cbssh con switch ON, investigar bug de paste yendo a tab incorrecto.
-**Verified**: ./init.sh BUILD SUCCESSFUL
-**Completed**: none
----
----
-## 2026-07-18 20:29 — ClientSSH
-**Summary**: Refactor completo del código de tabs (refactor-002). Bugs corregidos: (1) Race condition en TabManager.closeTab() - ahora usa snapshot de tabs antes de modificaciones, (2) Flag shouldSwitchToNewTab no era thread-safe - ahora protegido por Mutex, (3) closeTab en TabbedMainScreen no esperaba cleanup - ahora usa try-finally y await. Mejoras: (1) Consolidé dos LaunchedEffects de bridge management en uno solo, (2) Extraje magic numbers a TabBarDefaults object, (3) Removí código muerto (widthFraction animation nunca usada), (4) Limpié imports FQN. También identifiqué bugs pendientes para futuro: SFTP activeClients usa hostId en vez de tabId (refactor-001 existente), y reorderTabs no tenía bounds checking (corregido).
-**Verified**: ./init.sh BUILD SUCCESSFUL (29 tasks)
 **Completed**: none

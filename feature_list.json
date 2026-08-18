@@ -364,6 +364,16 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Agregado catch(TimeoutCancellationException) explícito ANTES de catch(CancellationException) en: download loop (retryChunk + Failed), upload loop (retryWriteChunk), withRetry (IoError retryable + backoff), retryChunk y retryWriteChunk (log + siguiente intento). La cancelación real del usuario/padre sigue re-lanzándose intacta. Verificado: ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "quality-003",
+      "name": "TransferEngine swallows CancellationException into TransferResult.Cancelled (breaks structured concurrency)",
+      "description": "downloadChunksToStream/uploadInternal convertían la cancelación en un valor de retorno (TransferResult.Cancelled) en vez de re-lanzarla, rompiendo structured concurrency: los callers seguían ejecutando tras cancelación y la capa compat envolvía la cancelación en SftpResult.IoError. Verificado que SftpViewModel ya captura CancellationException en su frontera (download:759 limpia notificación; upload:1166), así que el rethrow es seguro y además arregla la notificación fantasma al cancelar downloads.",
+      "dependencies": [
+        "quality-001"
+      ],
+      "status": "done",
+      "evidence": "downloadChunksToStream y uploadInternal ahora hacen throw e en catch(CancellationException) (los finally cierran handle/stream). Los 3 compat (downloadCompat/downloadToStreamCompat/uploadCompat) mantienen el branch Cancelled como defensivo (when exhaustivo, inalcanzable). SftpClient2 ya re-lanzaba correctamente (línea 828). Tests existentes de propagación (TransferEngineRetryTest:159, RetryChunkTest:144) siguen verdes. Verificado: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK + assembleDebug OK."
     }
   ]
 }

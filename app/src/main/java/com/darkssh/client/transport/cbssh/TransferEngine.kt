@@ -600,8 +600,11 @@ class TransferEngine(
                 )
             }
         } catch (e: CancellationException) {
+            // quality-003: re-lanzar la cancelación para respetar structured concurrency
+            // (no convertirla en un resultado). Los finally cierran handle/stream; el
+            // caller (SftpViewModel) captura CancellationException en su frontera.
             Timber.d("[DL] Cancelled at $bytesWritten bytes")
-            return TransferResult.Cancelled
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "[DL] Failed at $bytesWritten bytes")
             return TransferResult.Failed(e, bytesWritten, canResume = true)
@@ -812,8 +815,9 @@ class TransferEngine(
                 }
             }
         } catch (e: CancellationException) {
+            // quality-003: re-lanzar la cancelación (ver downloadChunksToStream).
             Timber.d("[UL] Cancelled at $bytesWritten bytes")
-            return TransferResult.Cancelled
+            throw e
         } catch (e: Exception) {
             Timber.e(e, "[UL] Failed at $bytesWritten bytes")
             return TransferResult.Failed(e, bytesWritten, canResume = true)
