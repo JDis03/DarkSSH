@@ -135,3 +135,15 @@
 **Summary**: Implementado bug-010: bracketed paste fix en TerminalView.java (commitText detecta paste real via codePointCount>1, no length<=1, evitando falso positivo con emoji) y arreglado onPasteTextFromClipboard() en TerminalBridge.kt que era stub vacío (long-press Paste no funcionaba). BUILD SUCCESSFUL, sin tests unitarios en el proyecto (verificación = compilación).
 **Verified**: ./init.sh -> BUILD SUCCESSFUL (compilación Kotlin+Java OK, no hay unit tests en el proyecto)
 **Completed**: none
+---
+---
+## 2026-07-17 04:24 — ClientSSH
+**Summary**: Diagnosticado y corregido bug-012: conexión SSH a IP válida (192.168.50.45) fallaba con error de DNS en Xiaomi Redmi Note 8 Pro. Causa raíz identificada por análisis del log darkssh_20260716_233139.log: InetAddress.getAllByName() solo evita DNS si el string matchea EXACTAMENTE su parser estricto de IPv4 literal; ningún caracter extra invisible (espacio, NBSP, zero-width space) rompía ese match y forzaba un lookup DNS real que fallaba. Ningún .trim()/sanitización existía en el flujo de guardado de Host ni en SSH.kt. Fix: nuevo util/TextSanitizer.kt (trim + strip de caracteres Unicode invisibles, escaneando todo el string ya que Character.isWhitespace() excluye NBSP deliberadamente) aplicado en HostEditorViewModel.saveHost() (save-time, limpia la DB a futuro) y en SSH.kt connect()/authenticate() (use-time, desbloquea inmediatamente el host ya roto del usuario sin que tenga que reescribirlo). También se commiteó el trabajo acumulado de sesiones previas sin commitear (bug-010 bracketed paste, bug-011 key-based auth E2E, fixes de teclado/mouse-tracking en TUIs) en un solo commit combinado (6b3b3621) dado que SSH.kt mezclaba cambios de bug-011 y bug-012 no separables limpiamente por hunks.
+**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL, dos veces (antes y después del commit). Compilación limpia sin warnings nuevos relevantes. NO verificado en el dispositivo Xiaomi real del usuario (no había adb access en esta sesión, solo se proveyó el archivo de log) - pendiente que el usuario reinstale el APK y reintente conectar a 'arch' sin reeditar el host.
+**Completed**: none
+---
+---
+## 2026-07-16 00:59 — ClientSSH
+**Summary**: Implementado bug-011: key-based SSH login gestionado end-to-end desde la app. 4 fixes usando connectbot/ como referencia: (1) dropdown roto de SSH Key en Host Editor (ExposedDropdownMenuBox + PrimaryNotEditable), (2) host.pubkeyId ahora se usa realmente en SSH.kt::authenticate() en vez de ignorarse, (3) export de clave pública a clipboard vía PublicKeyUtils.toAuthorizedKeysFormat (sshlib), (4) agregada entrada real 'SSH Keys' en Settings ya que PubkeyListScreen/GeneratePubkeyScreen eran inalcanzables (NavGraph.kt es código muerto, MainScreen.kt). Clean build 44/44 + ./init.sh OK.
+**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL (44/44 fresh) + ./init.sh BUILD SUCCESSFUL; verificado en device real conectado vía adb (127.0.0.1:15555), DB inspeccionada en cada paso
+**Completed**: none

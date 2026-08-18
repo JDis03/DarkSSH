@@ -17,6 +17,7 @@ package com.darkssh.client.transport.cbssh
 import com.darkssh.client.transport.TransferProgress
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
@@ -423,6 +424,23 @@ class TransferEngine(
                                     )
                                 }
                             }
+                        } catch (e: TimeoutCancellationException) {
+                            // Real per-chunk operation timeout (withTimeout expiry).
+                            // MUST be caught before CancellationException — it IS a
+                            // CancellationException, so an unguarded rethrow here would
+                            // kill the retry-on-timeout path and misreport network stalls
+                            // as user cancellation (quality-001).
+                            val retryResult = retryChunk(handle, request.offset, chunkSize)
+                            if (retryResult != null) {
+                                totalRetries++
+                                retryResult
+                            } else {
+                                return@coroutineScope TransferResult.Failed(
+                                    e,
+                                    bytesWritten,
+                                    canResume = true,
+                                )
+                            }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -641,6 +659,12 @@ class TransferEngine(
                                         )
                                     }
                                 }
+                            } catch (e: TimeoutCancellationException) {
+                                // Real per-chunk write timeout — retry, don't rethrow as
+                                // cancellation (quality-001, see download loop).
+                                val retried = retryWriteChunk(handle, request.offset, request.data)
+                                if (retried) totalRetries++
+                                retried
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
@@ -808,6 +832,16 @@ class TransferEngine(
                         }
                     }
                 }
+            } catch (e: TimeoutCancellationException) {
+                // withTimeout expiry = transient stall, retryable (quality-001: without
+                // this explicit catch the exception was rethrown as a CancellationException,
+                // making every timeout look like user cancellation and skipping the retry).
+                lastError = SftpResult.IoError(e)
+                if (attempt < config.maxRetries - 1) {
+                    Timber.w("[$name] Timeout attempt ${attempt + 1}, retry in ${delayMs}ms")
+                    delay(delayMs)
+                    delayMs *= 2
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -844,6 +878,9 @@ class TransferEngine(
                     Timber.d("[RETRY] Chunk at $offset succeeded on attempt ${attempt + 2}")
                     return result.value
                 }
+            } catch (e: TimeoutCancellationException) {
+                // Transient read timeout — keep trying on the next attempt (quality-001).
+                Timber.w("[RETRY] Chunk at $offset attempt ${attempt + 2} timed out")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -875,6 +912,9 @@ class TransferEngine(
                     Timber.d("[RETRY] Write chunk at $offset succeeded on attempt ${attempt + 2}")
                     return true
                 }
+            } catch (e: TimeoutCancellationException) {
+                // Transient write timeout — keep trying on the next attempt (quality-001).
+                Timber.w("[RETRY] Write chunk at $offset attempt ${attempt + 2} timed out")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

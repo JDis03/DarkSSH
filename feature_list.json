@@ -356,6 +356,14 @@
       ],
       "status": "done",
       "evidence": "Fix en SftpViewModel.pasteFiles(): cuando destPath == sourcePath (pegar en la misma carpeta), COPY genera un nombre único con el helper copyName() ('archivo (copia).ext', '(copia 2)', ...) verificando colisiones con client.exists() antes de llamar copyFileViaSsh; CUT se salta como no-op (skippedCount) y si todo fue skip el mensaje es 'Origen y destino son el mismo — nada que mover'. Dotfiles no se parten por extensión ('.env' -> '.env (copia)'). Verificado: ./init.sh BUILD SUCCESSFUL (unit tests verdes), ./gradlew assembleDebug exit 0. NO verificado aún en dispositivo físico — reintentar copiar+pegar en la misma carpeta."
+    },
+    {
+      "id": "quality-001",
+      "name": "TransferEngine: retries-on-timeout dead (TimeoutCancellationException swallowed as CancellationException)",
+      "description": "Code review del transporte cbssh (SftpClient2/TransferEngine/CbsshTransfer) reveló que en los 5 catch sites de TransferEngine.kt el catch(CancellationException){throw e} venía primero, así que un timeout real de withTimeout (TimeoutCancellationException extiende CancellationException) escapaba como 'cancelación de usuario': el retry-on-timeout nunca corría, los stalls de red se reportaban como cancelados y conRetry/retryChunk/retryWriteChunk no reintentaban timeouts.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Agregado catch(TimeoutCancellationException) explícito ANTES de catch(CancellationException) en: download loop (retryChunk + Failed), upload loop (retryWriteChunk), withRetry (IoError retryable + backoff), retryChunk y retryWriteChunk (log + siguiente intento). La cancelación real del usuario/padre sigue re-lanzándose intacta. Verificado: ./init.sh BUILD SUCCESSFUL."
     }
   ]
 }
