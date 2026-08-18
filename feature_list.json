@@ -431,6 +431,17 @@
       ],
       "status": "done",
       "evidence": "Benchmark SftpThroughputBenchmarkTest (temporal, eliminado): DL 130MB/s, UL 170MB/s en PC. El código es rápido; el techo es el móvil. Mejora total acumulada: DL 3.4→6.4MB/s (+88%). UL 3.2MB/s pendiente de verificar con app de referencia (Termius/Solid Explorer) para saber si es techo WiFi TX del móvil. Verificado: benchmark en fork eliminado, feat/copy-data-extension limpio (upstream + copy-data + ventana + keepAlive, 3 commits, pusheado a JDis03/cbssh)."
+    },
+    {
+      "id": "quality-010",
+      "name": "Validación final throughput: 28-32 MB/s en dispositivo real (DL y UL) con el pipeline optimizado",
+      "description": "Log real 2026-08-18 15:56 (servidor 192.168.50.152): descarga 712MB en 21.9s = 31.7MB/s, upload en 23.2s = 29.9MB/s. De 3.4MB/s originales (sawtooth+panic) a ~30MB/s estables con los fixes acumulados: medición RTT dentro del async, buckets recalibrados, chunk 128KB, depth 32, ventana 16MB. RTT medido 60-160ms estable, depth 24-32, retries=0. El engine ya no es el cuello: entrega ~30MB/s cuando el enlace lo permite.",
+      "dependencies": [
+        "quality-007",
+        "quality-009"
+      ],
+      "status": "done",
+      "evidence": "Log dispositivo: [DL] 28075KB/s, [UL] 29906KB/s, [DL] 31669KB/s — 3 corridas consistentes. El techo anterior de 6.4MB/s era el WiFi 2.4GHz del router (5GHz muerto — hardware/firmware RT-AX54, fuera del alcance de la app). Pendiente: bug del cancel-que-mata-la-conexión (TODO registrado)."
     }
   ]
 }
