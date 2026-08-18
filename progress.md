@@ -1,3 +1,21 @@
+## 2026-08-18 12:25 — ClientSSH
+**Summary**: quality-007 — el log real del dispositivo reveló la causa del throughput bajo (3.4MB/s en un link de ~7MB/s): la medición de RTT usaba el timestamp de ENCOLADO del async, incluyendo la espera de thread del pool de coroutines → el adaptativo se auto-congestionaba por medición (sawtooth depth 12↔16 toda la descarga, panic 2056ms→6, avgRtt 50-400ms). Fix: timestamp movido DENTRO del async (justo antes del sftp.read/write), buckets recalibrados (<30→12, <60→16, <120→24, else→max) y maxPipelineDepth restaurado a 32 (el downgrade a 16 del 23-jul era artefacto de la misma medición). Tests actualizados (AdaptiveTest, TransferConfigTest). PENDIENTE retest en dispositivo: la descarga de 712MB debería ir a ~7MB/s estable.
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL
+**Completed**: quality-007
+---
+---
+## 2026-08-18 12:14 — ClientSSH
+**Summary**: Fork cbssh verificado y listo para el PR de copy-data: rama feat/copy-data-extension rebasada sobre upstream/main (8 commits de renovate sin conflicto), api.txt descontaminado (5 líneas de keepAlive de la main local rompían metalavaCheckCompatibility), spotless aplicado (solo header copyright), build completo verde (test+spotless+metalava+kover), 1215 tests 0 fallos incluyendo los 3 archivos de test de copy-data (SftpClientIntegrationTest con Docker real). Rama pusheada a JDis03/cbssh. Falta solo el testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227).
+**Verified**: ./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotless, metalava, kover OK) en Java 21 con Docker disponible
+**Completed**: none
+---
+---
+## 2026-08-18 12:02 — ClientSSH
+**Summary**: Completado el plan de robustez cbssh: quality-005 Flow APIs arregladas (channel siempre cerrado + resultado propagado al collector, 3 tests nuevos) y quality-006 uploadParallel eliminada (dead code con off-by-one, -110 líneas + constantes muertas). Commits bb107f70 y 9773f02e pusheados. Plan quality-001..006 completo, todo verificado verde.
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: none
+---
+---
 ## 2026-08-18 12:03 — ClientSSH
 **Summary**: Implementados quality-005 y quality-006 (ambos dead code, decisiones opuestas con ojo crítico). quality-005 — Flow APIs ARREGLADAS (son API pública útil): el job cierra el channel SIEMPRE (try/finally cubre éxito/fallo/cancelación incl. rethrow de quality-003), el resultado se propaga al collector (Failed/Cancelled lanzados vía job.await()) y job.cancel() si el collector cancela. 3 tests nuevos (completa sin colgarse, propaga fallo, upload completa). quality-006 — uploadParallel ELIMINADA (110 líneas + constantes muertas DEFAULT_CHUNK_SIZE/DEFAULT_PARALLEL_CHUNKS): dead code con off-by-one (perdía el último byte de cada chunk) y sin límite de concurrencia; arreglar código sin callers solo agrega superficie de bugs. Verificado todo verde.
 **Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
@@ -163,22 +181,4 @@
 ## 2026-07-22 08:24 — ClientSSH
 **Summary**: Camino A completado: 22 tests nuevos en 2 commits (retryChunk: 7 tests, mapResult: 6 tests, más ajuste de plan que descartó TransferResult por ser sealed class sin lógica). Total acumulado en la rama contrib/cbssh-sftp: 64 tests, 0 failures (era 42 al inicio de la sesión anterior). Aprendizajes clave documentados: SftpFileHandle (constructor internal en cbssh) se puede mockear con Mockito aunque no instanciar directamente; funs top-level internal colisionan por firma entre archivos del mismo package (a diferencia de private que es file-scoped) — encontrado con toException() duplicado, resuelto dejando la copia como private y testeando vía mapResult (misma lógica de ramas). Todos los cambios de producción son mínimos: accesores internal o cambios de visibilidad, cero refactors de lógica.
 **Verified**: ./init.sh verde en cada commit. Tests: 42→51→58→64, 0 failures en todo momento. APK debug compila en cada paso.
-**Completed**: none
----
----
-## 2026-07-22 03:15 — ClientSSH
-**Summary**: Tests de TransferEngine.withRetry: 9 tests nuevos cubriendo clasificación de errores (Success/ServerError/ProtocolError/IoError), retry vs no-retry, maxRetries, exponential backoff, CancellationException propagation. Mismo patrón que sesión anterior: accesor internal (withRetryForTest) hace visible la función privada solo para tests del mismo módulo, sin cambiar API pública ni lógica de producción. Verificación: 51 tests total, 0 failures (era 42), ./init.sh verde, APK debug compila sin warnings. Total acumulado en este branch: 4 commits agregando tests, 51 tests, 0 regressions.
-**Verified**: ./init.sh pasó completo. 51 tests, 0 failures. Antes: 42 tests. +9 tests nuevos todos verdes.
-**Completed**: none
----
----
-## 2026-07-22 03:03 — ClientSSH
-**Summary**: Tests del pipeline adaptativo de TransferEngine: 9 tests nuevos cubriendo EMA (exponential moving average), adaptación de profundidad basada en RTT buckets (<20, <50, <100, <200, else), bounds clamping (min/max), y comportamiento gradual (±1 por sample). Para hacer state interno observable desde tests, agregué 3 accesores 'internal' (currentPipelineDepthForTest, avgRttMsForTest, updateRttForTest) — internal es invisible a callers externos pero visible desde tests del mismo módulo. Cero cambios de lógica de producción. Verificación: 42 tests, 0 failures (era 33), ./init.sh verde, APK debug compila sin warnings. Pre-requisito cumplido para eliminar sshj legacy en siguientes sesiones.
-**Verified**: ./init.sh pasó completo. 42 tests, 0 failures, 2.3s. Antes: 33 tests, 0 failures. +9 tests nuevos todos verdes.
-**Completed**: none
----
----
-## 2026-07-22 02:56 — ClientSSH
-**Summary**: Refactor: extraje TransferProgress de SftpClient.kt (legacy sshj) a su propio archivo TransferProgress.kt en el package com.darkssh.client.transport. Agregué 15 tests unitarios (TransferProgressTest) cubriendo percentage, elapsedSeconds, speed, speedFormatted con edge cases (zero total, backwards clock, etc.). Todos los call sites (7 archivos) ya importaban desde el package correcto, así que el refactor fue transparente sin tocar imports. Verificación: 33 tests total (era 18), 0 failures, ./init.sh verde, compilación limpia sin warnings. Pre-requisito para eventual eliminación de SftpClient.kt sshj legacy.
-**Verified**: ./init.sh pasó completo. 33 tests, 0 failures, 1.8s. Antes: 18 tests, 0 failures. +15 tests nuevos todos verdes.
 **Completed**: none

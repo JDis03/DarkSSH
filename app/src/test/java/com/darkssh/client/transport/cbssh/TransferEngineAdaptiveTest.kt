@@ -24,8 +24,8 @@ import org.mockito.Mockito.mock
  * The adaptive logic:
  * - First sample initializes the average
  * - Subsequent samples use EMA: (avg * 7 + sample) / 8
- * - Pipeline depth adjusts gradually toward target based on RTT buckets:
- *   <20ms = min (default 6), <50ms = 8, <100ms = 12, else = max (default 16)
+ * - Pipeline depth adjusts gradually toward target based on RTT buckets
+ *   (2026-08-18 calibration): <30ms = 12, <60ms = 16, <120ms = 24, else = max (default 32)
  * - Adjustments are ±1 per sample (gradual), clamped to [min, max]
  * - Circuit breaker: avgRttMs >= panicRttMs (default 2000ms) snaps depth straight
  *   to min instead of the gradual step — see [TransferConfig.panicRttMs]
@@ -63,35 +63,36 @@ class TransferEngineAdaptiveTest {
     }
 
     @Test
-    fun `low RTT adapts pipeline to min depth`() {
-        // Min default = 6, initial = 8, RTT < 20ms target = min
+    fun `low RTT adapts pipeline toward the calibrated floor`() {
+        // Bucket <30ms target = 12 (2026-08-18 calibration: a 32KB-chunk pipeline of 12
+        // fills a ~7MB/s link at ~30ms RTT; even low-RTT links benefit from parallelism)
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
 
-        // Sample 10ms RTT many times — pipeline should drop to min (6)
+        // Sample 10ms RTT many times — pipeline should ramp to 12
         repeat(20) { engine.updateRttForTest(10L) }
 
-        assertEquals(6, engine.currentPipelineDepthForTest)
+        assertEquals(12, engine.currentPipelineDepthForTest)
     }
 
     @Test
     fun `medium RTT adapts pipeline gradually toward target`() {
-        // RTT 40ms target = 8 (the <50ms bucket), initial = 8 → should stay at 8
+        // RTT 40ms target = 16 (the <60ms bucket), initial = 8 → ramp up to 16
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
 
-        repeat(10) { engine.updateRttForTest(40L) }
+        repeat(20) { engine.updateRttForTest(40L) }
 
-        assertEquals(8, engine.currentPipelineDepthForTest)
+        assertEquals(16, engine.currentPipelineDepthForTest)
     }
 
     @Test
     fun `high RTT adapts pipeline toward max depth`() {
-        // RTT >= 100ms (sub-panic) target = max (default 16), initial = 8 → gradual ramp up
+        // RTT >= 120ms (sub-panic) target = max (default 32), initial = 8 → gradual ramp up
         val engine = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
 
-        // 24 samples is well past the 8 steps needed to ramp 8 → 16
-        repeat(24) { engine.updateRttForTest(500L) }
+        // 40 samples is well past the 24 steps needed to ramp 8 → 32
+        repeat(40) { engine.updateRttForTest(500L) }
 
-        assertEquals(16, engine.currentPipelineDepthForTest)
+        assertEquals(32, engine.currentPipelineDepthForTest)
     }
 
     @Test
@@ -125,16 +126,16 @@ class TransferEngineAdaptiveTest {
     }
 
     @Test
-    fun `RTT boundary at 20ms switches target`() {
-        // 19ms → target = min (default 6)
-        // 21ms → target = next bucket (8)
+    fun `RTT boundary at 30ms switches target`() {
+        // 29ms → target = 12 (the <30ms bucket)
+        // 31ms → target = 16 (the <60ms bucket)
         val engine1 = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 4))
-        repeat(20) { engine1.updateRttForTest(19L) }
-        assertEquals(6, engine1.currentPipelineDepthForTest) // min
+        repeat(30) { engine1.updateRttForTest(29L) }
+        assertEquals(12, engine1.currentPipelineDepthForTest)
 
         val engine2 = TransferEngine(sftp, TransferConfig(initialPipelineDepth = 8))
-        repeat(20) { engine2.updateRttForTest(21L) }
-        assertEquals(8, engine2.currentPipelineDepthForTest) // next bucket above min
+        repeat(30) { engine2.updateRttForTest(31L) }
+        assertEquals(16, engine2.currentPipelineDepthForTest)
     }
 
     @Test
@@ -171,7 +172,8 @@ class TransferEngineAdaptiveTest {
         // from 5000, then depth ramps back up gradually (+1 per sample) once it does.
         repeat(60) { engine.updateRttForTest(10L) }
 
-        assertEquals(6, engine.currentPipelineDepthForTest) // low-RTT target is also min
+        // Calibrated low-RTT target (2026-08-18) is 12, not the old min-floor of 6.
+        assertEquals(12, engine.currentPipelineDepthForTest)
     }
 
     @Test

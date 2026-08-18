@@ -106,16 +106,17 @@ data class TransferConfig(
     /**
      * Max pipeline depth (won't exceed this).
      *
-     * Was 32. Real-device testing (2026-07-23, 375MB down+up over a private LAN)
-     * showed the circuit breaker ([panicRttMs]) repeatedly firing at depth 32 — the
-     * "good" steady-state RTT at that depth (~230-260ms) is plausibly mostly
-     * self-inflicted queueing/dispatch overhead rather than genuine throughput benefit
-     * (Little's Law: throughput ≈ depth / RTT, so a lower depth reaching proportionally
-     * lower RTT can match or beat a higher depth that needs a higher RTT to sustain).
-     * Lowered to 16 to keep the pipeline out of the range where it kept tipping into
-     * self-congestion on this device/link.
+     * Was 32, lowered to 16 on 2026-07-23 because the circuit breaker kept firing at
+     * depth 32 — but that was an artifact of the RTT measurement including the coroutine
+     * pool queueing delay (dispatchTime was taken when the async was *enqueued*, not when
+     * the read/write actually started), so the engine was measuring its own self-congestion
+     * and sawtoothing between depths. With the measurement fixed (timestamp taken inside
+     * the async, right before the SFTP call), depth 32 with 32KB chunks = 1MB in flight —
+     * enough to fill a ~7MB/s link at ~150ms RTT — without the runaway panic loop. See the
+     * real-device log (2026-08-18): 712MB at 3.4MB/s average with depth oscillating 12<->16
+     * and a panic snap, on a link capable of ~7MB/s.
      */
-    val maxPipelineDepth: Int = 16,
+    val maxPipelineDepth: Int = 32,
     /** Chunk size for reads/writes */
     val chunkSize: Int = 32 * 1024,
     /** Max retries per chunk */
@@ -550,8 +551,16 @@ class TransferEngine(
                     window.addLast(
                         PipelineRequest(
                             offset = offset,
-                            deferred = async { sftp.read(handle, offset, chunkSize) },
-                            dispatchTime = System.nanoTime(),
+                            // El timestamp se toma DENTRO del async, justo antes del read real:
+                            // medir desde el encolado incluiría la espera de thread del pool de
+                            // coroutines, inflando el "RTT" y provocando auto-congestión medida
+                            // (sawtooth depth 12<->16 + panics, throughput 3.4MB/s en un link de
+                            // ~7MB/s — ver log real 2026-08-18).
+                            deferred =
+                                async {
+                                    val start = System.nanoTime()
+                                    sftp.read(handle, offset, chunkSize) to start
+                                },
                         ),
                     )
                 }
@@ -560,18 +569,18 @@ class TransferEngine(
                     coroutineContext.ensureActive()
 
                     val request = window.removeFirst()
-                    val chunkStart = System.nanoTime()
 
                     // Await with timeout and retry
                     val chunk =
                         try {
-                            val result =
+                            val (result, readStartNanos) =
                                 withTimeout(config.operationTimeoutMs) {
                                     request.deferred.await()
                                 }
 
-                            // Measure RTT and adapt pipeline
-                            val rttMs = (System.nanoTime() - request.dispatchTime) / 1_000_000
+                            // Measure RTT (tiempo real del read de red, sin cola de thread) and
+                            // adapt pipeline
+                            val rttMs = (System.nanoTime() - readStartNanos) / 1_000_000
                             updateRtt(rttMs)
 
                             when (result) {
@@ -664,8 +673,11 @@ class TransferEngine(
                         window.addLast(
                             PipelineRequest(
                                 offset = offset,
-                                deferred = async { sftp.read(handle, offset, chunkSize) },
-                                dispatchTime = System.nanoTime(),
+                                deferred =
+                                    async {
+                                        val start = System.nanoTime()
+                                        sftp.read(handle, offset, chunkSize) to start
+                                    },
                             ),
                         )
                     }
@@ -818,8 +830,12 @@ class TransferEngine(
                                 offset = offset,
                                 size = read,
                                 data = data,
-                                deferred = async { sftp.write(handle, offset, data) },
-                                dispatchTime = System.nanoTime(),
+                                // timestamp dentro del async — RTT real del write, sin cola de thread
+                                deferred =
+                                    async {
+                                        val start = System.nanoTime()
+                                        sftp.write(handle, offset, data) to start
+                                    },
                             ),
                         )
                     }
@@ -836,12 +852,12 @@ class TransferEngine(
 
                         val ok =
                             try {
-                                val result =
+                                val (result, writeStartNanos) =
                                     withTimeout(config.operationTimeoutMs) {
                                         request.deferred.await()
                                     }
 
-                                val rttMs = (System.nanoTime() - request.dispatchTime) / 1_000_000
+                                val rttMs = (System.nanoTime() - writeStartNanos) / 1_000_000
                                 updateRtt(rttMs)
 
                                 when (result) {
@@ -965,22 +981,24 @@ class TransferEngine(
             return
         }
 
-        // Adapt pipeline depth based on RTT
+        // Adapt pipeline depth based on measured RTT (real read/write time, no queueing —
+        // the timestamp is taken inside the async; see the loop dispatch comments).
         // High latency = deeper pipeline, low latency = shallower — but even "low
         // latency" still benefits from real parallelism, so the floor is
         // config.minPipelineDepth (see its doc) rather than a near-serial depth of 2.
-        // Bucket ceiling is config.maxPipelineDepth (see its doc for why it's 16, not
-        // 32) — collapsed the old <200ms/else split since both resolved to the same
-        // "go to max" behavior once max was lowered.
+        //
+        // Calibration (2026-08-18, real-device log): a ~7MB/s WiFi link with RTT ~40-60ms
+        // needs >= 12 chunks of 32KB in flight to fill (BDP ≈ 280-420KB). Buckets are
+        // sized so the engine reaches a depth that actually fills the link, with margin.
         val targetDepth =
             when {
-                avgRttMs < 20 -> config.minPipelineDepth
+                avgRttMs < 30 -> 12
 
-                avgRttMs < 50 -> 8
+                avgRttMs < 60 -> 16
 
-                avgRttMs < 100 -> 12
+                avgRttMs < 120 -> 24
 
-                else -> config.maxPipelineDepth // Genuinely high (but sub-panic) latency
+                else -> config.maxPipelineDepth // Genuinely high latency (sub-panic)
             }
 
         // Gradual adjustment
@@ -1129,8 +1147,8 @@ class TransferEngine(
 
     private data class PipelineRequest(
         val offset: Long,
-        val deferred: kotlinx.coroutines.Deferred<SftpResult<ByteArray?>>,
-        val dispatchTime: Long,
+        /** (resultado del read, nanoTime al INICIAR el read real dentro del async). */
+        val deferred: kotlinx.coroutines.Deferred<Pair<SftpResult<ByteArray?>, Long>>,
     )
 
     private data class PipelineWriteRequest(
@@ -1138,8 +1156,8 @@ class TransferEngine(
         val size: Int,
         /** Kept so a failed write can be retried without re-reading the local file. */
         val data: ByteArray,
-        val deferred: kotlinx.coroutines.Deferred<SftpResult<Unit>>,
-        val dispatchTime: Long,
+        /** (resultado del write, nanoTime al INICIAR el write real dentro del async). */
+        val deferred: kotlinx.coroutines.Deferred<Pair<SftpResult<Unit>, Long>>,
     )
     // === CbsshTransfer-compatible API ===
     // These methods return SftpResult for drop-in replacement of CbsshTransfer

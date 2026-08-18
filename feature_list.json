@@ -402,6 +402,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Decisión con ojo crítico: eliminar en vez de arreglar — dead code con bugs reales = superficie de riesgo (lección de la review: uploadParallel era código muerto mantenido). Eliminada la función completa (110 líneas) + las constantes muertas DEFAULT_CHUNK_SIZE/DEFAULT_PARALLEL_CHUNKS. Verificado: testDebugUnitTest + ./init.sh + assembleDebug OK."
+    },
+    {
+      "id": "quality-007",
+      "name": "RTT measured from async enqueue time includes coroutine-pool queueing → sawtooth, panic, 3.4MB/s on a ~7MB/s link",
+      "description": "El dispatchTime del pipeline se tomaba al ENCOLAR el async, no al ejecutar el read/write. Con depth alto, los asyncs esperan thread del pool de coroutines compartido → el 'RTT medido' incluía esa espera → el adaptativo veía latencia subiendo → subía depth → más coroutines → más espera (auto-congestión MEDIDA). Log real 2026-08-18: depth oscilando 12<->16 toda la descarga, avgRtt 50-400ms, panic 2056ms→depth 6, y 712MB en 204s = 3408KB/s en un link de ~7MB/s.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Timestamp movido DENTRO del async (justo antes del sftp.read/write): PipelineRequest/PipelineWriteRequest ahora llevan Deferred<Pair<resultado, nanoTimeInicio>> y el RTT se mide desde ahí (tiempo real de red, sin cola de thread). Recalibrados los buckets: <30→12, <60→16, <120→24, else→max; maxPipelineDepth 16→32 (el motivo del downgrade a 16 — panic en depth 32 del 23-jul — era un artefacto de esta misma medición corrupta; depth 32×32KB = 1MB en vuelo llena un link de 7MB/s hasta ~150ms RTT). Tests actualizados (AdaptiveTest buckets/recovery, TransferConfigTest default 32). Verificado: testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE retest en dispositivo real: con el fix, la descarga de 712MB debería ir a ~7MB/s estable sin sawtooth ni panic."
     }
   ]
 }

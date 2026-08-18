@@ -25,9 +25,12 @@ class TransferConfigTest {
         val config = TransferConfig()
 
         // Lock in current defaults so silent changes are caught by CI.
+        // maxPipelineDepth: 32 desde 2026-08-18 (medición de RTT corregida dentro del
+        // async; depth 16 dejaba el pipeline corto para llenar un link de ~7MB/s a RTT
+        // ~60ms: BDP ≈ 420KB = 14 chunks de 32KB).
         assertEquals(12, config.initialPipelineDepth)
         assertEquals(6, config.minPipelineDepth)
-        assertEquals(16, config.maxPipelineDepth)
+        assertEquals(32, config.maxPipelineDepth)
         assertEquals(32 * 1024, config.chunkSize)
         assertEquals(3, config.maxRetries)
         assertEquals(1000L, config.retryDelayMs)
