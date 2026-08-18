@@ -23,6 +23,7 @@ import org.junit.Before
 import org.junit.Test
 import org.mockito.Mockito.mock
 import org.mockito.kotlin.any
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 import java.io.File
 import java.io.IOException
@@ -245,5 +246,60 @@ class TransferEngineDownloadTest {
         assertTrue("Expected Success, got: $result", result is TransferResult.Success)
         result as TransferResult.Success
         assertEquals(0L, result.bytesTransferred)
+    }
+
+    @Test
+    fun `download resuming keeps existing local prefix and appends the rest`() = runTest {
+        stubOpenAndCloseSucceed()
+        val engine = TransferEngine(sftp, TransferConfig(chunkSize = 1024))
+        localFile.writeBytes(ByteArray(5) { 1 }) // prefix ya descargado en un intento previo
+        val data = ByteArray(10) { 2 }
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 15L)))
+        whenever(sftp.read(handle, 5L, 1024)).thenReturn(SftpResult.Success(data))
+
+        val result = engine.download("remote.bin", localFile, resumeFrom = 5L)
+
+        assertTrue("Expected Success, got: $result", result is TransferResult.Success)
+        result as TransferResult.Success
+        assertEquals(10L, result.bytesTransferred)
+        val expected = ByteArray(5) { 1 } + data
+        assertEquals("local file must keep the 5-byte prefix and append 10 bytes", expected.toList(), localFile.readBytes().toList())
+    }
+
+    @Test
+    fun `download resuming truncates stale tail beyond resume point`() = runTest {
+        stubOpenAndCloseSucceed()
+        val engine = TransferEngine(sftp, TransferConfig(chunkSize = 1024))
+        localFile.writeBytes(ByteArray(12) { 1 }) // local más largo que el punto de resume
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 15L)))
+        whenever(sftp.read(handle, 5L, 1024)).thenReturn(SftpResult.Success(ByteArray(10) { 2 }))
+
+        val result = engine.download("remote.bin", localFile, resumeFrom = 5L)
+
+        assertTrue("Expected Success, got: $result", result is TransferResult.Success)
+        result as TransferResult.Success
+        // 5 bytes de prefix + 10 nuevos = 15; los 7 bytes basura del final deben recortarse
+        assertEquals(15L, localFile.length())
+        assertEquals(10L, result.bytesTransferred)
+    }
+
+    @Test
+    fun `download resuming fails when local file does not exist`() = runTest {
+        stubOpenAndCloseSucceed()
+        val engine = TransferEngine(sftp, TransferConfig())
+        // el archivo local no existe en disco (setup crea uno; lo borramos)
+        localFile.delete()
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 15L)))
+
+        val result = engine.download("remote.bin", localFile, resumeFrom = 5L)
+
+        assertTrue("Expected Failed, got: $result", result is TransferResult.Failed)
+        result as TransferResult.Failed
+        assertTrue(!result.canResume)
+        // el handle remoto se cerró aunque el local falló
+        verify(sftp).close(handle)
     }
 }

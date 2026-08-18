@@ -374,6 +374,16 @@
       ],
       "status": "done",
       "evidence": "downloadChunksToStream y uploadInternal ahora hacen throw e en catch(CancellationException) (los finally cierran handle/stream). Los 3 compat (downloadCompat/downloadToStreamCompat/uploadCompat) mantienen el branch Cancelled como defensivo (when exhaustivo, inalcanzable). SftpClient2 ya re-lanzaba correctamente (línea 828). Tests existentes de propagación (TransferEngineRetryTest:159, RetryChunkTest:144) siguen verdes. Verificado: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK + assembleDebug OK."
+    },
+    {
+      "id": "quality-004",
+      "name": "Transfer resume is broken: download truncates instead of seeking; upload skips partially without validation",
+      "description": "downloadInternal abría el local con outputStream() (trunca) aunque resumeFrom>0 (el 'seek' prometido en el comentario no existía); uploadInternal hacía input.skip(resumeFrom) sin chequear el retorno (skip parcial posible) y sin validar que el remoto tuviera >= resumeFrom bytes (gap de ceros). API pública rota aunque la app hoy siempre pasa resumeFrom=0.",
+      "dependencies": [
+        "quality-002"
+      ],
+      "status": "done",
+      "evidence": "download: openResumableOutputStream() usa RandomAccessFile (setLength recorta cola basura + seek a resumeFrom), falla claro si el local no existe. upload: skipFully() salta exactamente N bytes (EOFException si el local es más corto) + validación stat del remoto cuando resumeFrom>0 (Failed si el remoto es más chico, sin abrir handle). 6 tests nuevos/actualizados: 3 de download resume (prefix preservado, cola recortada, local inexistente) y 3 de upload (flags WRITE-only con stat stub, write desde offset de resume, remoto más chico → Failed sin open). Verificado: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK."
     }
   ]
 }

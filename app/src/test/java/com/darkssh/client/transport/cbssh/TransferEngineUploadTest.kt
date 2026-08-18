@@ -10,6 +10,7 @@ package com.darkssh.client.transport.cbssh
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
+import org.connectbot.sshlib.SftpAttributes
 import org.connectbot.sshlib.SftpClient
 import org.connectbot.sshlib.SftpFileHandle
 import org.connectbot.sshlib.SftpResult
@@ -232,6 +233,8 @@ class TransferEngineUploadTest {
         stubOpenAndCloseSucceed()
         localFile.writeBytes(ByteArray(20))
         whenever(sftp.write(eq(handle), any(), any())).thenReturn(SftpResult.Success(Unit))
+        // quality-004: con resumeFrom > 0 el engine valida el remoto con stat antes del open
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 10L)))
 
         val engine = TransferEngine(sftp, TransferConfig())
         engine.upload(localFile, "remote.bin", resumeFrom = 10)
@@ -241,5 +244,39 @@ class TransferEngineUploadTest {
             eq(setOf(org.connectbot.sshlib.SftpOpenFlag.WRITE)),
             any(),
         )
+    }
+
+    @Test
+    fun `upload resuming writes from the resume offset`() = runTest {
+        stubOpenAndCloseSucceed()
+        localFile.writeBytes(ByteArray(50) { it.toByte() })
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 20L)))
+        whenever(sftp.write(eq(handle), any(), any())).thenReturn(SftpResult.Success(Unit))
+
+        val engine = TransferEngine(sftp, TransferConfig(chunkSize = 1024))
+        val result = engine.upload(localFile, "remote.bin", resumeFrom = 20L)
+
+        assertTrue("Expected Success, got: $result", result is TransferResult.Success)
+        result as TransferResult.Success
+        assertEquals(30L, result.bytesTransferred)
+        // los primeros 20 bytes ya estaban subidos: el primer write va al offset 20
+        verify(sftp).write(eq(handle), eq(20L), any())
+    }
+
+    @Test
+    fun `upload resuming fails when remote is smaller than resume point`() = runTest {
+        val engine = TransferEngine(sftp, TransferConfig())
+        localFile.writeBytes(ByteArray(50) { 1 })
+
+        whenever(sftp.stat("remote.bin")).thenReturn(SftpResult.Success(SftpAttributes(size = 10L)))
+
+        val result = engine.upload(localFile, "remote.bin", resumeFrom = 20L)
+
+        assertTrue("Expected Failed, got: $result", result is TransferResult.Failed)
+        result as TransferResult.Failed
+        assertTrue(!result.canResume)
+        // no debe abrir el remoto si el remoto es más chico que el punto de reanudación
+        verify(sftp, never()).open(any(), any(), any())
     }
 }

@@ -34,9 +34,12 @@ import org.connectbot.sshlib.SftpFileHandle
 import org.connectbot.sshlib.SftpOpenFlag
 import org.connectbot.sshlib.SftpResult
 import timber.log.Timber
+import java.io.EOFException
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
+import java.io.RandomAccessFile
 import kotlin.coroutines.coroutineContext
 import kotlin.math.max
 import kotlin.math.min
@@ -339,7 +342,13 @@ class TransferEngine(
 
         val outputStream =
             try {
-                localFile.outputStream()
+                if (resumeFrom > 0) {
+                    // quality-004: reanudar — NO truncar el archivo local. Recorta la cola
+                    // basura si el local es más largo y posiciona el puntero en resumeFrom.
+                    openResumableOutputStream(localFile, resumeFrom)
+                } else {
+                    localFile.outputStream()
+                }
             } catch (e: Exception) {
                 Timber.e(e, "[DL] Cannot open local file ${localFile.absolutePath}")
                 runCatching { sftp.close(handle) }
@@ -425,6 +434,55 @@ class TransferEngine(
             is SftpResult.Success -> SftpResult.Success(result.value)
             else -> SftpResult.IoError(result.toException())
         }
+
+    /**
+     * quality-004: OutputStream que reanuda una descarga desde [resumeFrom] bytes sin
+     * truncar el archivo local: falla si el archivo no existe, recorta cualquier cola más
+     * larga que [resumeFrom] (setLength) y posiciona el puntero (seek) para que el loop de
+     * chunks escriba secuencialmente desde el punto de reanudación.
+     */
+    private fun openResumableOutputStream(file: File, resumeFrom: Long): OutputStream {
+        if (!file.exists()) {
+            throw IOException("Cannot resume download: local file does not exist: ${file.absolutePath}")
+        }
+        val raf = RandomAccessFile(file, "rw")
+        raf.setLength(resumeFrom)
+        raf.seek(resumeFrom)
+        return object : OutputStream() {
+            override fun write(b: Int) {
+                raf.write(b)
+            }
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                raf.write(b, off, len)
+            }
+
+            override fun close() {
+                raf.close()
+            }
+        }
+    }
+
+    /**
+     * quality-004: salta exactamente [n] bytes; InputStream.skip() puede saltar menos
+     * (EOF o stream no-seekable). Lanza EOFException si el archivo local es más corto
+     * que el punto de reanudación.
+     */
+    private fun InputStream.skipFully(n: Long) {
+        var remaining = n
+        while (remaining > 0) {
+            val skipped = skip(remaining)
+            if (skipped > 0) {
+                remaining -= skipped
+                continue
+            }
+            // sin progreso — leer un byte para avanzar (EOF = archivo más corto que resume)
+            if (read() == -1) {
+                throw EOFException("Local file shorter than resume point ($n bytes)")
+            }
+            remaining--
+        }
+    }
 
     /**
      * Sliding-window download loop escribiendo chunks a [outputStream].
@@ -653,6 +711,27 @@ class TransferEngine(
                 "resume=$resumeFrom, pipeline=$currentPipelineDepth",
         )
 
+        // quality-004: validar que el remoto ya tenga al menos resumeFrom bytes antes de
+        // abrirlo en modo WRITE — un remoto más corto dejaría un gap de ceros sin detectar.
+        if (resumeFrom > 0) {
+            val remoteSize =
+                when (val result = withRetry("stat") { sftp.stat(remotePath) }) {
+                    is SftpResult.Success -> result.value.size
+                    else -> return TransferResult.Failed(
+                        result.toException(),
+                        bytesWritten,
+                        canResume = false,
+                    )
+                }
+            if (remoteSize != null && remoteSize < resumeFrom) {
+                return TransferResult.Failed(
+                    IOException("Remote file smaller than resume point: $remoteSize < $resumeFrom"),
+                    bytesWritten,
+                    canResume = false,
+                )
+            }
+        }
+
         // Open remote file
         val flags =
             if (resumeFrom > 0) {
@@ -678,7 +757,7 @@ class TransferEngine(
 
             return localFile.inputStream().use { input ->
                 if (resumeFrom > 0) {
-                    input.skip(resumeFrom)
+                    input.skipFully(resumeFrom) // quality-004: skip parcial ya no es posible
                 }
 
                 var readOffset = resumeFrom

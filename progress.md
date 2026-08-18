@@ -1,3 +1,15 @@
+## 2026-08-18 11:52 — ClientSSH
+**Summary**: Implementado quality-004 (resume real): download resume ya no trunca el local — openResumableOutputStream() con RandomAccessFile (setLength recorta cola basura + seek a resumeFrom, fallo claro si el local no existe). Upload resume: skipFully() salta exactamente N bytes (EOFException si el local es más corto) + validación stat del remoto cuando resumeFrom>0 (Failed sin abrir handle si el remoto es más chico que el punto de reanudación — evita gap de ceros). 6 tests nuevos/actualizados: 3 de download resume (prefix preservado, cola recortada, local inexistente → handle cerrado) y 3 de upload (flags WRITE-only, write desde offset 20, remoto más chico → Failed sin open). El test existente de flags WRITE-only se actualizó con stub de stat (contrato nuevo del fix).
+**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
+**Completed**: quality-004
+---
+---
+## 2026-08-18 11:43 — ClientSSH
+**Summary**: Implementado quality-003: TransferEngine ya no traga la cancelación (downloadChunksToStream/uploadInternal re-lanzan CancellationException en vez de devolver TransferResult.Cancelled), respetando structured concurrency. Verificado antes que SftpViewModel captura la cancelación en su frontera en downloads (759, limpia notificación) y uploads (1166) — sin regresiones, y de bonus arregla la notificación fantasma al cancelar descargas. Commit 13a561d3 pusheado.
+**Verified**: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK (tests de propagación de cancelación verdes) + assembleDebug OK
+**Completed**: none
+---
+---
 ## 2026-08-18 08:39 — ClientSSH
 **Summary**: Implementado quality-002 con verificación previa de la causa real: las descargas ya no destruyen la copia local si el remoto falla. TransferEngine valida stat+open antes de truncar (helpers statRemoteForDownload/openRemoteForDownload, loop extraído a downloadChunksToStream), check resume>=total antes del open (contrato de tests), caso 0-byte preservado. CbsshTransfer: preflight stat+open+close. Los 2 tests rotos se diagnosticaron con evidencia (NoWhenBranchMatchedException + verify never open), no por asunción. Commit f1e7ba6f pusheado.
 **Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
@@ -169,30 +181,4 @@
 ## 2026-07-22 02:39 — ClientSSH
 **Summary**: Reporte formal de migración sshj→cbssh según estándar harness engineering. Resultado: PROBLEMÁTICO. Agregué 8 nuevos tests (TransferConfigTest x2, TransferStateTest x4, SftpClientFactoryTest x3) — 7 pasan, 1 falla porque expone un bug pre-existente en TransferState.isComplete (returns true cuando totalBytes=0). 17 tests totales, 16 passing. Hallazgos críticos: (H1) NO tests para SFTP existente, (H2) NO JaCoCo configurado, (H3) NO benchmark, (H4) bug isComplete para archivos vacíos, (H5-H7) deuda en eliminacion sshj/CbsshTransfer. Cobertura efectiva estimada <1% del módulo SFTP. 8 gaps explícitos listados. Esperando decisión del usuario sobre: fix del bug H4, agregar JaCoCo, y scope de próximos tests.
 **Verified**: ./gradlew testDebugUnitTest ejecutado: 17 tests, 1 failing (bug expuesto por test). Antes: 9 tests, 0 failures.
-**Completed**: none
----
----
-## 2026-07-19 19:17 — ClientSSH
-**Summary**: Sesión de INVESTIGACIÓN/VALIDACIÓN antes de migración cbssh + extensions SFTP modernas. SIN código de producción modificado. Validado: (1) cbssh 0.3.2-SNAPSHOT compila, (2) Docker integration tests PASAN contra OpenSSH 9.9p2, (3) OpenSSH 10.3 local anuncia todas las extensions (posix-rename, statvfs, fsync, hardlink, limits, copy-data, etc), (4) APK debug compila, (5) SSH key auth a localhost funciona. BLOQUEADOR identificado: unit test pre-existente SshClientTest.openSftp maps... falla en cbssh main - debe arreglarse ANTES de cualquier PR. Reglas estrictas registradas: ningún PR sin prueba real, ningún adoption sin soak test, toda extension nueva debe tener integration test Docker.
-**Verified**: cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv, DarkSSH ./init.sh passed
-**Completed**: none
----
----
-## 2026-07-19 13:00 — ClientSSH
-**Summary**: Sesión de INVESTIGACIÓN previa a migración cbssh + extensions modernas. VALIDACIONES COMPLETADAS:
-1. ✅ cbssh 0.3.2-SNAPSHOT compila limpio
-2. ✅ cbssh Docker integration tests PASAN contra OpenSSH 9.9p2
-3. ⚠️ BLOQUEADOR: 1 unit test pre-existente falla en cbssh main (SshClientTest.openSftp maps...) - NO relacionado con mi trabajo
-4. ✅ OpenSSH 10.3 local anuncia extensions: posix-rename, statvfs, fstatvfs, hardlink, fsync, lsetstat, limits, expand-path, copy-data, users-groups-by-id
-5. ✅ APK debug compila (55MB)
-6. ✅ SSH key-based auth a localhost funciona
-
-**Verified**: ./init.sh passed (DarkSSH tests), cbssh integration tests passed (Docker), OpenSSH 10.3 extensions confirmed via sftp -vvv
-**Next**: REGLAS ESTRICTAS: (a) Ningún PR a cbssh sin antes arreglar test unit roto, (b) Toda extension nueva debe tener test integración con Docker, (c) Toda adoption en DarkSSH debe probarse con app real contra localhost antes de commit, (d) Soak test 24h antes de cualquier cambio default useCbsshSftp=true
-
-**Bloqueador para arrancar**: Arreglar SshClientTest línea 386 (test unit cbssh)
-
-## 2026-07-19 07:03 — ClientSSH
-**Summary**: Sesión productiva con 3 fixes/features completados: (1) Integración de TransferEngine en SftpClient2 - ahora cbssh usa el nuevo motor de transferencia con adaptive pipeline, retry, timeouts. (2) Fix bug Ctrl+Shift+V que enviaba paste a todos los tabs en vez del activo. (3) Fix bug scroll vertical en terminal que cambiaba tabs accidentalmente - agregado requestDisallowInterceptTouchEvent en TerminalView.onScroll. (4) Pinch zoom ahora cambia font size en vez de no hacer nada - conectado onScale callback con increaseFontSize/decreaseFontSize del bridge.
-**Verified**: ./init.sh passed - all tests green
 **Completed**: none
