@@ -123,3 +123,15 @@
 **Summary**: Revisión rama contrib/cbssh-sftp: Fases 1-4 completadas (CbsshTransfer, SftpClient2, SCP fallback, feature flag). Gap principal: rmdir solo borra dirs vacíos, falta deleteDirectoryViaSsh en ISftpClient+SftpClient2. Pipeline depth: 32 → 8 revertido por timeouts en VPN. tasks.md desactualizado.
 **Verified**: BUILD SUCCESSFUL en cbssh-sftp
 **Completed**: none
+---
+---
+## 2026-07-17 04:24 — ClientSSH
+**Summary**: Diagnosticado y corregido bug-012: conexión SSH a IP válida (192.168.50.45) fallaba con error de DNS en Xiaomi Redmi Note 8 Pro. Causa raíz identificada por análisis del log darkssh_20260716_233139.log: InetAddress.getAllByName() solo evita DNS si el string matchea EXACTAMENTE su parser estricto de IPv4 literal; ningún caracter extra invisible (espacio, NBSP, zero-width space) rompía ese match y forzaba un lookup DNS real que fallaba. Ningún .trim()/sanitización existía en el flujo de guardado de Host ni en SSH.kt. Fix: nuevo util/TextSanitizer.kt (trim + strip de caracteres Unicode invisibles, escaneando todo el string ya que Character.isWhitespace() excluye NBSP deliberadamente) aplicado en HostEditorViewModel.saveHost() (save-time, limpia la DB a futuro) y en SSH.kt connect()/authenticate() (use-time, desbloquea inmediatamente el host ya roto del usuario sin que tenga que reescribirlo). También se commiteó el trabajo acumulado de sesiones previas sin commitear (bug-010 bracketed paste, bug-011 key-based auth E2E, fixes de teclado/mouse-tracking en TUIs) en un solo commit combinado (6b3b3621) dado que SSH.Settings → Debug Logs, etc. No usé NavController en MainActivity.
+**Verified**: ./gradlew clean assembleDebug BUILD SUCCESSFUL, push a feature/master/dev
+**Completed**: none
+---
+---
+## 2026-07-14 23:23 — ClientSSH
+**Summary**: Implementado bug-010: bracketed paste fix en TerminalView.java (commitText detecta paste real via codePointCount>1, no length<=1, evitando falso positivo con emoji) y arreglado onPasteTextFromClipboard() en TerminalBridge.kt que era stub vacío (long-press Paste no funcionaba). BUILD SUCCESSFUL, sin tests unitarios en el proyecto (verificación = compilación).
+**Verified**: ./init.sh -> BUILD SUCCESSFUL (compilación Kotlin+Java OK, no hay unit tests en el proyecto)
+**Completed**: none

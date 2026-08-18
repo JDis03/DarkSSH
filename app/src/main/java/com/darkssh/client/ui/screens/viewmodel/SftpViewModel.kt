@@ -1506,18 +1506,38 @@ class SftpViewModel
 
                     var successCount = 0
                     var failCount = 0
+                    var skippedCount = 0
                     var lastError: String? = null
 
                     for ((index, entry) in clipboardData.files.withIndex()) {
                         if (!isActive) break
 
                         val sourcePath = "${clipboardData.sourcePath.trimEnd('/')}/${entry.name}"
-                        val destPath = "$targetPath/${entry.name}"
+                        var destPath = "$targetPath/${entry.name}"
 
                         // Update the visible label — see updateTransferLabel doc for why this
                         // is a plain label instead of a fake byte-based TransferProgress.
                         val label = if (isMove) "Moviendo ${index + 1}/$total" else "Copiando ${index + 1}/$total"
                         updateTransferLabel(id, "$label: ${entry.name}")
+
+                        // bug-019: pasting into the same folder makes destPath == sourcePath.
+                        // COPY: duplicate with a "(copia)" suffix, like standard file managers.
+                        // CUT: moving a file onto itself is meaningless — skip as a no-op.
+                        if (sourcePath == destPath) {
+                            if (isMove) {
+                                Timber.d("pasteFiles: skipping move of ${entry.name} onto itself")
+                                skippedCount++
+                                continue
+                            }
+                            var n = 1
+                            var candidate: String
+                            do {
+                                candidate = "$targetPath/${copyName(entry.name, n)}"
+                                n++
+                            } while (client.exists(candidate))
+                            destPath = candidate
+                            updateTransferLabel(id, "$label: ${destPath.substringAfterLast('/')}")
+                        }
 
                         try {
                             val result =
@@ -1552,10 +1572,13 @@ class SftpViewModel
                             _uiState.value =
                                 _uiState.value.copy(
                                     message =
-                                        if (isMove) {
-                                            "Movido: $successCount archivo(s)"
-                                        } else {
-                                            "Copiado: $successCount archivo(s)"
+                                        when {
+                                            skippedCount == total ->
+                                                "Origen y destino son el mismo — nada que mover"
+                                            isMove ->
+                                                "Movido: $successCount archivo(s)"
+                                            else ->
+                                                "Copiado: $successCount archivo(s)"
                                         },
                                 )
                         } else if (successCount == 0) {
@@ -1576,6 +1599,21 @@ class SftpViewModel
                     }
                 }
             transferJobs[id] = job
+        }
+
+        /**
+         * bug-019: duplicate name for same-folder copy+paste.
+         * "file.txt" → "file (copia).txt", n=2 → "file (copia 2).txt".
+         * Extension split is skipped for dotfiles (".env" → ".env (copia)").
+         */
+        private fun copyName(name: String, n: Int): String {
+            val suffix = if (n == 1) " (copia)" else " (copia $n)"
+            val dot = name.lastIndexOf('.')
+            return if (dot > 0) {
+                name.substring(0, dot) + suffix + name.substring(dot)
+            } else {
+                name + suffix
+            }
         }
 
         fun hasClipboardData(): Boolean = SftpClipboard.hasData()
