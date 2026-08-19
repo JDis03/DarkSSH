@@ -442,6 +442,16 @@
       ],
       "status": "done",
       "evidence": "Log dispositivo: [DL] 28075KB/s, [UL] 29906KB/s, [DL] 31669KB/s — 3 corridas consistentes. El techo anterior de 6.4MB/s era el WiFi 2.4GHz del router (5GHz muerto — hardware/firmware RT-AX54, fuera del alcance de la app). Pendiente: bug del cancel-que-mata-la-conexión (TODO registrado)."
+    },
+    {
+      "id": "quality-011",
+      "name": "PR copy-data: build completo verde (1215 tests, 0 fallos) + spotless + metalava + kover + rebase limpio",
+      "description": "Verificación de calidad del PR para connectbot/cbssh (branch feat/copy-data-extension, 3 commits: copy-data + ventana 16MB + keepAliveIntervalMs). Fix aplicados en esta sesión: (1) spotless en SshClient.kt (espaciado); (2) api.txt regenerado para incluir keepAliveIntervalMs (5 líneas); (3) SshClientTest.openSftp rompía porque el fix de ventana usaba openSessionChannel(params) — cambiado a default en openSessionChannel para no tocar el test de upstream; (4) .memory-project removido del PR; (5) rebase con autosquash para squash de fixups.",
+      "dependencies": [
+        "feat-cbssh-copydata"
+      ],
+      "status": "done",
+      "evidence": "./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotlessKotlinCheck OK; metalavaCheckCompatibility OK; koverVerify OK). Branch feat/copy-data-extension pusheado (force con lease) a JDis03/cbssh. 3 commits limpios: bec00df (copy-data), a58f2a3 (ventana 16MB), dd9c8e8 (keepAlive). 9 archivos, +351/-4. PENDIENTE: testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227)."
     }
   ]
 }
