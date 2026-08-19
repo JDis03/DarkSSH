@@ -452,6 +452,19 @@
       ],
       "status": "done",
       "evidence": "./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotlessKotlinCheck OK; metalavaCheckCompatibility OK; koverVerify OK). Branch feat/copy-data-extension pusheado (force con lease) a JDis03/cbssh. 3 commits limpios: bec00df (copy-data), a58f2a3 (ventana 16MB), dd9c8e8 (keepAlive). 9 archivos, +351/-4. PENDIENTE: testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227)."
+    },
+    {
+      "id": "feat-cbssh-pr-273",
+      "name": "PR #273 abierto a connectbot/cbssh: copy-data + ventana 16MB + keepAlive",
+      "description": "PR abierto: https://github.com/connectbot/cbssh/pull/273 (3 commits: copy-data extension, ventana SFTP 64KB→16MB, keepAliveIntervalMs config). Calidad: 1215 tests 0 fallos, spotless/metalava/kover OK, rebase limpio sin basura. Validado en dispositivo real (copy/paste, move, delete folders, 28-32MB/s transfers). CI de upstream en estado action_required (espera aprobación del maintainer para PRs externos).",
+      "dependencies": [
+        "feat-cbssh-copydata",
+        "quality-007",
+        "quality-008",
+        "quality-011"
+      ],
+      "status": "done",
+      "evidence": "PR https://github.com/connectbot/cbssh/pull/273 abierto y visible. gh pr checks: CI/Dependency Submission/CodeQL en action_required (espera aprobación del maintainer). Branch feat/copy-data-extension en JDis03/cbssh con 3 commits limpios."
     }
   ]
 }
