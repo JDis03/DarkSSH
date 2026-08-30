@@ -578,6 +578,22 @@ class SftpClient2(
             return Result.success(Unit)
         }
 
+        // quality-012: un IoError es un fallo de CONEXIÓN (el socket se cerró a mitad del
+        // upload — "Failed to write N bytes" del transporte), no un rechazo del servidor.
+        // Seguir con exists() + fallback SCP sobre esa misma conexión muerta no puede
+        // funcionar y es caro: el fallback re-sube el archivo COMPLETO (712MB en el caso
+        // reportado) contra un socket que ya no existe. Además este path devuelve el
+        // SftpResult crudo del engine (no pasa por mapResult), así que markDead() no se
+        // había llamado y la UI no se enteraba de que hay que reconectar.
+        if (sftpResult is SftpResult.IoError) {
+            markDead(sftpResult.cause)
+            DebugLogger.e(
+                "SftpClient2",
+                "❌ Upload abortado: conexión perdida (${sftpResult.cause.message}) — sin fallback SCP",
+            )
+            return Result.failure(sftpResult.cause)
+        }
+
         // Check if file exists (might have succeeded despite error)
         if (exists(remotePath)) {
             Timber.w("Upload reported error but file exists, considering success")
@@ -585,7 +601,8 @@ class SftpClient2(
             return Result.success(Unit)
         }
 
-        // Fall back to SCP via SSH session
+        // Fall back to SCP via SSH session (solo para errores de servidor/protocolo con la
+        // conexión todavía viva: p.ej. el servidor rechazó la escritura SFTP).
         Timber.w("SFTP upload failed, falling back to SCP")
         DebugLogger.w("SftpClient2", "⚠️ SFTP upload falló, intentando SCP fallback")
         return uploadViaScp(localFile, remotePath, onProgress)

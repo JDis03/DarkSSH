@@ -465,6 +465,16 @@
       ],
       "status": "done",
       "evidence": "PR https://github.com/connectbot/cbssh/pull/273 abierto y visible. gh pr checks: CI/Dependency Submission/CodeQL en action_required (espera aprobación del maintainer). Branch feat/copy-data-extension en JDis03/cbssh con 3 commits limpios."
+    },
+    {
+      "id": "quality-012",
+      "name": "Upload con conexión caída intentaba fallback SCP completo sobre el socket muerto (y no llamaba markDead)",
+      "description": "Usuario reporta que el SFTP cierra el canal en uploads varias veces. El error 'Failed to write 68 bytes' viene de KtorTcpTransport.write() = el socket TCP se cerró a mitad del upload (red inestable). Bug encontrado en SftpClient2.uploadFile: ante CUALQUIER fallo (incluido IoError de conexión) llamaba exists() y luego el fallback SCP — que intenta ssh.openSession() sobre el socket muerto y, si abriera, re-subiría el archivo COMPLETO (712MB). Además ese path devuelve el SftpResult crudo del engine (no pasa por mapResult), así que markDead() nunca se llamaba y la UI no sabía que debía reconectar.",
+      "dependencies": [
+        "quality-003"
+      ],
+      "status": "done",
+      "evidence": "uploadFile ahora corta rápido ante SftpResult.IoError: llama markDead(cause), loguea 'conexión perdida — sin fallback SCP' y devuelve Result.failure(cause). El exists()+SCP fallback queda solo para errores de servidor/protocolo con la conexión viva (su propósito original). Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE: log del usuario en el momento exacto del fallo para confirmar si además hay un cancel involucrado (TODO 263) y evaluar auto-retry con resume."
     }
   ]
 }
