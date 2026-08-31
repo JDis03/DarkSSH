@@ -503,6 +503,26 @@
       ],
       "status": "done",
       "evidence": "retryWriteChunk ahora devuelve String? (null=exito, o descripcion de la ULTIMA causa) y el IOException final incluye '— última causa: <detalle>'. Nuevo helper describeFailure(). Los 3 call sites migrados preservando la semantica de totalRetries (se incrementa solo si el reintento tuvo exito). Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "quality-015",
+      "name": "Los logs mostraban solo el wrapper del error, no la causa anidada",
+      "description": "cbssh envuelve el error real en TransportException('Failed to write N bytes', e) dentro de KtorTcpTransport.write(). describeFailure/describeSftpFailure imprimian solo el primer nivel, ocultando si abajo habia un Broken pipe, un Connection reset o una CancellationException.",
+      "dependencies": [
+        "quality-014"
+      ],
+      "status": "done",
+      "evidence": "Ambos helpers ahora recorren la cadena de causas (hasta 5 niveles, unidas con ' ← '). Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "quality-016",
+      "name": "Rekey simultaneo cliente/servidor en 1 GiB mataba los uploads grandes",
+      "description": "CAUSA RAIZ. Los logs de sshd del propio servidor (es la misma maquina de desarrollo, journalctl -u sshd) muestran 'rekey out/in after 134217728 blocks' = 134217728 x 8 bytes = 1 GiB exacto. cbssh trae rekeyBytesLimit = 1_073_741_824 (1 GiB) por default. Ambos extremos disparaban SSH_MSG_KEXINIT en el mismo byte => rekey simultaneo. cbssh, ante un KEXINIT entrante con kex ya en progreso, lanza ProtocolViolationException(responseSent=true), que manda DISCONNECT y cierra la conexion; por eso el write al socket fallaba RAPIDO (~2s) en vez de agotar el operationTimeoutMs de 60s, y siempre en el chunk 8180-8181 de 8192.",
+      "dependencies": [
+        "quality-015"
+      ],
+      "status": "in-progress",
+      "evidence": "MITIGACION aplicada en los 2 sitios de SshClientConfig de SftpClient2 (password y pubkey): rekeyBytesLimit = 512 MiB, para que el cliente rekeye siempre primero y, como tras cada rekey ambos lados resetean contadores, el servidor nunca alcance su propio limite. Verificado que compila y que los tests pasan (compileDebugKotlin + testDebugUnitTest + ./init.sh), PERO FALTA la verificacion decisiva en dispositivo real: subir el mismo archivo de 1.4GB y confirmar que pasa de 1 GiB. Es una mitigacion: el bug de fondo (manejo del rekey simultaneo) es de cbssh y corresponde arreglarlo upstream."
     }
   ]
 }

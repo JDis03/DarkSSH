@@ -206,6 +206,16 @@ class SftpClient2(
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
+                                // quality-016: escalonar el rekey para que NO coincida con el
+                                // del servidor. cbssh trae 1 GiB por default y OpenSSH pide
+                                // rekey en el mismo byte ("rekey out after 134217728 blocks"
+                                // = 134217728 x 8 = 1 GiB exacto, visto en los logs de sshd),
+                                // así que en un upload grande ambos extremos mandaban KEXINIT
+                                // a la vez y la conexión moría justo al cruzar 1 GiB.
+                                // Con 512 MiB el cliente rekeya siempre primero y, como tras
+                                // cada rekey ambos lados resetean sus contadores de bytes, el
+                                // contador del servidor nunca llega a su propio límite.
+                                rekeyBytesLimit = 512L * 1024 * 1024
                             },
                     )
 
@@ -301,6 +311,16 @@ class SftpClient2(
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
+                                // quality-016: escalonar el rekey para que NO coincida con el
+                                // del servidor. cbssh trae 1 GiB por default y OpenSSH pide
+                                // rekey en el mismo byte ("rekey out after 134217728 blocks"
+                                // = 134217728 x 8 = 1 GiB exacto, visto en los logs de sshd),
+                                // así que en un upload grande ambos extremos mandaban KEXINIT
+                                // a la vez y la conexión moría justo al cruzar 1 GiB.
+                                // Con 512 MiB el cliente rekeya siempre primero y, como tras
+                                // cada rekey ambos lados resetean sus contadores de bytes, el
+                                // contador del servidor nunca llega a su propio límite.
+                                rekeyBytesLimit = 512L * 1024 * 1024
                             },
                     )
 
@@ -562,7 +582,12 @@ class SftpClient2(
             is SftpResult.Success -> "OK"
             is SftpResult.ServerError -> "ServerError status=${result.statusCode} msg=\"${result.message}\""
             is SftpResult.ProtocolError -> "ProtocolError msg=\"${result.message}\""
-            is SftpResult.IoError -> "IoError ${result.cause::class.java.simpleName}: ${result.cause.message}"
+            is SftpResult.IoError ->
+                // quality-015: la causa real viene anidada dentro del TransportException de cbssh.
+                "IoError " +
+                    generateSequence(result.cause) { it.cause }
+                        .take(5)
+                        .joinToString(" ← ") { "${it::class.java.simpleName}: ${it.message}" }
         }
 
     /**

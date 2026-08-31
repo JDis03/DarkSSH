@@ -1150,8 +1150,18 @@ class TransferEngine(
     }
 
     /** Write-side counterpart of [retryChunk], used by the pipelined upload path. */
-    /** Short human-readable description of a failure cause, for the transfer error logs. */
-    private fun describeFailure(cause: Throwable): String = "${cause::class.java.simpleName}: ${cause.message}"
+    /**
+     * Short human-readable description of a failure cause, for the transfer error logs.
+     *
+     * quality-015: recorre la CADENA de causas. cbssh envuelve el error real
+     * (`TransportException("Failed to write N bytes", e)` en KtorTcpTransport) y sin desanidar
+     * solo se ve el mensaje genérico del wrapper, no si abajo hubo un Broken pipe, un
+     * Connection reset o una CancellationException.
+     */
+    private fun describeFailure(cause: Throwable): String =
+        generateSequence(cause) { it.cause }
+            .take(5)
+            .joinToString(" ← ") { "${it::class.java.simpleName}: ${it.message}" }
 
     /**
      * quality-014: devuelve `null` si algún intento tuvo éxito, o la descripción de la ÚLTIMA
