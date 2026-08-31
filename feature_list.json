@@ -526,13 +526,13 @@
     },
     {
       "id": "quality-017",
-      "name": "Workaround: correr el umbral de rekey del cliente fuera del rango de transferencias reales",
+      "name": "Experimento: el rekey del SERVIDOR también rompe la transferencia (rompe cualquier rekey)",
       "description": "Como la falla sigue al umbral de rekey del cliente (quality-016), y el fix de fondo es en cbssh, se lleva rekeyBytesLimit a 8 GiB para que el cliente no dispare un rekey en medio de un upload normal. Revierte el 512 MiB, que empeoraba las cosas.",
       "dependencies": [
         "quality-016"
       ],
-      "status": "in-progress",
-      "evidence": "Aplicado en los 2 sitios de SshClientConfig. compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE validación en dispositivo, que además es un EXPERIMENTO que separa dos casos: si el upload de 1.4GB ahora pasa el 100%, solo rompen los rekeys iniciados por el cliente; si vuelve a morir exactamente en 1 GiB (donde el servidor pide el suyo, 'rekey out after 134217728 blocks'), entonces rompe CUALQUIER rekey, incluido el entrante, y el fix en cbssh debe cubrir ambos sentidos."
+      "status": "done",
+      "evidence": "Resultado del experimento: con rekeyBytesLimit del cliente en 8 GiB el upload igual murió en offset 1072693248 = chunk 8184 de 8192, o sea 1 GiB exacto — que es donde rekeya el SERVIDOR ('rekey out after 134217728 blocks'), no el cliente. Conclusión: rompe CUALQUIER rekey, también el entrante, así que el fix en cbssh debe cubrir los dos sentidos. El error además cambió a 'ClosedReceiveChannelException: Channel was closed' (antes 'Connection reset by peer'), o sea ahora se cae por el lado de LECTURA. Se mantiene el umbral en 8 GiB porque evita al menos el rekey propio del cliente. Repro nuevo en el fork (rama investigate/rekey-pipelining): 'SFTP pipelined writes survive SERVER-initiated rekey' — RekeyLimit 4M en el sshd del contenedor vía SIGHUP, cliente con rekey desactivado, 64MB pipelineados depth 32, CON assert de no-vacuidad que verifica en los logs del servidor que hubo rekeys reales: PASA (3.7s). Loopback sigue sin reproducir."
     }
   ]
 }
