@@ -206,16 +206,17 @@ class SftpClient2(
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
-                                // quality-016: escalonar el rekey para que NO coincida con el
-                                // del servidor. cbssh trae 1 GiB por default y OpenSSH pide
-                                // rekey en el mismo byte ("rekey out after 134217728 blocks"
-                                // = 134217728 x 8 = 1 GiB exacto, visto en los logs de sshd),
-                                // así que en un upload grande ambos extremos mandaban KEXINIT
-                                // a la vez y la conexión moría justo al cruzar 1 GiB.
-                                // Con 512 MiB el cliente rekeya siempre primero y, como tras
-                                // cada rekey ambos lados resetean sus contadores de bytes, el
-                                // contador del servidor nunca llega a su propio límite.
-                                rekeyBytesLimit = 512L * 1024 * 1024
+                                // quality-017: el rekey de cbssh rompe las transferencias
+                                // grandes. Probado en dispositivo: con el default de 1 GiB el
+                                // upload moría en el chunk 8180/8192 (1 GiB), y al bajar el
+                                // límite a 512 MiB murió en el chunk 4088/4096 (512 MiB) —
+                                // o sea la falla SIGUE al umbral, no a la red ni al servidor.
+                                // Hasta arreglar el rekey en cbssh (upstream), se corre el
+                                // umbral por encima de cualquier transferencia realista para
+                                // que el cliente no dispare un rekey en medio del upload.
+                                // El servidor igual pide el suyo cada 1 GiB, y ese caso es
+                                // justamente lo que este valor deja medir por separado.
+                                rekeyBytesLimit = 8L * 1024 * 1024 * 1024
                             },
                     )
 
@@ -311,16 +312,17 @@ class SftpClient2(
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
-                                // quality-016: escalonar el rekey para que NO coincida con el
-                                // del servidor. cbssh trae 1 GiB por default y OpenSSH pide
-                                // rekey en el mismo byte ("rekey out after 134217728 blocks"
-                                // = 134217728 x 8 = 1 GiB exacto, visto en los logs de sshd),
-                                // así que en un upload grande ambos extremos mandaban KEXINIT
-                                // a la vez y la conexión moría justo al cruzar 1 GiB.
-                                // Con 512 MiB el cliente rekeya siempre primero y, como tras
-                                // cada rekey ambos lados resetean sus contadores de bytes, el
-                                // contador del servidor nunca llega a su propio límite.
-                                rekeyBytesLimit = 512L * 1024 * 1024
+                                // quality-017: el rekey de cbssh rompe las transferencias
+                                // grandes. Probado en dispositivo: con el default de 1 GiB el
+                                // upload moría en el chunk 8180/8192 (1 GiB), y al bajar el
+                                // límite a 512 MiB murió en el chunk 4088/4096 (512 MiB) —
+                                // o sea la falla SIGUE al umbral, no a la red ni al servidor.
+                                // Hasta arreglar el rekey en cbssh (upstream), se corre el
+                                // umbral por encima de cualquier transferencia realista para
+                                // que el cliente no dispare un rekey en medio del upload.
+                                // El servidor igual pide el suyo cada 1 GiB, y ese caso es
+                                // justamente lo que este valor deja medir por separado.
+                                rekeyBytesLimit = 8L * 1024 * 1024 * 1024
                             },
                     )
 

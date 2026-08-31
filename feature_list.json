@@ -516,13 +516,23 @@
     },
     {
       "id": "quality-016",
-      "name": "Rekey simultaneo cliente/servidor en 1 GiB mataba los uploads grandes",
+      "name": "Experimento decisivo: la falla sigue al umbral de rekey del cliente (mi teoría del rekey simultáneo quedó REFUTADA)",
       "description": "CAUSA RAIZ. Los logs de sshd del propio servidor (es la misma maquina de desarrollo, journalctl -u sshd) muestran 'rekey out/in after 134217728 blocks' = 134217728 x 8 bytes = 1 GiB exacto. cbssh trae rekeyBytesLimit = 1_073_741_824 (1 GiB) por default. Ambos extremos disparaban SSH_MSG_KEXINIT en el mismo byte => rekey simultaneo. cbssh, ante un KEXINIT entrante con kex ya en progreso, lanza ProtocolViolationException(responseSent=true), que manda DISCONNECT y cierra la conexion; por eso el write al socket fallaba RAPIDO (~2s) en vez de agotar el operationTimeoutMs de 60s, y siempre en el chunk 8180-8181 de 8192.",
       "dependencies": [
         "quality-015"
       ],
+      "status": "done",
+      "evidence": "REFUTADA la hipótesis del rekey simultáneo. Al bajar rekeyBytesLimit a 512 MiB el upload no se arregló: murió en offset 535822336 = chunk 4088 de 4096, o sea pegado a los 512 MiB nuevos (antes moría en el chunk 8180/8192 = 1 GiB, el default). La falla SIGUE al umbral configurado en el cliente => la rompe el rekey que inicia cbssh, sin importar el límite del servidor; si fuera simultaneidad, escalonar lo habría evitado. Gracias a quality-015 se vio además la causa de fondo: 'ClosedWriteChannelException: Connection reset by peer' (RST del servidor). Efecto colateral: 512 MiB EMPEORABA la situación (fallaba antes), revertido en quality-017. Repros en loopback que NO reproducen (rama investigate/rekey-pipelining del fork): pipelineado depth 32 (3.2s) y pipelineado con kex post-cuántico mlkem768x25519-sha256, rekey cada 4MB, 64MB (1.6s) — ambos PASAN, así que ML-KEM también queda descartado como variable. Queda la latencia/BDP real (80-300ms) como única variable sin replicar."
+    },
+    {
+      "id": "quality-017",
+      "name": "Workaround: correr el umbral de rekey del cliente fuera del rango de transferencias reales",
+      "description": "Como la falla sigue al umbral de rekey del cliente (quality-016), y el fix de fondo es en cbssh, se lleva rekeyBytesLimit a 8 GiB para que el cliente no dispare un rekey en medio de un upload normal. Revierte el 512 MiB, que empeoraba las cosas.",
+      "dependencies": [
+        "quality-016"
+      ],
       "status": "in-progress",
-      "evidence": "MITIGACION aplicada en los 2 sitios de SshClientConfig de SftpClient2 (password y pubkey): rekeyBytesLimit = 512 MiB, para que el cliente rekeye siempre primero y, como tras cada rekey ambos lados resetean contadores, el servidor nunca alcance su propio limite. Verificado que compila y que los tests pasan (compileDebugKotlin + testDebugUnitTest + ./init.sh), PERO FALTA la verificacion decisiva en dispositivo real: subir el mismo archivo de 1.4GB y confirmar que pasa de 1 GiB. Es una mitigacion: el bug de fondo (manejo del rekey simultaneo) es de cbssh y corresponde arreglarlo upstream."
+      "evidence": "Aplicado en los 2 sitios de SshClientConfig. compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE validación en dispositivo, que además es un EXPERIMENTO que separa dos casos: si el upload de 1.4GB ahora pasa el 100%, solo rompen los rekeys iniciados por el cliente; si vuelve a morir exactamente en 1 GiB (donde el servidor pide el suyo, 'rekey out after 134217728 blocks'), entonces rompe CUALQUIER rekey, incluido el entrante, y el fix en cbssh debe cubrir ambos sentidos."
     }
   ]
 }
