@@ -475,6 +475,24 @@
       ],
       "status": "done",
       "evidence": "uploadFile ahora corta rápido ante SftpResult.IoError: llama markDead(cause), loguea 'conexión perdida — sin fallback SCP' y devuelve Result.failure(cause). El exists()+SCP fallback queda solo para errores de servidor/protocolo con la conexión viva (su propósito original). Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. PENDIENTE: log del usuario en el momento exacto del fallo para confirmar si además hay un cancel involucrado (TODO 263) y evaluar auto-retry con resume."
+    },
+    {
+      "id": "quality-013",
+      "name": "uploadFile descartaba el motivo del fallo SFTP (log ciego)",
+      "description": "El log del usuario solo mostraba 'SFTP upload failed, falling back to SCP' sin el motivo: uploadFile descartaba el SftpResult de error. Imposible distinguir rechazo del servidor vs conexión caída vs violación de protocolo. Bloqueaba el diagnóstico del corte al 72%.",
+      "dependencies": [
+        "quality-012"
+      ],
+      "status": "done",
+      "evidence": "Nuevo helper describeSftpFailure() cubre las 3 variantes reales de SftpResult (ServerError con statusCode+message, ProtocolError, IoError con tipo+message) y se loguea antes de decidir fallback. Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "investigate-001",
+      "name": "Corte de upload al 72% (=1 GiB) — hipótesis de rekey NO confirmada",
+      "description": "Log 2026-08-30: upload de 1.475.138.004 bytes muere a los ~36s a 29MB/s = ~1.06GB. 1 GiB = 72,8% del archivo, que coincide EXACTO con SshClientConfig.rekeyBytesLimit=1_073_741_824 (default, DarkSSH nunca lo cambia). Hipótesis: el rekey a 1 GiB colisiona con el pipeline profundo (depth 24-32); cbssh bufferea paquetes durante el KEX y tira ProtocolViolationException('Too many higher-layer packets received during key exchange') al pasar MAX_REKEY_IN_FLIGHT_PACKETS=1024.",
+      "dependencies": [],
+      "status": "in-progress",
+      "evidence": "NO CONFIRMADA. Escrito repro en cbssh-fork (rama investigate/rekey-pipelining, NO en la rama del PR): test 'SFTP pipelined writes survive byte limit rekey' con rekeyBytesLimit=256KB, depth=32, chunk=128KB, 32MB totales contra OpenSSH 9.9p2 real (Testcontainers). PASA en 3.2s. El test de rekey que ya existía upstream es SECUENCIAL (1 request en vuelo), así que el path pipelineado no estaba cubierto — pero tampoco falla en loopback. Diferencia clave con producción: RTT ~80ms (loopback ~0ms) => mucho mayor BDP y muchos más paquetes acumulados durante la ventana del rekey. Próximo paso: nuevo log del dispositivo ya con quality-013 para leer el motivo exacto, o repro con latencia inyectada (tc netem)."
     }
   ]
 }

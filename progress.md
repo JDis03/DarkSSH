@@ -1,3 +1,14 @@
+## 2026-08-31 — ClientSSH
+**Summary**: Analizado el log del usuario (log/darkssh_20260830_115606.log) del upload que muere al 72%. Dato duro: archivo de 1.475.138.004 bytes, muere a ~36s a 29MB/s ≈ 1.06GB; 1 GiB (1.073.741.824) = 72,8% del archivo, que coincide EXACTO con SshClientConfig.rekeyBytesLimit (default de cbssh, que DarkSSH nunca sobreescribe) → el rekey lo dispara cbssh, no la red, tal como sospechaba el usuario ("es código"). Hipótesis: el rekey colisiona con el pipeline profundo (MAX_REKEY_IN_FLIGHT_PACKETS=1024 en SshConnection.kt:2386). NO CONFIRMADA: escribí un repro pipelineado (depth 32, chunk 128KB, rekeyBytesLimit 256KB) contra OpenSSH 9.9p2 real y PASA en loopback en 3.2s — quedó en la rama investigate/rekey-pipelining del fork, fuera de la rama del PR #273. Descubrimiento colateral: el test de rekey que ya existía upstream es secuencial (1 request en vuelo), así que el path pipelineado no tenía cobertura. Bloqueante real del diagnóstico: uploadFile descartaba el motivo del fallo (el log solo decía "falling back to SCP") → arreglado en quality-013 con describeSftpFailure() cubriendo las 3 variantes de SftpResult. El log también mostró el fallback SCP colgado 44s inútilmente, que es justo lo que corta quality-012.
+**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; repro en fork corrió de verdad (verificado en el XML de test-results: 3.199s, 0 failures)
+**Completed**: quality-013 (investigate-001 queda in-progress)
+---
+## 2026-08-30 15:53 — ClientSSH
+**Summary**: Investigado el reporte de uploads que "cierran el canal": el error 'Failed to write 68 bytes' es del transporte TCP (socket cerrado por red inestable), no del canal SFTP. Bug real arreglado en SftpClient2.uploadFile (quality-012): ante IoError de conexión seguía con exists() + fallback SCP sobre el socket muerto (re-subiendo 712MB) y nunca llamaba markDead, dejando la UI sin saber que debía reconectar. Ahora corta rápido con markDead + mensaje claro. Rama de trabajo confirmada: contrib/cbssh-sftp. Commit a153553c.
+**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; pendiente log del usuario del momento exacto del fallo
+**Completed**: none
+---
+---
 ## 2026-08-19 — ClientSSH
 **Summary**: quality-012 — investigado el reporte "el SFTP cierra el canal en uploads, varias veces". El error 'Failed to write 68 bytes' viene de KtorTcpTransport.write(): el socket TCP se cierra a mitad del upload (red inestable), no es un cierre de canal SFTP. Bug real encontrado en SftpClient2.uploadFile: ante cualquier fallo (incluido IoError de conexión) llamaba exists() y caía al fallback SCP, que intenta abrir sesión sobre el socket muerto y re-subiría el archivo completo (712MB); además ese path devuelve el SftpResult crudo del engine (sin pasar por mapResult), así que markDead() nunca se llamaba y la UI no sabía que debía reconectar. Fix: cortar rápido ante IoError (markDead + log claro + Result.failure), dejando exists()+SCP solo para errores de servidor/protocolo con la conexión viva. Rama de trabajo confirmada: contrib/cbssh-sftp (PR #273 ya abierto en connectbot/cbssh).
 **Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL
@@ -170,15 +181,3 @@
 **Summary**: Fix bug-018: usuario reportó 'eliminar carpetas no funciona' en SFTP. Dos partes. (1) SftpClient2.deleteDirectoryViaSsh usaba SSH exec `rm -rf` sin chequear exit status ni stderr — si fallaba, devolvía success igual con la carpeta intacta. Reemplazado por recursión pura SFTP (deleteDirectoryRecursive: listdir + recurse + remove + rmdir), el estándar moderno, funciona incluso en cuentas internal-sftp sin shell. (2) El usuario compartió un debug log real que reveló la causa de fondo: al tocar delete en varias carpetas casi seguidas (~4-9s entre cada una), los deletes corrían en paralelo como coroutines independientes sobre el mismo SftpClient2 compartido (activeClients por hostId) — uno de tres quedó sin efecto por 9+ segundos sin ningún error visible, porque deleteEntry() solo escribe a _uiState.error, nunca a DebugLogger. Fix: agregado managementOpMutex (Mutex) en SftpClient2 que serializa deletes recursivos concurrentes, más logging real de éxito/fallo (antes solo logueaba el inicio). Agregada entrada bug-018 en feature_list.json, decisión+aprendizaje en memoria, y TODO de seguimiento (loguear rename/mkdir también, y revisar botón muerto 'Delete selected' en SftpScreen.kt).
 **Verified**: ./init.sh BUILD SUCCESSFUL después de cada cambio. NO reverificado aún en el dispositivo físico del usuario contra el escenario exacto de deletes rápidos en paralelo del log — recomendado reintentar y confirmar que todas las carpetas desaparecen, compartiendo un log nuevo si alguna sigue fallando.
 **Completed**: none
----
----
-## 2026-07-27 18:24 — ClientSSH
-**Summary**: Fixed bug-017: MainScreen BackHandler now resets showServerSettings and showDebugLogs when pressing back from those sub-screens, matching the existing showSshKeys/showGenerateKey pattern. Also discarded refactor-001 (activeClients by tabId) as not useful. Verified with ./init.sh. Committed to contrib/cbssh-sftp.
-**Verified**: ran init.sh BUILD SUCCESSFUL
-**Completed**: none
----
----
-## 2026-07-27 18:09 — ClientSSH
-**Summary**: Fix bug-017: en MainScreen.kt, el BackHandler no reseteaba `showServerSettings` ni `showDebugLogs` al apretar back desde esos sub-screens dentro de la pestaña Settings. Eso hacía que `selectedTab` volviera a 0 pero los flags quedaran `true`, entonces al volver a tocar Settings se re-abría el sub-screen en lugar de mostrar la lista de opciones. Fix: agregados los dos casos en el `BackHandler` siguiendo el mismo patrón que `showSshKeys` y `showGenerateKey`. También se descartó `refactor-001` (activeClients keyed by tabId) por falta de utilidad real para el usuario — se actualizó su estado a `resolved` en feature_list.json.
-**Verified**: ./init.sh BUILD SUCCESSFUL.
-**Completed**: Bug: showServerSettings/showDebugLogs no se resetean en BackHandler de MainScreen.kt

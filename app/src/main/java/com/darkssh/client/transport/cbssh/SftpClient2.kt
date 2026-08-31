@@ -551,6 +551,21 @@ class SftpClient2(
         }
 
     /**
+     * Renders the real reason behind an [SftpResult] failure for the debug log.
+     *
+     * quality-013: antes el motivo se descartaba y el log solo decía "falló, intentando SCP",
+     * lo que hacía imposible distinguir un rechazo del servidor (permisos, disco lleno) de una
+     * conexión caída o una violación de protocolo (p.ej. un rekey mal manejado).
+     */
+    private fun describeSftpFailure(result: SftpResult<*>): String =
+        when (result) {
+            is SftpResult.Success -> "OK"
+            is SftpResult.ServerError -> "ServerError status=${result.statusCode} msg=\"${result.message}\""
+            is SftpResult.ProtocolError -> "ProtocolError msg=\"${result.message}\""
+            is SftpResult.IoError -> "IoError ${result.cause::class.java.simpleName}: ${result.cause.message}"
+        }
+
+    /**
      * Upload a file with progress tracking.
      * Tries regular SFTP upload first, falls back to SCP if available.
      */
@@ -577,6 +592,14 @@ class SftpClient2(
             DebugLogger.i("SftpClient2", "✅ Upload OK (SFTP): ${localFile.name}")
             return Result.success(Unit)
         }
+
+        // quality-013: el motivo del fallo se descartaba silenciosamente, así que en los logs
+        // solo aparecía "SFTP upload falló, intentando SCP fallback" sin saber POR QUÉ.
+        // Sin esto no se puede distinguir un rechazo del servidor de una conexión caída.
+        DebugLogger.e(
+            "SftpClient2",
+            "❌ Upload SFTP falló: ${describeSftpFailure(sftpResult)} (archivo=${localFile.name}, ${localFile.length()} bytes)",
+        )
 
         // quality-012: un IoError es un fallo de CONEXIÓN (el socket se cerró a mitad del
         // upload — "Failed to write N bytes" del transporte), no un rechazo del servidor.
