@@ -861,6 +861,12 @@ class TransferEngine(
 
                         val request = window.removeFirst()
 
+                        // quality-014: la causa real del fallo se perdía — el error final decía
+                        // solo "Write failed at offset N after retries", sin decir si cbssh
+                        // devolvió un IoError de socket, un ProtocolError (p.ej. un rekey mal
+                        // manejado) o un timeout. Sin esto no se puede diagnosticar el corte.
+                        var failureReason: String? = null
+
                         val ok =
                             try {
                                 val (result, writeStartNanos) =
@@ -875,9 +881,15 @@ class TransferEngine(
                                     is SftpResult.Success -> true
 
                                     is SftpResult.IoError -> {
-                                        val retried = retryWriteChunk(handle, request.offset, request.data)
-                                        if (retried) totalRetries++
-                                        retried
+                                        failureReason = describeFailure(result.cause)
+                                        val retryFailure = retryWriteChunk(handle, request.offset, request.data)
+                                        if (retryFailure == null) {
+                                            totalRetries++
+                                            true
+                                        } else {
+                                            failureReason = retryFailure
+                                            false
+                                        }
                                     }
 
                                     else -> {
@@ -891,20 +903,35 @@ class TransferEngine(
                             } catch (e: TimeoutCancellationException) {
                                 // Real per-chunk write timeout — retry, don't rethrow as
                                 // cancellation (quality-001, see download loop).
-                                val retried = retryWriteChunk(handle, request.offset, request.data)
-                                if (retried) totalRetries++
-                                retried
+                                failureReason = "timeout tras ${config.operationTimeoutMs}ms esperando el ACK"
+                                val retryFailure = retryWriteChunk(handle, request.offset, request.data)
+                                if (retryFailure == null) {
+                                    totalRetries++
+                                    true
+                                } else {
+                                    failureReason = retryFailure
+                                    false
+                                }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
-                                val retried = retryWriteChunk(handle, request.offset, request.data)
-                                if (retried) totalRetries++
-                                retried
+                                failureReason = describeFailure(e)
+                                val retryFailure = retryWriteChunk(handle, request.offset, request.data)
+                                if (retryFailure == null) {
+                                    totalRetries++
+                                    true
+                                } else {
+                                    failureReason = retryFailure
+                                    false
+                                }
                             }
 
                         if (!ok) {
                             return@coroutineScope TransferResult.Failed(
-                                IOException("Write failed at offset ${request.offset} after retries"),
+                                IOException(
+                                    "Write failed at offset ${request.offset} after retries" +
+                                        (failureReason?.let { " — última causa: $it" } ?: ""),
+                                ),
                                 bytesWritten,
                                 canResume = true,
                             )
@@ -1123,12 +1150,21 @@ class TransferEngine(
     }
 
     /** Write-side counterpart of [retryChunk], used by the pipelined upload path. */
+    /** Short human-readable description of a failure cause, for the transfer error logs. */
+    private fun describeFailure(cause: Throwable): String = "${cause::class.java.simpleName}: ${cause.message}"
+
+    /**
+     * quality-014: devuelve `null` si algún intento tuvo éxito, o la descripción de la ÚLTIMA
+     * causa de fallo si se agotaron los reintentos. Antes devolvía un simple Boolean y el
+     * motivo real (IoError de socket, ProtocolError del rekey, timeout) se perdía por completo.
+     */
     private suspend fun retryWriteChunk(
         handle: SftpFileHandle,
         offset: Long,
         data: ByteArray,
-    ): Boolean {
+    ): String? {
         var delayMs = config.retryDelayMs
+        var lastFailure: String? = null
 
         repeat(config.maxRetries - 1) { attempt ->
             coroutineContext.ensureActive()
@@ -1142,18 +1178,22 @@ class TransferEngine(
                     }
                 if (result is SftpResult.Success) {
                     Timber.d("[RETRY] Write chunk at $offset succeeded on attempt ${attempt + 2}")
-                    return true
+                    return null
                 }
+                lastFailure = describeFailure(result.toException())
+                Timber.w("[RETRY] Write chunk at $offset attempt ${attempt + 2} failed: $lastFailure")
             } catch (e: TimeoutCancellationException) {
                 // Transient write timeout — keep trying on the next attempt (quality-001).
+                lastFailure = "timeout tras ${config.operationTimeoutMs}ms"
                 Timber.w("[RETRY] Write chunk at $offset attempt ${attempt + 2} timed out")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                lastFailure = describeFailure(e)
                 Timber.w("[RETRY] Write chunk at $offset attempt ${attempt + 2} failed: ${e.message}")
             }
         }
-        return false
+        return lastFailure ?: "sin detalle (se agotaron ${config.maxRetries} intentos)"
     }
 
     private data class PipelineRequest(

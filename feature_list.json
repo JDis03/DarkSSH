@@ -492,7 +492,17 @@
       "description": "Log 2026-08-30: upload de 1.475.138.004 bytes muere a los ~36s a 29MB/s = ~1.06GB. 1 GiB = 72,8% del archivo, que coincide EXACTO con SshClientConfig.rekeyBytesLimit=1_073_741_824 (default, DarkSSH nunca lo cambia). Hipótesis: el rekey a 1 GiB colisiona con el pipeline profundo (depth 24-32); cbssh bufferea paquetes durante el KEX y tira ProtocolViolationException('Too many higher-layer packets received during key exchange') al pasar MAX_REKEY_IN_FLIGHT_PACKETS=1024.",
       "dependencies": [],
       "status": "in-progress",
-      "evidence": "NO CONFIRMADA. Escrito repro en cbssh-fork (rama investigate/rekey-pipelining, NO en la rama del PR): test 'SFTP pipelined writes survive byte limit rekey' con rekeyBytesLimit=256KB, depth=32, chunk=128KB, 32MB totales contra OpenSSH 9.9p2 real (Testcontainers). PASA en 3.2s. El test de rekey que ya existía upstream es SECUENCIAL (1 request en vuelo), así que el path pipelineado no estaba cubierto — pero tampoco falla en loopback. Diferencia clave con producción: RTT ~80ms (loopback ~0ms) => mucho mayor BDP y muchos más paquetes acumulados durante la ventana del rekey. Próximo paso: nuevo log del dispositivo ya con quality-013 para leer el motivo exacto, o repro con latencia inyectada (tc netem)."
+      "evidence": "NO CONFIRMADA. Escrito repro en cbssh-fork (rama investigate/rekey-pipelining, NO en la rama del PR): test 'SFTP pipelined writes survive byte limit rekey' con rekeyBytesLimit=256KB, depth=32, chunk=128KB, 32MB totales contra OpenSSH 9.9p2 real (Testcontainers). PASA en 3.2s. El test de rekey que ya existía upstream es SECUENCIAL (1 request en vuelo), así que el path pipelineado no estaba cubierto — pero tampoco falla en loopback. Diferencia clave con producción: RTT ~80ms (loopback ~0ms) => mucho mayor BDP y muchos más paquetes acumulados durante la ventana del rekey. Próximo paso: nuevo log del dispositivo ya con quality-013 para leer el motivo exacto, o repro con latencia inyectada (tc netem). || LOG 2026-08-30 22:00 (con quality-013): falla en offset 1072168960 = chunk 8180 de 8192, o sea a 12 chunks (1,5 MiB) EXACTOS de 1 GiB con 24 en vuelo => el corte esta en el borde del rekey, ya no es coincidencia. Ademas la reconexion loguea kex=mlkem768x25519-sha256 [post-quantum]: el rekey es ML-KEM768, con mensajes de KEX mucho mas grandes que un DH clasico, lo que NO estaba replicado en el repro de loopback. Falta el motivo que devuelve cbssh: lo tapaba TransferEngine (arreglado en quality-014)."
+    },
+    {
+      "id": "quality-014",
+      "name": "TransferEngine descartaba la causa real del fallo de escritura",
+      "description": "El log del dispositivo con quality-013 llegó hasta 'IoError IOException: Write failed at offset 1072168960 after retries', pero ese mensaje lo genera el propio TransferEngine (linea 907) y NO dice qué devolvió cbssh. retryWriteChunk() devolvía Boolean y tiraba a la basura tanto el SftpResult no-Success como las excepciones, así que era imposible saber si el rekey produce un ProtocolError, un IoError de socket o timeouts.",
+      "dependencies": [
+        "quality-013"
+      ],
+      "status": "done",
+      "evidence": "retryWriteChunk ahora devuelve String? (null=exito, o descripcion de la ULTIMA causa) y el IOException final incluye '— última causa: <detalle>'. Nuevo helper describeFailure(). Los 3 call sites migrados preservando la semantica de totalRetries (se incrementa solo si el reintento tuvo exito). Verificado: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL."
     }
   ]
 }
