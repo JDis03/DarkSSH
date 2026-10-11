@@ -246,7 +246,13 @@ fun ConsoleScreen(
                 Terminal(
                     terminalSession = currentBridge.darkTerminalSession!!,
                     terminalBridge = currentBridge,
-                    modifier = Modifier.fillMaxSize(),
+                    // ConsoleKeyBar is aligned over this Box, so reserve its exact height in
+                    // the AndroidView viewport. Without this padding TerminalView still used
+                    // the full screen height and its last row/prompt was hidden behind the
+                    // compact key bar when the software keyboard was dismissed.
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = if (!imeVisible) consoleKeyBarHeight else 0.dp),
                     showSoftKeyboard = showSoftwareKeyboard,
                     focusTrigger = focusTrigger,
                     forceShowKeyboardTrigger = forceShowKeyboardTrigger,
@@ -372,6 +378,8 @@ fun ConsoleScreen(
     }
 }
 
+private val consoleKeyBarHeight = 44.dp
+
 @Suppress("ktlint:standard:function-naming")
 @Composable
 private fun ConsoleKeyBar(
@@ -382,7 +390,7 @@ private fun ConsoleKeyBar(
     Surface(
         modifier = modifier
             .fillMaxWidth()
-            .height(44.dp),
+            .height(consoleKeyBarHeight),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
         tonalElevation = 4.dp,
     ) {
@@ -445,4 +453,3 @@ private fun DisconnectedOverlay(
         }
     }
 }
-

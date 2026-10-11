@@ -13,6 +13,16 @@ import static android.view.KeyEvent.KEYCODE_DPAD_RIGHT;
 import static android.view.KeyEvent.KEYCODE_DPAD_UP;
 import static android.view.KeyEvent.KEYCODE_ENTER;
 import static android.view.KeyEvent.KEYCODE_ESCAPE;
+import static android.view.KeyEvent.KEYCODE_0;
+import static android.view.KeyEvent.KEYCODE_1;
+import static android.view.KeyEvent.KEYCODE_2;
+import static android.view.KeyEvent.KEYCODE_3;
+import static android.view.KeyEvent.KEYCODE_4;
+import static android.view.KeyEvent.KEYCODE_5;
+import static android.view.KeyEvent.KEYCODE_6;
+import static android.view.KeyEvent.KEYCODE_7;
+import static android.view.KeyEvent.KEYCODE_8;
+import static android.view.KeyEvent.KEYCODE_9;
 import static android.view.KeyEvent.KEYCODE_F1;
 import static android.view.KeyEvent.KEYCODE_F10;
 import static android.view.KeyEvent.KEYCODE_F11;
@@ -62,6 +72,66 @@ public final class KeyHandler {
     public static final int KEYMOD_NUM_LOCK = 0x10000000;
 
     private static final Map<String, Integer> TERMCAP_TO_KEYCODE = new HashMap<>();
+
+    /**
+     * CSI-u makes Ctrl+digits distinguishable from the legacy ASCII control
+     * aliases. In particular, Ctrl+2 would otherwise become NUL and Ctrl+3
+     * Escape, while Ctrl+0/1 have no legacy control byte at all.
+     *
+     * Ctrl+0 through Ctrl+9 use this modern terminal encoding. Other keys
+     * retain their existing compatibility behavior.
+     */
+    public static String getControlDigitCsiUCode(int keyCode, int keyMode) {
+        if ((keyMode & (KEYMOD_CTRL | KEYMOD_ALT | KEYMOD_SHIFT)) != KEYMOD_CTRL) return null;
+
+        int digit;
+        switch (keyCode) {
+            case KEYCODE_0:
+            case KEYCODE_NUMPAD_0:
+                digit = 0;
+                break;
+            case KEYCODE_1:
+            case KEYCODE_NUMPAD_1:
+                digit = 1;
+                break;
+            case KEYCODE_2:
+            case KEYCODE_NUMPAD_2:
+                digit = 2;
+                break;
+            case KEYCODE_3:
+            case KEYCODE_NUMPAD_3:
+                digit = 3;
+                break;
+            case KEYCODE_4:
+            case KEYCODE_NUMPAD_4:
+                digit = 4;
+                break;
+            case KEYCODE_5:
+            case KEYCODE_NUMPAD_5:
+                digit = 5;
+                break;
+            case KEYCODE_6:
+            case KEYCODE_NUMPAD_6:
+                digit = 6;
+                break;
+            case KEYCODE_7:
+            case KEYCODE_NUMPAD_7:
+                digit = 7;
+                break;
+            case KEYCODE_8:
+            case KEYCODE_NUMPAD_8:
+                digit = 8;
+                break;
+            case KEYCODE_9:
+            case KEYCODE_NUMPAD_9:
+                digit = 9;
+                break;
+            default:
+                return null;
+        }
+
+        return "\033[" + (48 + digit) + ";5u";
+    }
 
     static {
         // terminfo: http://pubs.opengroup.org/onlinepubs/7990989799/xcurses/terminfo.html

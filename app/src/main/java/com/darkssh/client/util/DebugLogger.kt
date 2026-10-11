@@ -20,7 +20,20 @@ class FileLoggingTree(private val context: Context) : Timber.Tree() {
         private const val MAX_FILE_SIZE_BYTES = 5L * 1024 * 1024 // 5MB
         private const val LOG_PREFIX = "darkssh_"
         private const val LOG_SUFFIX = ".log"
+
+        /**
+         * Minimum level persisted to the shareable log file.
+         * Debug builds keep DEBUG for device diagnostics; VERBOSE (per-event noise such as
+         * zoom/visibility) stays in logcat only. Release builds keep only WARN/ERROR so
+         * hostnames, paths and flow details are not written to disk.
+         */
+        fun minFilePriority(isDebugBuild: Boolean): Int =
+            if (isDebugBuild) android.util.Log.DEBUG else android.util.Log.WARN
     }
+
+    private val minPriority = minFilePriority(com.darkssh.client.BuildConfig.DEBUG)
+
+    override fun isLoggable(tag: String?, priority: Int): Boolean = priority >= minPriority
 
     private val logDir: File = File(context.cacheDir, "logs").apply {
         if (!exists()) mkdirs()

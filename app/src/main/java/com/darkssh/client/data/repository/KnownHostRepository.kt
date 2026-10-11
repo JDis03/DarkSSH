@@ -14,6 +14,9 @@ class KnownHostRepository
     ) {
         fun getByHostId(hostId: Long): Flow<List<KnownHost>> = knownHostDao.getByHostId(hostId)
 
+        /** Every pinned key for this host, regardless of algorithm. */
+        suspend fun getAllForHost(hostId: Long): List<KnownHost> = knownHostDao.getAllForHost(hostId)
+
         suspend fun getByHostIdAndAlgo(
             hostId: Long,
             algo: String,

@@ -14,6 +14,9 @@
 
 package com.darkssh.client.transport.cbssh
 
+import com.darkssh.client.transport.HostKeyPolicy
+import com.darkssh.client.transport.SSH
+
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.transport.ISftpClient
@@ -133,6 +136,19 @@ class SftpClient2(
      * was supplied. Fails closed — rejects every key — if it wasn't, instead of
      * falling back to the old "always trust" behavior.
      */
+    /** Key types (e.g. ssh-ed25519) already pinned for this host, used to order negotiation. */
+    private suspend fun knownHostKeyTypes(): List<String> =
+        try {
+            knownHostRepository?.getAllForHost(host.id).orEmpty().mapNotNull { entry ->
+                runCatching {
+                    HostKeyPolicy.keyTypeFromBlob(android.util.Base64.decode(entry.hostKey, android.util.Base64.NO_WRAP))
+                }.getOrNull()
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "SftpClient2: could not read pinned host key types")
+            emptyList()
+        }
+
     private fun buildHostKeyVerifier(): HostKeyVerifier {
         val repo = knownHostRepository
         return if (repo != null) {
@@ -195,6 +211,7 @@ class SftpClient2(
         withContext(Dispatchers.IO) {
             try {
                 val verifier = buildHostKeyVerifier()
+                val knownKeyTypes = knownHostKeyTypes()
 
                 val client =
                     SshClient(
@@ -203,6 +220,13 @@ class SftpClient2(
                                 host = this@SftpClient2.host.hostname
                                 port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
                                 this.hostKeyVerifier = verifier
+                                // Prefer already-pinned key types (see HostKeyPolicy).
+                                if (knownKeyTypes.isNotEmpty()) {
+                                    hostKeyAlgorithms =
+                                        HostKeyPolicy
+                                            .preferredAlgorithms(knownKeyTypes, hostKeyAlgorithms.split(",").filter { it.isNotEmpty() })
+                                            .joinToString(",")
+                                }
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
@@ -228,8 +252,9 @@ class SftpClient2(
                     }
 
                     is ConnectResult.HostKeyRejected -> {
+                        val changed = (verifier as? DarkSshHostKeyVerifier)?.hostKeyChanged == true
                         return@withContext Result.failure(
-                            IOException("Host key rejected"),
+                            IOException(if (changed) SSH.HOST_KEY_CHANGED_MESSAGE else "Host key rejected"),
                         )
                     }
 
@@ -301,6 +326,7 @@ class SftpClient2(
         withContext(Dispatchers.IO) {
             try {
                 val verifier = buildHostKeyVerifier()
+                val knownKeyTypes = knownHostKeyTypes()
 
                 val client =
                     SshClient(
@@ -309,6 +335,13 @@ class SftpClient2(
                                 host = this@SftpClient2.host.hostname
                                 port = if (this@SftpClient2.host.port <= 0) 22 else this@SftpClient2.host.port
                                 this.hostKeyVerifier = verifier
+                                // Prefer already-pinned key types (see HostKeyPolicy).
+                                if (knownKeyTypes.isNotEmpty()) {
+                                    hostKeyAlgorithms =
+                                        HostKeyPolicy
+                                            .preferredAlgorithms(knownKeyTypes, hostKeyAlgorithms.split(",").filter { it.isNotEmpty() })
+                                            .joinToString(",")
+                                }
                                 // Keep alive cada 15s — evita que VPN/NAT/firewalls
                                 // maten la conexión durante idle (envía SSH_MSG_IGNORE).
                                 keepAliveIntervalMs = 15_000L
@@ -334,8 +367,9 @@ class SftpClient2(
                     }
 
                     is ConnectResult.HostKeyRejected -> {
+                        val changed = (verifier as? DarkSshHostKeyVerifier)?.hostKeyChanged == true
                         return@withContext Result.failure(
-                            IOException("Host key rejected"),
+                            IOException(if (changed) SSH.HOST_KEY_CHANGED_MESSAGE else "Host key rejected"),
                         )
                     }
 

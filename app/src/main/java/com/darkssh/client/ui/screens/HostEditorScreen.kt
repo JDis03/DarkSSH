@@ -15,7 +15,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -61,6 +64,31 @@ fun HostEditorScreen(
     }
     val host by viewModel.host.collectAsState()
     val pubkeys by viewModel.pubkeys.collectAsState()
+    val pinnedHostKeyCount by viewModel.pinnedHostKeyCount.collectAsState()
+    var showForgetHostKeyDialog by rememberSaveable(hostId) { mutableStateOf(false) }
+
+    if (showForgetHostKeyDialog) {
+        AlertDialog(
+            onDismissRequest = { showForgetHostKeyDialog = false },
+            title = { Text("Forget host key?") },
+            text = {
+                Text(
+                    "Only do this if you know the server's key changed legitimately " +
+                        "(reinstall, key rotation). On the next connection you must verify " +
+                        "the new fingerprint against the server before accepting it.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.forgetHostKeys(hostId)
+                    showForgetHostKeyDialog = false
+                }) { Text("Forget") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showForgetHostKeyDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
 
     // When host is saved (edit only), notify parent so open tabs reflect the
     // new nickname without restarting the connection.
@@ -187,6 +215,22 @@ fun HostEditorScreen(
             ) {
                 Text("Stay Connected", modifier = Modifier.weight(1f))
                 Switch(checked = stayConnected, onCheckedChange = { stayConnected = it })
+            }
+
+            if (hostId > 0) {
+                OutlinedButton(
+                    onClick = { showForgetHostKeyDialog = true },
+                    enabled = pinnedHostKeyCount > 0,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        if (pinnedHostKeyCount > 0) {
+                            "Forget host key ($pinnedHostKeyCount pinned)"
+                        } else {
+                            "No host key pinned yet"
+                        },
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))

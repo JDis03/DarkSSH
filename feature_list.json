@@ -533,6 +533,32 @@
       ],
       "status": "done",
       "evidence": "Resultado del experimento: con rekeyBytesLimit del cliente en 8 GiB el upload igual murió en offset 1072693248 = chunk 8184 de 8192, o sea 1 GiB exacto — que es donde rekeya el SERVIDOR ('rekey out after 134217728 blocks'), no el cliente. Conclusión: rompe CUALQUIER rekey, también el entrante, así que el fix en cbssh debe cubrir los dos sentidos. El error además cambió a 'ClosedReceiveChannelException: Channel was closed' (antes 'Connection reset by peer'), o sea ahora se cae por el lado de LECTURA. Se mantiene el umbral en 8 GiB porque evita al menos el rekey propio del cliente. Repro nuevo en el fork (rama investigate/rekey-pipelining): 'SFTP pipelined writes survive SERVER-initiated rekey' — RekeyLimit 4M en el sshd del contenedor vía SIGHUP, cliente con rekey desactivado, 64MB pipelineados depth 32, CON assert de no-vacuidad que verifica en los logs del servidor que hubo rekeys reales: PASA (3.7s). Loopback sigue sin reproducir."
+    },
+    {
+      "id": "quality-018",
+      "name": "DarkSSH ejecutaba un jar cbssh antiguo sin el gate de paquetes durante rekey",
+      "description": "La causa final fue una divergencia source/binario. El source actual de cbssh contiene OutboundPacketController, que pausa SSH_MSG_CHANNEL_DATA durante KEX y pasa los repros con OpenSSH 10.5p1, ML-KEM768, rekey iniciado por cliente/servidor y 80 ms de netem. El jar 0.3.3-SNAPSHOT realmente cargado por DarkSSH no contenía SshConnection$OutboundPacketController.class: seguía enviando SFTP durante el rekey, por lo que OpenSSH cortaba la conexión en su umbral de 1 GiB. sshj no fallaba porque sí implementa correctamente esa pausa.",
+      "dependencies": [
+        "quality-017"
+      ],
+      "status": "in-progress",
+      "evidence": "El jar anterior (~/.m2/.../0.3.3-SNAPSHOT) no contenía OutboundPacketController; el gate fue agregado en cbssh commit d23e6e6. Se creó la rama build/0.3.3-kotlin-2.3-rekey-fix desde el source actual, conservando versión 0.3.3-SNAPSHOT y Kotlin 2.3.21 para compatibilidad con Hilt. Publicado a Maven Local: el jar nuevo sí contiene SshConnection$OutboundPacketController.class. DarkSSH recompiló con --refresh-dependencies: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL. Falta validar en dispositivo que el upload de 1.4 GB cruza el rekey de 1 GiB."
+    },
+    {
+      "id": "feat-sftp-open-with",
+      "name": "Abrir archivos SFTP con aplicaciones Android",
+      "description": "Al tocar un archivo remoto, descargarlo temporalmente y mostrar el selector de Android 'Open with', como un file manager. La acción Download sigue guardando una copia permanente en Downloads.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Toque corto de archivo llama requestOpenFile: descarga a un directorio UUID único bajo cacheDir/sftp-open/<hostId>, reutiliza progreso/cancelación, elimina parciales en NonCancellable al fallar/cancelar y emite un evento one-shot. La decisión final de cancelación se serializa en Main para impedir abrir tras un cancel tardío. SftpScreen usa un ViewModel separado por host y consume eventos solo con pestaña activa y lifecycle RESUMED; comparte con FileProvider y usa ACTION_VIEW + Intent.createChooser. .md/.markdown usan text/markdown y otros formatos se resuelven por extensión. El menú Download conserva la descarga permanente. La caché exitosa se poda tras 24h y el canal de notificación está protegido para API 24/25. 6 tests cubren nombres seguros, MIME y poda. Verificado: test específico, testDebugUnitTest y ./init.sh BUILD SUCCESSFUL. lintDebug sigue bloqueado por 42 errores preexistentes; ninguno nuevo atribuible a esta feature. Pendiente smoke test del chooser en dispositivo."
+    },
+    {
+      "id": "feat-terminal-ctrl-digits",
+      "name": "Atajos Ctrl+0 a Ctrl+9 distinguibles en SSH",
+      "description": "Evitar la conversión ASCII heredada donde Ctrl+1 se volvía '1', Ctrl+2 NUL y Ctrl+3 Escape, enviando Ctrl+0 a Ctrl+9 como secuencias CSI-u explícitas al terminal remoto.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "KeyHandler produce ESC[48;5u hasta ESC[57;5u para Ctrl+0 a Ctrl+9, incluyendo keypad; TerminalView las escribe antes del fallback ASCII, sin duplicar eventos. Ctrl con Shift/Alt y teclas no numéricas conservan la compatibilidad heredada. KeyHandlerControlDigitTest cubre los 10 dígitos de fila, keypad 0/5/9 y casos no aplicables. Verificado: test específico y ./init.sh BUILD SUCCESSFUL. Pendiente smoke test en dispositivo con la TUI remota que consume CSI-u."
     }
   ]
 }

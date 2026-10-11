@@ -1,5 +1,8 @@
 package com.darkssh.client.ui.screens
 
+import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -86,16 +89,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.darkssh.client.transport.SftpAuthState
 import com.darkssh.client.transport.SftpEntry
 import kotlinx.coroutines.launch
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.screens.viewmodel.SftpViewModel
 import com.darkssh.client.ui.screens.viewmodel.SortBy
+import com.darkssh.client.util.SftpOpenFileUtils
 import timber.log.Timber
 import java.io.File
 import java.text.SimpleDateFormat
@@ -112,12 +118,13 @@ fun SftpScreen(
     inTab: Boolean = false,
     isActive: Boolean = true,
     terminalService: com.darkssh.client.service.TerminalService? = null,
-    viewModel: SftpViewModel = hiltViewModel(),
+    viewModel: SftpViewModel = hiltViewModel(key = "sftp-$hostId"),
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
     
     // Handle back gesture: navigate up in folder hierarchy instead of closing app
     BackHandler(enabled = uiState.currentPath != "/" && uiState.currentPath != uiState.homeDirectory) {
@@ -173,7 +180,35 @@ fun SftpScreen(
         }
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(viewModel, isActive, lifecycleOwner) {
+        if (isActive) {
+            lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                viewModel.openFileEvents.collect { file ->
+                    try {
+                        val uri =
+                            FileProvider.getUriForFile(
+                                context,
+                                "${context.packageName}.fileprovider",
+                                file,
+                            )
+                        val openIntent =
+                            Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, SftpOpenFileUtils.mimeTypeForFileName(file.name))
+                                clipData = ClipData.newRawUri(file.name, uri)
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                        context.startActivity(Intent.createChooser(openIntent, "Open with"))
+                    } catch (_: ActivityNotFoundException) {
+                        snackbarHostState.showSnackbar("No app can open ${file.name}")
+                    } catch (error: Exception) {
+                        Timber.e(error, "Failed to open downloaded SFTP file")
+                        snackbarHostState.showSnackbar("Could not open ${file.name}")
+                    }
+                }
+            }
+        }
+    }
+
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -535,7 +570,7 @@ fun SftpScreen(
                                 if (entry.isDirectory || entry.isSymlink) {
                                     viewModel.navigateTo(entry.path)
                                 } else {
-                                    viewModel.requestDownload(entry.path, entry.name)
+                                    viewModel.requestOpenFile(entry.path, entry.name)
                                 }
                             },
                             onRename = { showRenameDialog = entry },

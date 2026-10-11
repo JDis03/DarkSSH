@@ -24,6 +24,7 @@ import android.util.Base64
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.KnownHost
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.transport.HostKeyPolicy
 import com.darkssh.client.util.DebugLogger
 import com.darkssh.client.util.SshFingerprint
 import org.connectbot.sshlib.HostKeyVerifier
@@ -48,15 +49,24 @@ class DarkSshHostKeyVerifier(
         private const val TAG = "SftpHostKey"
     }
 
+    /** True when a pinned host presented a key matching none of its stored keys. */
+    @Volatile
+    var hostKeyChanged: Boolean = false
+        private set
+
     override suspend fun verify(key: PublicKey): Boolean {
         val keyData = Base64.encodeToString(key.encoded, Base64.NO_WRAP)
         DebugLogger.i(
             TAG,
             "🔑 verify() called for ${host.hostname}:${host.port} (hostId=${host.id}) algo=${key.type}",
         )
-        val existing = knownHostRepository.getByHostIdAndAlgo(host.id, key.type)
+        // Every pinned key for the host, regardless of algorithm (see HostKeyPolicy):
+        // a different key type is a changed key, not a new host.
+        val existing = knownHostRepository.getAllForHost(host.id)
+        val decision = HostKeyPolicy.evaluate(existing.map { it.hostKey }, keyData)
+        hostKeyChanged = decision == HostKeyPolicy.Decision.CHANGED
 
-        if (existing.isEmpty()) {
+        if (decision == HostKeyPolicy.Decision.UNKNOWN_HOST) {
             DebugLogger.i(TAG, "❓ No known host key stored for hostId=${host.id} algo=${key.type} — prompting user")
             val fingerprints = SshFingerprint.build(key.type, key.encoded)
             val accepted = onUnknownKey(key.type, fingerprints)
@@ -77,7 +87,7 @@ class DarkSshHostKeyVerifier(
             return accepted
         }
 
-        val matches = existing.any { it.hostKey == keyData }
+        val matches = decision == HostKeyPolicy.Decision.TRUSTED
         if (matches) {
             DebugLogger.i(TAG, "✅ Presented key matches a known host key for hostId=${host.id} — trusted silently")
         } else {

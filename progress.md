@@ -1,3 +1,97 @@
+## 2026-09-26 00:31 — ClientSSH
+**Summary**: Seguridad: (1) HostKeyPolicy compartido: rechazo de claves no fijadas incluso de otro algoritmo (cierra downgrade MITM que recibía la contraseña guardada), preferencia de algoritmos conocidos en trilead (setServerHostKeyAlgorithms) y cbssh (hostKeyAlgorithms), mensaje claro de clave cambiada, botón 'Forget host key' con confirmación en Edit Host. (2) Backups: allowBackup=false y data_extraction_rules excluyendo DB/prefs/files en cloud y device-transfer.
+**Verified**: HostKeyPolicyTest 3/3; DarkSshHostKeyVerifierTest 5/5 (incluye caso downgrade RSA); ./init.sh BUILD SUCCESSFUL; assembleDebug OK; git diff --check limpio. Pendiente smoke test en dispositivo; build release sigue rota por EdDSA (preexistente).
+**Completed**: none
+---
+## 2026-09-26 00:25 — ClientSSH
+**Summary**: Política de logs: eliminado el log de SSH.write que registraba el primer byte de cada tecla (reconstruía contraseñas tecleadas). FileLoggingTree ahora persiste DEBUG+ sólo en builds debug (VERBOSE queda en logcat) y WARN+ en release. ProGuard elimina android.util.Log v/d/i en release. Test FileLoggingPolicyTest. Detectado que la build release ya fallaba en R8 por EdDSA (preexistente, TODO).
+**Verified**: FileLoggingPolicyTest 2/2; ./init.sh BUILD SUCCESSFUL; git diff --check limpio; minifyReleaseWithR8 falla igual con y sin el cambio (preexistente).
+**Completed**: none
+---
+## 2026-09-26 00:16 — ClientSSH
+**Summary**: Fix: con Stay Connected el cliente SSH seguía pidiendo la clave. Causa: keyboard-interactive (usado por OpenSSH/PAM) nunca usaba ni guardaba la clave recordada. Ahora el prompt de contraseña oculto de keyboard-interactive usa la clave guardada una vez por conexión, guarda la tecleada tras autenticar (persistente sólo con Stay Connected) y la borra si es rechazada; excluye prompts de cambio de contraseña. CredentialStore sólo persiste/lee del almacén cifrado con Stay Connected, y SFTP respeta el flag.
+**Verified**: KeyboardInteractivePasswordTest 3/3; ./init.sh BUILD SUCCESSFUL; git diff --check limpio. Pendiente prueba en dispositivo.
+**Completed**: none
+---
+## 2026-09-21 17:01 — ClientSSH
+**Summary**: Implementado Ctrl+0 a Ctrl+9 distinguibles para la consola SSH. TerminalView intercepta sólo Ctrl puro sobre fila numérica o keypad antes del fallback ASCII y envía CSI-u ESC[48;5u a ESC[57;5u. Así Ctrl+2 y Ctrl+3 ya no colapsan a NUL/Escape. Añadidas pruebas para los diez dígitos, keypad y modificadores incompatibles.
+**Verified**: Baseline ./init.sh BUILD SUCCESSFUL; ./gradlew testDebugUnitTest --tests com.darkssh.client.terminal.emulator.KeyHandlerControlDigitTest BUILD SUCCESSFUL; ./init.sh final BUILD SUCCESSFUL; git diff --check limpio; feature_list.json válido. Pendiente smoke test en dispositivo con la TUI remota.
+**Completed**: none
+---
+## 2026-09-21 — Ctrl+0 a Ctrl+9 distinguibles
+**Summary**: Implementado el envío explícito de Ctrl+0 hasta Ctrl+9 mediante CSI-u antes de la conversión ASCII heredada del terminal. La fila numérica y keypad ahora producen ESC[48;5u hasta ESC[57;5u, conservando Ctrl como modificador en lugar de colapsar a caracteres ASCII, NUL o Escape. Ctrl con Shift/Alt y teclas no numéricas mantienen su comportamiento heredado.
+**Verified**: KeyHandlerControlDigitTest verifica los diez dígitos de fila, tres teclas keypad y casos que deben permanecer sin manejar; test específico BUILD SUCCESSFUL; ./init.sh final BUILD SUCCESSFUL; git diff --check y feature_list.json válidos.
+**Completed**: feat-terminal-ctrl-digits; pendiente smoke test con la TUI remota.
+---
+## 2026-09-21 16:50 — ClientSSH
+**Summary**: Investigado Ctrl+1/Ctrl+2/Ctrl+3 en la consola SSH sin modificar código. MainActivity no los consume y el bridge/SSH entrega bytes intactos; el límite es la semántica ASCII heredada del TerminalView de Termux: Ctrl+1 se colapsa a '1', Ctrl+2 es NUL y Ctrl+3 es ESC. Para atajos distinguibles de TUIs modernas hay que acordar e implementar un protocolo extendido opt-in por host.
+**Verified**: ./init.sh BUILD SUCCESSFUL antes de investigar. Lectura y traza verificadas en MainActivity.kt, TerminalView.java, KeyHandler.java, TerminalSession.java, TerminalBridge.kt y SSH.kt; no se modificaron archivos de código.
+**Completed**: none
+---
+## 2026-09-04 03:00 — ClientSSH
+**Summary**: Implementada feat-sftp-open-with: tocar un archivo remoto ahora lo descarga a una ruta UUID temporal por host y, al completar, abre el chooser Android mediante FileProvider + ACTION_VIEW. Download contextual conserva guardado permanente. Añadidos MIME para Markdown/texto, nombres seguros, eventos lifecycle/tab-aware, limpieza robusta al cancelar, poda de caché a 24h, compatibilidad API 24/25 y seis pruebas unitarias.
+**Verified**: Baseline ./init.sh exitoso; test específico SftpOpenFileUtilsTest exitoso; ./gradlew testDebugUnitTest exitoso; ./init.sh final BUILD SUCCESSFUL; git diff --check limpio; feature_list.json válido. lintDebug ejecutado y falla por 42 errores preexistentes, sin hallazgos nuevos atribuibles a esta feature.
+**Completed**: none
+---
+---
+## 2026-09-04 02:57 — ClientSSH
+**Summary**: Revisión read-only de los cuatro bloqueantes SFTP Open with tras cambios recientes; API24 resuelto, cancelación y lifecycle parciales, caché aún sin limpieza eventual garantizada.
+**Verified**: SftpOpenFileUtilsTest PASS; git diff --check PASS; lintDebug ejecutado y confirmó que ya no hay NewApi en createDownloadNotificationChannel, aunque falla por 42 errores preexistentes.
+**Completed**: none
+---
+---
+## 2026-09-04 02:51 — ClientSSH
+**Summary**: Revisión read-only de SFTP Open with: detectados problemas API 24-25, lifecycle/eventos y limpieza de caché/cancelación; sin modificar fuentes.
+**Verified**: Ejecutado :app:testDebugUnitTest --tests com.darkssh.client.util.SftpOpenFileUtilsTest (PASS) y git diff --check sobre archivos revisados (PASS).
+**Completed**: none
+---
+---
+## 2026-09-03 — SFTP Open with
+**Summary**: Implementada apertura de archivos remotos al estilo file manager. Un toque sobre un archivo lo descarga temporalmente a una ruta UUID única dentro de cacheDir/sftp-open/<hostId>, conserva nombre/extensión, muestra progreso y luego emite un evento one-shot. La UI usa un SftpViewModel separado por host y solo consume el evento con la pestaña activa y lifecycle RESUMED; después crea un content URI con FileProvider y lanza ACTION_VIEW dentro de Intent.createChooser("Open with"). Markdown usa text/markdown; texto/código y formatos estándar reciben MIME por extensión. La acción contextual Download sigue guardando permanentemente en Downloads. Archivos parciales se eliminan incluso bajo cancelación, el cancel tardío no puede abrir el archivo y la caché exitosa mayor a 24h se poda.
+**Verified**: 6 tests de SftpOpenFileUtils; testDebugUnitTest BUILD SUCCESSFUL; ./init.sh BUILD SUCCESSFUL; git diff --check y feature_list.json válidos. lintDebug ejecutado tras corregir API 24/25: sigue bloqueado por 42 errores preexistentes, sin hallazgos nuevos atribuibles a esta feature.
+**Completed**: feat-sftp-open-with; pendiente smoke test en dispositivo con una app Markdown instalada.
+---
+## 2026-09-03 04:04 — ClientSSH
+**Summary**: Usuario confirmó en dispositivo que el fix real de ConsoleKeyBar funcionó: el viewport del terminal ahora reserva los 44dp de la barra propia cuando el teclado del sistema está cerrado, por lo que la última fila/prompt ya no queda oculta. TODO de validación visual completado.
+**Verified**: Confirmación directa del usuario en dispositivo; validación automatizada previa: compileDebugKotlin, testDebugUnitTest e init.sh exitosos.
+**Completed**: none
+---
+---
+## 2026-09-03 03:36 — ClientSSH
+**Summary**: Revisada la captura real en /pictures. El 'mini teclado' era ConsoleKeyBar (barra propia de 44dp con flechas, Tab e icono de teclado), no Gboard. La barra estaba superpuesta con Alignment.BottomCenter mientras TerminalView ocupaba fillMaxSize, por eso la última fila/prompt quedaba debajo. Revertido el cambio anterior de imeAnimationTarget porque no correspondía. Fix real: constante compartida consoleKeyBarHeight=44.dp y padding inferior de esa altura en el viewport Terminal cuando !imeVisible, permitiendo que TerminalView recalcule sus filas por encima de la barra.
+**Verified**: git diff --check limpio; ./gradlew compileDebugKotlin testDebugUnitTest BUILD SUCCESSFUL; ./init.sh BUILD SUCCESSFUL. Pendiente validación visual en dispositivo.
+**Completed**: none
+---
+---
+## 2026-09-03 03:27 — ClientSSH
+**Summary**: Corregido el padding de la consola SSH cuando Gboard se minimiza y deja una barra/mini teclado. ConsoleScreen mezclaba WindowInsets.ime para detectar visibilidad con WindowInsets.imeAnimationTarget para el layout; el target no representa necesariamente la altura visible del teclado compacto y causaba solapamiento o padding residual. Se reemplazaron ambos usos de imeAnimationTarget por WindowInsets.ime y se eliminó el import. Cambio limitado a ConsoleScreen.kt, sin tocar los cambios pendientes previos.
+**Verified**: ./gradlew compileDebugKotlin testDebugUnitTest BUILD SUCCESSFUL; ./init.sh BUILD SUCCESSFUL. Pendiente validación visual en dispositivo con Gboard minimizado.
+**Completed**: none
+---
+---
+## 2026-08-31 04:45 — ClientSSH
+**Summary**: Validación final exitosa en dispositivo: el upload real de EnemyAITutorial.zip, 1.475.138.004 bytes, cruzó el rekey del servidor en 1 GiB y terminó al 100%. Log: [UL] Complete: 1475138004B in 82439ms = 17474KB/s, retries=0, finalDepth=26; seguido de Upload OK (SFTP). Esto confirma definitivamente que el fallo era el jar 0.3.3-SNAPSHOT antiguo de cbssh sin OutboundPacketController; el jar reconstruido compatible (Kotlin 2.3.21, 0.3.3-SNAPSHOT) incluye el gate y resuelve el problema. No era sshj, WiFi ni VPN. quality-018 queda validado.
+**Verified**: Log del dispositivo confirma 100%, retries=0 y Upload OK después de cruzar 1 GiB; cbssh publishToMavenLocal y DarkSSH --refresh-dependencies compileDebugKotlin/testDebugUnitTest/init.sh también pasaron
+**Completed**: none
+---
+---
+## 2026-08-31 04:34 — ClientSSH
+**Summary**: Causa final identificada: DarkSSH ejecutaba un jar Maven Local 0.3.3-SNAPSHOT antiguo sin SshConnection.OutboundPacketController, mientras yo inspeccionaba/testeaba el source actual que sí tiene el gate RFC 4253 para pausar CHANNEL_DATA durante KEX. Eso explica por qué sshj funcionaba y todos los repros del source actual (incluyendo OpenSSH 10.5p1 + 80ms netem) pasaban, pero la app real seguía muriendo exactamente en rekey. Se creó cbssh branch build/0.3.3-kotlin-2.3-rekey-fix, manteniendo Kotlin 2.3.21 y versión 0.3.3 para compatibilidad Hilt, se publicó a Maven Local y el jar nuevo fue verificado con OutboundPacketController. DarkSSH recompiló contra el artefacto nuevo con --refresh-dependencies. quality-018 registrada, pendiente prueba final del upload de 1.4GB.
+**Verified**: cbssh :sshlib:compileKotlin + test específico + publishToMavenLocal BUILD SUCCESSFUL; jar contiene SshConnection$OutboundPacketController.class; DarkSSH --refresh-dependencies compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL
+**Completed**: none
+---
+---
+## 2026-08-31 — ClientSSH
+**Summary**: Causa final encontrada: DarkSSH no estaba ejecutando el source actual de cbssh que yo inspeccionaba, sino un jar 0.3.3-SNAPSHOT antiguo de Maven Local sin OutboundPacketController. Ese gate (commit cbssh d23e6e6) bloquea SSH_MSG_CHANNEL_DATA durante el intercambio de claves; sin él, el SFTP pipelineado sigue enviando datos durante KEX y OpenSSH corta la conexión exactamente en el umbral de rekey. Esto explica por qué sshj no fallaba y por qué todos los repros contra el source actual (incluyendo OpenSSH 10.5p1 + 80ms netem) pasaban. Se creó build/0.3.3-kotlin-2.3-rekey-fix desde el source actual, manteniendo 0.3.3-SNAPSHOT y Kotlin 2.3.21 para no romper Hilt, y se publicó a Maven Local. El jar nuevo sí contiene SshConnection$OutboundPacketController.class; DarkSSH fue recompilado con --refresh-dependencies.
+**Verified**: cbssh publishToMavenLocal BUILD SUCCESSFUL; presencia de OutboundPacketController verificada dentro del jar; DarkSSH compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL
+**Completed**: quality-018 queda in-progress hasta validar el upload de 1.4 GB en dispositivo
+---
+## 2026-08-31 02:41 — ClientSSH
+**Summary**: El experimento dio el caso B: con el rekey del cliente en 8 GiB el upload igual murió en 1 GiB exacto (chunk 8184/8192), que es donde rekea el servidor. Rompe cualquier rekey, también el entrante, y el error mutó a ClosedReceiveChannelException, o sea ahora entra por el lado de lectura. Encontré un hueco en mi propio método: los dos repros previos solo ejercitaban rekeys iniciados por el cliente. Escribí el que faltaba (server-initiated, RekeyLimit 4M vía SIGHUP en el contenedor, 64MB pipelineados) con un assert de no-vacuidad que exige ver rekeys reales en los logs del servidor — y también pasa en loopback. Quedan descartadas por test real: pipelining, ML-KEM768, rekey de cliente y rekey de servidor. Única variable sin replicar: latencia/BDP. Commit 1caef483. Desbloqueo inmediato disponible para el usuario: como el servidor es su propia máquina y tiene '#RekeyLimit default none' (o sea el default de 1 GiB), subirlo ahí evitaría el único rekey que queda en juego.
+**Verified**: 3 repros del fork verificados en los XML de test-results (0 failures), el del servidor con guard de no-vacuidad que valida que el SIGHUP tomó efecto; ./init.sh BUILD SUCCESSFUL
+**Completed**: none
+---
+---
 ## 2026-08-31 (5) — ClientSSH
 **Summary**: El experimento de quality-017 dio el caso B: con el rekey del cliente en 8 GiB el upload igual murió en offset 1072693248 = chunk 8184/8192 = 1 GiB exacto, que es donde rekea el SERVIDOR ("rekey out after 134217728 blocks"). O sea rompe CUALQUIER rekey, también el entrante, y el fix upstream tiene que cubrir los dos sentidos. El error además mutó a ClosedReceiveChannelException ("Channel was closed"): ahora la caída entra por el lado de LECTURA, no de escritura. Detecté un hueco de método en mis repros: los dos anteriores solo ejercitaban rekeys iniciados por el CLIENTE, así que el camino del KEXINIT entrante nunca estuvo cubierto. Escribí el repro que faltaba ('SFTP pipelined writes survive SERVER-initiated rekey': RekeyLimit 4M en el sshd del contenedor vía SIGHUP, cliente con rekey desactivado, 64MB pipelineados depth 32) y le puse un assert de no-vacuidad que lee los logs del servidor y exige ver rekeys reales — sin eso, si el SIGHUP no tomaba efecto el test pasaba sin probar nada. También PASA en loopback. Variables ya descartadas con test real: pipelining, ML-KEM768, rekey del cliente y rekey del servidor. Única sin replicar: latencia/BDP.
 **Verified**: 3 repros del fork verificados en los XML de test-results (0 failures), el del servidor con guard de no-vacuidad; ./init.sh BUILD SUCCESSFUL
@@ -69,111 +163,3 @@
 **Summary**: PR copy-data verificado con calidad completa: ./gradlew build en cbssh-fork pasa 1215 tests (0 fallos) + spotless + metalava + kover. Fixes aplicados: spotless espaciado en SshClient.kt, api.txt con keepAliveIntervalMs regenerado, openSftp no rompe el test de upstream (ventana movida a default de openSessionChannel), .memory-project removido del PR, rebase autosquash limpio. Branch feat/copy-data-extension (3 commits) force-pusheado a JDis03/cbssh. Pendiente: testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227).
 **Verified**: ./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotless, metalava, kover OK); branch pusheado
 **Completed**: none
----
----
-## 2026-08-18 19:58 — ClientSSH
-**Summary**: Validación final del plan de throughput con log real: 28-32 MB/s (DL y UL) vs 3.4 original — el engine optimizado entrega ~30MB/s estables cuando la red lo permite. El límite anterior era el WiFi 2.4GHz del router (5GHz muerto: RT-AX54, diagnosticado por SSH: driver carga pero no transmite, descartados smart-connect/SSID oculto/canal fijo/reboot — probable hardware/firmware). Bug nuevo registrado: cancelar descarga mata la conexión SFTP ('Failed to write 68 bytes'). Commits 0fd03477.
-**Verified**: Log real dispositivo: 3 corridas (28.0/29.9/31.7 MB/s); diagnóstico router por SSH completo; tests verdes previos
-**Completed**: none
----
----
-## 2026-08-18 14:48 — ClientSSH
-**Summary**: Benchmark decisivo de cbssh en PC (mismo pipeline depth 32 chunk 128KB contra localhost): DL 130MB/s, UL 170MB/s. El código de cbssh NO es el cuello — el throughput del móvil (DL 6.4MB/s = 91% del WiFi, UL 3.2MB/s) es el techo físico del teléfono. El RTT medido alto era bufferbloat del radio saturado. quality-008 fue falso positivo para la app (el jar 0.3.3 ya tenía la ventana 16MB). keepAlive cherry-picked al branch del PR. DarkSSH sigue en 0.3.3 (0.4.3 rompe Hilt por metadatos Kotlin). Benchmark temporal eliminado. Fork limpio con 3 commits para el PR: copy-data + ventana 16MB + keepAlive.
-**Verified**: benchmark PC (DL 130 / UL 170 MB/s) + DarkSSH assembleDebug OK con cbssh 0.3.3-SNAPSHOT + fork pusheado limpio
-**Completed**: none
----
----
-## 2026-08-18 14:13 — ClientSSH
-**Summary**: quality-008: el log LAN con RTT de 400-3000ms contra IP local delató el cuello interno — openSessionChannel() de cbssh abre el canal SFTP con ventana de 64KB (round-trip stall por cada 64KB). Fix en el fork: ventana 16MB + packet 32KB (a3a7cb0), publicado a mavenLocal, DarkSSH recompilado. El jar publicado antes no incluía los fixes de ventana de junio (49af22a/ea1f04b). Pendiente retest del usuario en LAN/VPN.
-**Verified**: publishToMavenLocal OK + testDebugUnitTest OK + ./init.sh BUILD SUCCESSFUL en DarkSSH; pendiente retest en dispositivo
-**Completed**: none
----
----
-## 2026-08-18 12:46 — ClientSSH
-**Summary**: quality-007 iteración 2 con el dato clave "VPN": el RTT real de 200-300ms explicaba el límite de 4-5MB/s (BDP 1.75MB vs 1MB en vuelo con 32×32KB). Fix: chunkSize 128KB (4MB en vuelo = 16MB/s teórico) + panicRttMs 4000 (picos VPN transitorios). Commit e45a15a9. Pendiente retest del usuario con VPN — si da ~7MB/s, queda listo el device testing para el PR de copy-data.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK; pendiente retest en dispositivo con VPN
-**Completed**: none
----
----
-## 2026-08-18 12:24 — ClientSSH
-**Summary**: Diagnosticado con el log real del dispositivo y arreglado quality-007: el throughput de 3.4MB/s (link de ~7MB/s) era causado por medir el RTT desde el ENCOLADO del async — la espera de thread del pool inflaba el 'RTT' → sawtooth depth 12↔16 + panic + auto-congestión medida. Fix: timestamp dentro del async, buckets recalibrados, maxPipelineDepth 32. Commit 47a9b00c. Pendiente: retest en dispositivo.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL (100 tests) + ./init.sh BUILD SUCCESSFUL; pendiente retest en dispositivo real
-**Completed**: none
----
----
-## 2026-08-18 14:00 — ClientSSH
-**Summary**: quality-009 — benchmark decisivo de cbssh en PC (mismo pipeline depth 32 chunk 128KB): DL 130MB/s, UL 170MB/s contra localhost. El código de cbssh NO es el cuello — el throughput del móvil (DL 6.4MB/s = 91% del WiFi ~7, UL 3.2MB/s) es el techo del WiFi/CPU del teléfono. El 'RTT medido' de 400-3000ms en LAN era bufferbloat del radio saturado (efecto, no causa). quality-008 fue falso positivo para la app: el jar 0.3.3 YA tenía ventana 16MB desde junio — el fix sigue siendo válido para el PR upstream (lib default 64KB). keepAlive cherry-picked a feat/copy-data-extension (76ad956). DarkSSH sigue en cbssh 0.3.3-SNAPSHOT (0.4.3 rompe Hilt por metadatos Kotlin 2.4 vs 2.3 — no subir). Benchmark temporal eliminado; fork limpio con 3 commits para el PR.
-**Verified**: benchmark en PC (DL 130 / UL 170 MB/s) + fork limpio + DarkSSH assembleDebug OK con 0.3.3.
-**Completed**: quality-009
----
----
-## 2026-08-18 13:10 — ClientSSH
-**Summary**: quality-008 — el log LAN (RTT 400-3000ms contra IP local 192.168.50.45) reveló que el cuello NO era la red: openSessionChannel() de cbssh abre el canal SFTP con initialWindowSize=64KB → el servidor envía 64KB y pausa esperando WINDOW_ADJUST → un round-trip por cada 64KB. Por eso DL=6.4MB/s y UL=3.2MB/s idénticos en LAN y VPN (el RTT 'medido' era stall de ventana). Fix en el fork: ventana 16MB, packet 32KB (256KB rompía SftpPacketIO — lección del fork local 49af22a/ea1f04b de junio que el jar publicado NO incluía). Commit a3a7cb0 en JDis03/cbssh, publicado a mavenLocal 0.3.3-SNAPSHOT, DarkSSH recompilado OK.
-**Verified**: testDebugUnitTest + ./init.sh BUILD SUCCESSFUL en DarkSSH; publishToMavenLocal BUILD SUCCESSFUL en fork. PENDIENTE retest en dispositivo (LAN + VPN).
-**Completed**: quality-008
----
----
-## 2026-08-18 12:50 — ClientSSH
-**Summary**: quality-007 iteración 2 — el retest con VPN reveló el límite restante: RTT real ~200-300ms (VPN, no LAN) → BDP de 7MB/s×250ms = 1.75MB en vuelo; 32×32KB = 1MB no alcanzaba → throughput = depth×chunk/RTT = 4.2MB/s teórico (descarga real 5.1MB/s, upload 3.07MB/s). Fix: chunkSize 32KB→128KB (32×128KB=4MB en vuelo = ~16MB/s teórico a 250ms) y panicRttMs 2000→4000 (picos VPN de 2-3s son transitorios; el breaker colapsaba el pipeline innecesariamente). La medición de RTT corregida de la iteración 1 ya estabilizó el depth en 32 (3.4→5.1MB/s, 1 solo panic vs sawtooth permanente).
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK. PENDIENTE retest en dispositivo con VPN.
-**Completed**: quality-007 (iteración 2)
----
----
-## 2026-08-18 12:25 — ClientSSH
-**Summary**: quality-007 — el log real del dispositivo reveló la causa del throughput bajo (3.4MB/s en un link de ~7MB/s): la medición de RTT usaba el timestamp de ENCOLADO del async, incluyendo la espera de thread del pool de coroutines → el adaptativo se auto-congestionaba por medición (sawtooth depth 12↔16 toda la descarga, panic 2056ms→6, avgRtt 50-400ms). Fix: timestamp movido DENTRO del async (justo antes del sftp.read/write), buckets recalibrados (<30→12, <60→16, <120→24, else→max) y maxPipelineDepth restaurado a 32 (el downgrade a 16 del 23-jul era artefacto de la misma medición). Tests actualizados (AdaptiveTest, TransferConfigTest). PENDIENTE retest en dispositivo: la descarga de 712MB debería ir a ~7MB/s estable.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL
-**Completed**: quality-007
----
----
-## 2026-08-18 12:14 — ClientSSH
-**Summary**: Fork cbssh verificado y listo para el PR de copy-data: rama feat/copy-data-extension rebasada sobre upstream/main (8 commits de renovate sin conflicto), api.txt descontaminado (5 líneas de keepAlive de la main local rompían metalavaCheckCompatibility), spotless aplicado (solo header copyright), build completo verde (test+spotless+metalava+kover), 1215 tests 0 fallos incluyendo los 3 archivos de test de copy-data (SftpClientIntegrationTest con Docker real). Rama pusheada a JDis03/cbssh. Falta solo el testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227).
-**Verified**: ./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotless, metalava, kover OK) en Java 21 con Docker disponible
-**Completed**: none
----
----
-## 2026-08-18 12:02 — ClientSSH
-**Summary**: Completado el plan de robustez cbssh: quality-005 Flow APIs arregladas (channel siempre cerrado + resultado propagado al collector, 3 tests nuevos) y quality-006 uploadParallel eliminada (dead code con off-by-one, -110 líneas + constantes muertas). Commits bb107f70 y 9773f02e pusheados. Plan quality-001..006 completo, todo verificado verde.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: none
----
----
-## 2026-08-18 12:03 — ClientSSH
-**Summary**: Implementados quality-005 y quality-006 (ambos dead code, decisiones opuestas con ojo crítico). quality-005 — Flow APIs ARREGLADAS (son API pública útil): el job cierra el channel SIEMPRE (try/finally cubre éxito/fallo/cancelación incl. rethrow de quality-003), el resultado se propaga al collector (Failed/Cancelled lanzados vía job.await()) y job.cancel() si el collector cancela. 3 tests nuevos (completa sin colgarse, propaga fallo, upload completa). quality-006 — uploadParallel ELIMINADA (110 líneas + constantes muertas DEFAULT_CHUNK_SIZE/DEFAULT_PARALLEL_CHUNKS): dead code con off-by-one (perdía el último byte de cada chunk) y sin límite de concurrencia; arreglar código sin callers solo agrega superficie de bugs. Verificado todo verde.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: quality-005, quality-006
----
----
-## 2026-08-18 11:52 — ClientSSH
-**Summary**: Implementado quality-004 (resume de transfers): download resume con RandomAccessFile (setLength recorta cola + seek), upload con skipFully (skip exacto, EOFException si local corto) + validación stat del remoto para evitar gaps. 6 tests nuevos/actualizados cubriendo los casos borde, todos verdes. Commit 0daae371 pusheado a contrib/cbssh-sftp.
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: none
----
----
-## 2026-08-18 11:52 — ClientSSH
-**Summary**: Implementado quality-004 (resume real): download resume ya no trunca el local — openResumableOutputStream() con RandomAccessFile (setLength recorta cola basura + seek a resumeFrom, fallo claro si el local no existe). Upload resume: skipFully() salta exactamente N bytes (EOFException si el local es más corto) + validación stat del remoto cuando resumeFrom>0 (Failed sin abrir handle si el remoto es más chico que el punto de reanudación — evita gap de ceros). 6 tests nuevos/actualizados: 3 de download resume (prefix preservado, cola recortada, local inexistente → handle cerrado) y 3 de upload (flags WRITE-only, write desde offset 20, remoto más chico → Failed sin open). El test existente de flags WRITE-only se actualizó con stub de stat (contrato nuevo del fix).
-**Verified**: testDebugUnitTest BUILD SUCCESSFUL + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: quality-004
----
----
-## 2026-08-18 11:43 — ClientSSH
-**Summary**: Implementado quality-003: TransferEngine ya no traga la cancelación (downloadChunksToStream/uploadInternal re-lanzan CancellationException en vez de devolver TransferResult.Cancelled), respetando structured concurrency. Verificado antes que SftpViewModel captura la cancelación en su frontera en downloads (759, limpia notificación) y uploads (1166) — sin regresiones, y de bonus arregla la notificación fantasma al cancelar descargas. Commit 13a561d3 pusheado.
-**Verified**: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK (tests de propagación de cancelación verdes) + assembleDebug OK
-**Completed**: none
----
----
-## 2026-08-18 08:39 — ClientSSH
-**Summary**: Implementado quality-002 con verificación previa de la causa real: las descargas ya no destruyen la copia local si el remoto falla. TransferEngine valida stat+open antes de truncar (helpers statRemoteForDownload/openRemoteForDownload, loop extraído a downloadChunksToStream), check resume>=total antes del open (contrato de tests), caso 0-byte preservado. CbsshTransfer: preflight stat+open+close. Los 2 tests rotos se diagnosticaron con evidencia (NoWhenBranchMatchedException + verify never open), no por asunción. Commit f1e7ba6f pusheado.
-**Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: none
----
----
-## 2026-08-18 09:30 — ClientSSH
-**Summary**: Implementado quality-003 (structured concurrency): downloadChunksToStream y uploadInternal ya NO convierten la cancelación en TransferResult.Cancelled — ahora re-lanzan CancellationException (los finally cierran handle/stream). Verificado previamente que SftpViewModel captura CancellationException en su frontera en AMBOS flujos (download:759 limpia la notificación; upload:1166), así que el rethrow no rompe la UI y de paso arregla la notificación fantasma que quedaba colgada al cancelar una descarga. SftpClient2 ya re-lanzaba bien (828). Los 3 compat mantienen el branch Cancelled como defensivo (when exhaustivo, inalcanzable). Tests de propagación existentes (TransferEngineRetryTest:159, RetryChunkTest:144) siguen verdes.
-**Verified**: ./init.sh BUILD SUCCESSFUL + testDebugUnitTest OK + assembleDebug OK
-**Completed**: quality-003
----
----
-## 2026-08-18 09:00 — ClientSSH
-**Summary**: Implementado quality-002 (protección de datos): las descargas ya NO destruyen la copia local cuando el remoto falla. TransferEngine: downloadInternal/downloadToStreamInternal ahora validan el remoto (statRemoteForDownload + openRemoteForDownload) ANTES de abrir/truncar el archivo local; el loop de chunks se extrajo a downloadChunksToStream sin cambios de lógica. El check resumeFrom>=totalBytes quedó ANTES del open (contrato de TransferEngineDownloadTest: verify never open). Caso 0-byte preservado (crea archivo local vacío). CbsshTransfer.download: preflight stat+open+close antes de truncar. Ojo crítico: los 2 tests rotos se verificaron con evidencia real (NoWhenBranchMatchedException por open sin stub + verify(never).open) antes de corregir — no se asumió.
-**Verified**: TransferEngineDownloadTest 11/11 + ./init.sh BUILD SUCCESSFUL + assembleDebug OK
-**Completed**: quality-002

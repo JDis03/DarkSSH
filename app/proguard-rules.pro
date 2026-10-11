@@ -10,3 +10,11 @@
 
 # EdDSA (net.i2p.crypto.eddsa - used for ED25519 keys)
 -dontwarn sun.security.x509.X509Key
+# Logging policy: strip direct verbose/debug/info logcat calls from release builds.
+# Warnings and errors are kept for crash diagnostics. Timber file logging is gated
+# separately by FileLoggingTree.minFilePriority().
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

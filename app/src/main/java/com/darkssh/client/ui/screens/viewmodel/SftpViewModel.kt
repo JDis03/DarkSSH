@@ -31,14 +31,18 @@ import com.darkssh.client.transport.SftpEntry
 import com.darkssh.client.transport.TransferProgress
 import com.darkssh.client.ui.MainActivity
 import com.darkssh.client.util.PubkeyUtils
+import com.darkssh.client.util.SftpOpenFileUtils
 import com.darkssh.client.worker.UploadWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -198,6 +202,9 @@ class SftpViewModel
 
         private val _uiState = MutableStateFlow(SftpUiState())
         val uiState: StateFlow<SftpUiState> = _uiState.asStateFlow()
+
+        private val _openFileEvents = Channel<File>(Channel.BUFFERED)
+        val openFileEvents = _openFileEvents.receiveAsFlow()
 
         private var sftpClient: ISftpClient?
             get() = _uiState.value.host?.let { activeClients[it.id] }
@@ -421,9 +428,8 @@ class SftpViewModel
         }
 
         fun connectWithPassword(password: String) {
-            val hostId = _uiState.value.host?.id ?: return
-            CredentialStore.putPassword(hostId, password)
             val h = _uiState.value.host ?: return
+            CredentialStore.putPassword(h.id, password, remember = h.stayConnected)
 
             viewModelScope.launch {
                 _uiState.value = _uiState.value.copy(authState = SftpAuthState.Connecting, error = null)
@@ -432,7 +438,7 @@ class SftpViewModel
                 val result = client.connectWithPassword(password)
 
                 if (result.isSuccess) {
-                    activeClients[hostId] = client
+                    activeClients[h.id] = client
                     _uiState.value = _uiState.value.copy(authState = SftpAuthState.Authenticated)
                     val pwd = client.pwd()
                     _uiState.value = _uiState.value.copy(currentPath = pwd, homeDirectory = pwd)
@@ -676,6 +682,37 @@ class SftpViewModel
             }
         }
 
+        fun requestOpenFile(
+            remotePath: String,
+            fileName: String,
+        ) {
+            val hostId = _uiState.value.host?.id
+            if (hostId == null) {
+                _uiState.value = _uiState.value.copy(error = "SFTP not connected")
+                return
+            }
+
+            val app = getApplication<Application>()
+            val cacheDirectory = File(app.cacheDir, "sftp-open/$hostId")
+            if (!cacheDirectory.exists() && !cacheDirectory.mkdirs()) {
+                _uiState.value = _uiState.value.copy(error = "Could not prepare file cache")
+                return
+            }
+            viewModelScope.launch(Dispatchers.IO) {
+                SftpOpenFileUtils.pruneExpiredCacheEntries(cacheDirectory)
+            }
+
+            val requestDirectory = File(cacheDirectory, UUID.randomUUID().toString())
+            if (!requestDirectory.mkdirs()) {
+                _uiState.value = _uiState.value.copy(error = "Could not prepare file cache")
+                return
+            }
+
+            val safeFileName = SftpOpenFileUtils.safeCacheFileName(fileName)
+            val target = DownloadTarget.FileTarget(fileName, File(requestDirectory, safeFileName))
+            startDownload(remotePath, target, openAfterDownload = true)
+        }
+
         fun confirmDownloadOverwrite() {
             val conflict = _uiState.value.downloadConflict ?: return
             _uiState.value = _uiState.value.copy(downloadConflict = null)
@@ -719,6 +756,7 @@ class SftpViewModel
         private fun startDownload(
             remotePath: String,
             target: DownloadTarget,
+            openAfterDownload: Boolean = false,
         ) {
             val app = getApplication<Application>()
             val notifId = downloadNotificationId++
@@ -767,16 +805,32 @@ class SftpViewModel
                             Result.failure(e)
                         }
 
-                    val cancelled = result.exceptionOrNull() is kotlinx.coroutines.CancellationException
-                    withContext(Dispatchers.Main) {
+                    withContext(Dispatchers.Main + NonCancellable) {
                         transferJobs.remove(id)
+                        val cancelled =
+                            result.exceptionOrNull() is kotlinx.coroutines.CancellationException ||
+                                _uiState.value.transfers.any { transfer ->
+                                    transfer.id == id && transfer.status == TransferStatus.CANCELLED
+                                }
                         if (cancelled) {
+                            if (openAfterDownload && target is DownloadTarget.FileTarget) cleanupOpenTarget(target.file)
                             updateTransfer(id, TransferStatus.CANCELLED)
                         } else if (result.isSuccess) {
                             updateTransfer(id, TransferStatus.COMPLETED)
-                            _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                            if (openAfterDownload && target is DownloadTarget.FileTarget) {
+                                val eventResult = _openFileEvents.trySend(target.file)
+                                if (eventResult.isSuccess) {
+                                    _uiState.value = _uiState.value.copy(message = "Ready to open: ${target.fileName}")
+                                } else {
+                                    cleanupOpenTarget(target.file)
+                                    _uiState.value = _uiState.value.copy(error = "Could not open ${target.fileName}")
+                                }
+                            } else {
+                                _uiState.value = _uiState.value.copy(message = "Downloaded: ${target.fileName}")
+                            }
                             showDownloadCompleteNotification(app, notifId, target.fileName)
                         } else {
+                            if (openAfterDownload && target is DownloadTarget.FileTarget) cleanupOpenTarget(target.file)
                             updateTransfer(id, TransferStatus.FAILED, result.exceptionOrNull()?.message)
                             _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message ?: "Download failed")
                             showDownloadFailedNotification(app, notifId, target.fileName)
@@ -784,6 +838,11 @@ class SftpViewModel
                     }
                 }
             transferJobs[id] = job
+        }
+
+        private fun cleanupOpenTarget(file: File) {
+            file.delete()
+            file.parentFile?.delete()
         }
 
         private suspend fun downloadViaMediaStore(
@@ -874,6 +933,8 @@ class SftpViewModel
             }
 
         private fun createDownloadNotificationChannel(app: Application) {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+
             val channel =
                 NotificationChannel(
                     "sftp_downloads",
@@ -1623,6 +1684,9 @@ class SftpViewModel
         fun getClipboardFileCount(): Int = SftpClipboard.getFileCount()
 
         fun cancelTransfer(id: Long) {
+            val activeTransfer = _uiState.value.transfers.any { it.id == id && it.status == TransferStatus.ACTIVE }
+            if (!activeTransfer) return
+
             // Cancela coroutine job (uploads directos / downloads)
             transferJobs[id]?.cancel()
             // Cancela WorkManager job si existe para este host

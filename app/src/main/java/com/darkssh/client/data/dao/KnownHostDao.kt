@@ -13,6 +13,9 @@ interface KnownHostDao {
     @Query("SELECT * FROM known_hosts WHERE hostId = :hostId")
     fun getByHostId(hostId: Long): Flow<List<KnownHost>>
 
+    @Query("SELECT * FROM known_hosts WHERE hostId = :hostId")
+    suspend fun getAllForHost(hostId: Long): List<KnownHost>
+
     @Query("SELECT * FROM known_hosts WHERE hostId = :hostId AND hostKeyAlgo = :algo")
     suspend fun getByHostIdAndAlgo(
         hostId: Long,

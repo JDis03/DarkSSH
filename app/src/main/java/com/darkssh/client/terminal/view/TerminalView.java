@@ -842,6 +842,13 @@ public final class TerminalView extends View {
         if (event.isAltPressed() || leftAltDown) keyMod |= KeyHandler.KEYMOD_ALT;
         if (shiftDown) keyMod |= KeyHandler.KEYMOD_SHIFT;
         if (event.isNumLockOn()) keyMod |= KeyHandler.KEYMOD_NUM_LOCK;
+
+        String controlDigitCsiUCode = KeyHandler.getControlDigitCsiUCode(keyCode, keyMod);
+        if (controlDigitCsiUCode != null) {
+            mTermSession.write(controlDigitCsiUCode);
+            return true;
+        }
+
         // https://github.com/termux/termux-app/issues/731
         if (!event.isFunctionPressed() && handleKeyCode(keyCode, keyMod)) {
             if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "handleKeyCode() took key event");

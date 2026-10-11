@@ -13,6 +13,10 @@ navigationCompose = "2.9.8"
 activityCompose = "1.13.0"
 coroutines = "1.10.2"
 sshlib = "2.2.46"
+# cbssh fork (JDis03/cbssh). 0.3.3-SNAPSHOT ya incluye copy-data + ventana 16MB +
+# keepAlive (publicado desde la main local del fork). NO subir a 0.4.3-SNAPSHOT:
+# compilado con Kotlin más nuevo → metadatos 2.4.0 incompatibles con el Hilt de la app
+# (max 2.3.0). La app no necesita nada de 0.4.3 (lo nuevo de 0.4.3 solo va al PR upstream).
 cbssh = "0.3.3-SNAPSHOT"
 sshd = "2.14.0"
 spongycastle = "1.58.0.0"

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.Pubkey
 import com.darkssh.client.data.repository.HostRepository
+import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.data.repository.PubkeyRepository
 import com.darkssh.client.util.TextSanitizer
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -24,6 +25,7 @@ class HostEditorViewModel
         savedStateHandle: SavedStateHandle,
         private val hostRepository: HostRepository,
         private val pubkeyRepository: PubkeyRepository,
+        private val knownHostRepository: KnownHostRepository,
     ) : ViewModel() {
         private val hostId: Long = savedStateHandle.get<String>("hostId")?.toLongOrNull() ?: -1L
 
@@ -114,12 +116,30 @@ class HostEditorViewModel
             }
         }
 
+        /** Number of pinned host keys for the host being edited (0 for a new host). */
+        private val _pinnedHostKeyCount = MutableStateFlow(0)
+        val pinnedHostKeyCount: StateFlow<Int> = _pinnedHostKeyCount
+
+        /**
+         * Explicit, user-initiated recovery after a legitimate server key rotation.
+         * The next connection shows the fingerprint prompt again (trust on first use).
+         */
+        fun forgetHostKeys(hostId: Long) {
+            if (hostId <= 0) return
+            viewModelScope.launch {
+                knownHostRepository.deleteByHostId(hostId)
+                _pinnedHostKeyCount.value = knownHostRepository.getAllForHost(hostId).size
+            }
+        }
+
         fun loadHost(hostId: Long) {
             viewModelScope.launch {
                 if (hostId > 0) {
+                    _pinnedHostKeyCount.value = knownHostRepository.getAllForHost(hostId).size
                     _host.value = hostRepository.getHostById(hostId)
                 } else {
                     // Clear host when adding new (hostId = -1)
+                    _pinnedHostKeyCount.value = 0
                     _host.value = null
                 }
             }

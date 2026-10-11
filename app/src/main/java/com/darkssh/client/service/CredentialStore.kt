@@ -29,12 +29,12 @@ object CredentialStore {
         // Always save to memory cache
         passwords[hostId] = password
 
-        // Save to encrypted storage if remember flag is set
         if (remember) {
+            // "Stay Connected": persist encrypted so it survives app restarts.
             EncryptedCredentialStore.putPassword(hostId, password, remember = true)
         } else {
-            // Just save to memory, don't persist
-            EncryptedCredentialStore.putPassword(hostId, password, remember = false)
+            // Session only: never leave a previously persisted password behind.
+            EncryptedCredentialStore.remove(hostId)
         }
     }
 
@@ -46,8 +46,9 @@ object CredentialStore {
         // Try memory cache first
         passwords[hostId]?.let { return it }
 
-        // Fall back to encrypted storage
-        return EncryptedCredentialStore.getPassword(hostId)
+        // Fall back to encrypted storage, only for hosts that opted in.
+        if (!EncryptedCredentialStore.shouldRemember(hostId)) return null
+        return EncryptedCredentialStore.getPassword(hostId)?.also { passwords[hostId] = it }
     }
 
     /**

@@ -51,7 +51,7 @@ class DarkSshHostKeyVerifierTest {
     @Test
     fun `known matching key is accepted without prompting`() {
         runBlocking {
-            whenever(repo.getByHostIdAndAlgo(1L, "ssh-ed25519")).thenReturn(
+            whenever(repo.getAllForHost(1L)).thenReturn(
                 listOf(KnownHost(hostId = 1L, hostname = "example.com", port = 22, hostKeyAlgo = "ssh-ed25519", hostKey = keyDataBase64)),
             )
             var promptCalled = false
@@ -69,7 +69,7 @@ class DarkSshHostKeyVerifierTest {
     fun `known mismatched key is rejected without prompting`() {
         runBlocking {
             val differentKeyBase64 = Base64.encodeToString(byteArrayOf(9, 9, 9), Base64.NO_WRAP)
-            whenever(repo.getByHostIdAndAlgo(1L, "ssh-ed25519")).thenReturn(
+            whenever(repo.getAllForHost(1L)).thenReturn(
                 listOf(KnownHost(hostId = 1L, hostname = "example.com", port = 22, hostKeyAlgo = "ssh-ed25519", hostKey = differentKeyBase64)),
             )
             var promptCalled = false
@@ -86,7 +86,7 @@ class DarkSshHostKeyVerifierTest {
     @Test
     fun `unknown key prompts and persists on accept`() {
         runBlocking {
-            whenever(repo.getByHostIdAndAlgo(1L, "ssh-ed25519")).thenReturn(emptyList())
+            whenever(repo.getAllForHost(1L)).thenReturn(emptyList())
             var promptedAlgo: String? = null
             var promptedFingerprints: String? = null
             val verifier =
@@ -116,12 +116,32 @@ class DarkSshHostKeyVerifierTest {
     @Test
     fun `unknown key does not persist on reject`() {
         runBlocking {
-            whenever(repo.getByHostIdAndAlgo(1L, "ssh-ed25519")).thenReturn(emptyList())
+            whenever(repo.getAllForHost(1L)).thenReturn(emptyList())
             val verifier = DarkSshHostKeyVerifier(host, repo) { _, _ -> false }
 
             val result = verifier.verify(publicKey)
 
             assertFalse("Expected rejection when the callback returns false", result)
+            verify(repo, never()).insert(any())
+        }
+    }
+
+    @Test
+    fun `different key type on a pinned host is rejected as changed, not prompted as new`() {
+        runBlocking {
+            // Host pinned with Ed25519; attacker presents an RSA key (algorithm downgrade).
+            whenever(repo.getAllForHost(1L)).thenReturn(
+                listOf(KnownHost(hostId = 1L, hostname = "example.com", port = 22, hostKeyAlgo = "ssh-ed25519", hostKey = keyDataBase64)),
+            )
+            var promptCalled = false
+            val verifier = DarkSshHostKeyVerifier(host, repo) { _, _ -> promptCalled = true; true }
+
+            val rsaKey = PublicKey(type = "ssh-rsa", encoded = byteArrayOf(7, 7, 7, 7))
+            val result = verifier.verify(rsaKey)
+
+            assertFalse("A different key type must not be trusted", result)
+            assertFalse("Must not show the harmless-looking new-host prompt", promptCalled)
+            assertTrue("Must be reported as a changed host key", verifier.hostKeyChanged)
             verify(repo, never()).insert(any())
         }
     }

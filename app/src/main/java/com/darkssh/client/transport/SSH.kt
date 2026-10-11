@@ -40,7 +40,16 @@ class SSH(
         private const val TAG = "SSH"
         private const val CONNECT_TIMEOUT_MS = 15000 // 15 seconds
         private const val KEX_TIMEOUT_MS = 30000 // 30 seconds for key exchange
+
+        const val HOST_KEY_CHANGED_MESSAGE =
+            "⚠️ The server's host key changed. This can be a man-in-the-middle attack. " +
+                "Connection refused and no password was sent. If the server key was rotated " +
+                "legitimately, open Edit Host → Forget host key and connect again."
     }
+
+    /** Set by the verifier when a pinned host presented an unknown key. */
+    @Volatile
+    private var hostKeyChanged = false
 
     @Volatile
     private var connection: Connection? = null
@@ -68,6 +77,13 @@ class SSH(
 
     @Volatile
     private var keepAliveRunning = true
+
+    /** Saved password is offered to keyboard-interactive at most once per connection. */
+    private var savedPasswordOfferedInteractively = false
+
+    /** Password used in the current keyboard-interactive attempt. */
+    private var interactivePassword: String? = null
+    private var interactivePasswordWasSaved = false
 
     private fun startKeepAlive() {
         keepAliveRunning = true
@@ -115,6 +131,8 @@ class SSH(
                 conn.setCompression(true)
             }
 
+            preferKnownHostKeyAlgorithms(conn)
+            hostKeyChanged = false
             val verifier = HostKeyVerifier()
 
             // Connect with timeout (prevents indefinite hang)
@@ -149,7 +167,13 @@ class SSH(
             // transport?.close() which interrupts conn.connect() with an IOException –
             // we must NOT call dispatchDisconnect again in that case (double-close crash).
             if (!bridge.isClosed) {
-                bridge.dispatchDisconnect(e.message ?: "Connection failed")
+                val reason =
+                    if (hostKeyChanged) {
+                        HOST_KEY_CHANGED_MESSAGE
+                    } else {
+                        e.message ?: "Connection failed"
+                    }
+                bridge.dispatchDisconnect(reason)
             }
             throw e
         }
@@ -198,8 +222,17 @@ class SSH(
             }
 
             if (canTryKeyboardInteractive && conn.isAuthMethodAvailable(username, "keyboard-interactive")) {
+                interactivePassword = null
+                interactivePasswordWasSaved = false
                 if (conn.authenticateWithKeyboardInteractive(username, this)) {
+                    interactivePassword?.let { password ->
+                        CredentialStore.putPassword(host.id, password, remember = host.stayConnected)
+                    }
                     return true
+                }
+                if (interactivePasswordWasSaved) {
+                    Timber.d("$TAG: Saved password rejected via keyboard-interactive, removing...")
+                    CredentialStore.remove(host.id)
                 }
             }
 
@@ -364,13 +397,11 @@ class SSH(
     override fun write(buffer: ByteArray) {
         val stream = stdin
         if (stream == null) {
-            android.util.Log.e(
-                "SSH",
-                "❌ SSH.write(): stdin is NULL! Dropping ${buffer.size} bytes. sessionOpen=$sessionOpen, connected=$connected",
-            )
+            Timber.e("$TAG: write() without stdin, dropping ${buffer.size} bytes (sessionOpen=$sessionOpen, connected=$connected)")
             return
         }
-        android.util.Log.d("SSH", "📤 SSH.write(): writing ${buffer.size} bytes, first byte=${"%02x".format(buffer[0])}")
+        // Never log keyboard input: every keystroke is its own write, so even a single
+        // byte per call would reconstruct typed secrets (sudo/su passwords, tokens).
         stream.write(buffer)
     }
 
@@ -439,6 +470,23 @@ class SSH(
     ): Array<String>? {
         if (numPrompts == 0) return arrayOf()
 
+        val firstPrompt = prompt?.firstOrNull()
+        val firstEcho = echo?.firstOrNull() ?: false
+        if (KeyboardInteractivePassword.isPasswordPrompt(numPrompts, firstPrompt, firstEcho)) {
+            val saved = if (!savedPasswordOfferedInteractively) CredentialStore.getPassword(host.id) else null
+            if (saved != null) {
+                savedPasswordOfferedInteractively = true
+                interactivePassword = null
+                interactivePasswordWasSaved = true
+                Timber.d("$TAG: Answering keyboard-interactive with saved password")
+                return arrayOf(saved)
+            }
+            val typed = bridge.promptForInputBlocking(firstPrompt!!, false) ?: return null
+            interactivePassword = typed
+            interactivePasswordWasSaved = false
+            return arrayOf(typed)
+        }
+
         val responses = mutableListOf<String>()
         prompt?.forEachIndexed { i, p ->
             val response =
@@ -458,13 +506,34 @@ class SSH(
         ): Boolean {
             val keyData = Base64.encodeToString(serverHostKey, Base64.NO_WRAP)
 
-            // Use IO dispatcher for database operations in blocking context
+            // All pinned keys for the host, regardless of algorithm (see HostKeyPolicy).
             val existing =
                 runBlocking(Dispatchers.IO) {
-                    knownHostRepository.getByHostIdAndAlgo(host.id, serverHostKeyAlgorithm)
+                    knownHostRepository.getAllForHost(host.id)
                 }
 
-            return if (existing.isEmpty()) {
+            return when (HostKeyPolicy.evaluate(existing.map { it.hostKey }, keyData)) {
+                HostKeyPolicy.Decision.TRUSTED -> true
+                HostKeyPolicy.Decision.CHANGED -> {
+                    hostKeyChanged = true
+                    Timber.w(
+                        "$TAG: Host key for host ${host.id} does not match any of ${existing.size} pinned key(s) " +
+                            "(presented $serverHostKeyAlgorithm) — rejecting (possible MITM or key rotation)",
+                    )
+                    false
+                }
+                HostKeyPolicy.Decision.UNKNOWN_HOST -> promptAndPin(hostname, port, serverHostKeyAlgorithm, serverHostKey, keyData)
+            }
+        }
+
+        private fun promptAndPin(
+            hostname: String,
+            port: Int,
+            serverHostKeyAlgorithm: String,
+            serverHostKey: ByteArray,
+            keyData: String,
+        ): Boolean {
+            return run {
                 Timber.d("$TAG: No known host key found for ${host.id}, prompting user...")
                 val fingerprints = SshFingerprint.build(serverHostKeyAlgorithm, serverHostKey)
                 val accepted = bridge.promptForHostKeyVerificationBlocking(hostname, port, fingerprints)
@@ -486,11 +555,29 @@ class SSH(
                     Timber.w("$TAG: User rejected host key, connection will fail")
                 }
                 accepted
-            } else {
-                val matches = existing.any { it.hostKey == keyData }
-                Timber.d("$TAG: Found ${existing.size} known host keys, match: $matches")
-                matches
             }
+        }
+    }
+
+    /**
+     * Put already-pinned key types first so a legitimate server with several host keys
+     * negotiates the one we know, instead of tripping the CHANGED rejection.
+     */
+    private fun preferKnownHostKeyAlgorithms(conn: Connection) {
+        try {
+            val known = runBlocking(Dispatchers.IO) { knownHostRepository.getAllForHost(host.id) }
+            if (known.isEmpty()) return
+            val knownTypes =
+                known.mapNotNull { entry ->
+                    runCatching { HostKeyPolicy.keyTypeFromBlob(Base64.decode(entry.hostKey, Base64.NO_WRAP)) }.getOrNull()
+                }
+            val available = Connection.getAvailableServerHostKeyAlgorithms().toList()
+            val ordered = HostKeyPolicy.preferredAlgorithms(knownTypes, available)
+            conn.setServerHostKeyAlgorithms(ordered.toTypedArray())
+            Timber.d("$TAG: Host key algorithm preference: ${ordered.joinToString(",")}")
+        } catch (e: Exception) {
+            // Keep library defaults; the verifier still enforces pinning.
+            Timber.w(e, "$TAG: Could not set host key algorithm preference")
         }
     }
 
