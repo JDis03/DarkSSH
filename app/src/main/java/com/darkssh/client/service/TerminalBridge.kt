@@ -13,6 +13,8 @@ import com.darkssh.client.terminal.emulator.TerminalEmulator
 import com.darkssh.client.terminal.emulator.TerminalSessionClient
 import com.darkssh.client.transport.AbsTransport
 import com.darkssh.client.transport.SSH
+import com.darkssh.client.transport.CbsshTerminalTransport
+import com.darkssh.client.transport.TerminalTransportFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -184,7 +186,7 @@ class TerminalBridge(
 
                 bridgeScope.launch(Dispatchers.IO) {
                     try {
-                        val ssh = SSH(host, this@TerminalBridge, terminalService, knownHostRepository)
+                        val ssh = TerminalTransportFactory.create(host, this@TerminalBridge, terminalService, knownHostRepository)
                         transport = ssh
                         ssh.connect()
                     } catch (e: CancellationException) {
@@ -216,11 +218,13 @@ class TerminalBridge(
                 // Detect OS in background only when not already known.
                 // If we have a cached osType (from a previous connection persisted
                 // in Tab.osType), skip the 5-second detection script entirely.
-                if (t is SSH && _osType.value == OsType.UNKNOWN) {
+                if ((t is SSH || t is CbsshTerminalTransport) && _osType.value == OsType.UNKNOWN) {
                     bridgeScope.launch(Dispatchers.IO) {
-                        val connection = t.getConnection() ?: return@launch
-
-                        val detectedOs = OsDetector.detectOs(connection)
+                        val detectedOs = when (t) {
+                            is SSH -> t.getConnection()?.let { OsDetector.detectOs(it) }
+                            is CbsshTerminalTransport -> t.getConnection()?.let { OsDetector.detectOs(it) }
+                            else -> null
+                        } ?: return@launch
 
                         // Bridge may have been closed during the 5s detection window
                         if (_isClosed) return@launch

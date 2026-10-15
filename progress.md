@@ -1,3 +1,19 @@
+## 2026-10-15 06:47 — ClientSSH
+**Summary**: Migración terminal cbssh experimental implementada junto a trilead. Tras corrección del usuario, SSH.kt quedó idéntico a HEAD y sigue por defecto; CbsshTerminalTransport sólo se activa en debug con -PuseCbsshTerminal=true. TerminalTransportFactory no hace fallback entre backends; OsDetector soporta ambas conexiones. Tests para auth/IO/timeouts y 11 casos OpenSSH reales. Pendiente paridad MFA/DSA y Android; NO quitar trilead ni cambiar default sin aceptación. Cambios sin commit.
+**Verified**: ./init.sh: 146 tests, 0 fallos; integrationTest:18/18 (11 cbssh terminal+7 SFTP); selector y assembleDebug probados con opt-in y con default; BuildConfig USE_CBSSH_TERMINAL true/false confirmado, APK final default false/trilead. git diff SSH.kt vacío, git diff --check limpio, feature_list.json válido. Sin dispositivo adb; release no revalidada.
+**Completed**: none
+---
+## 2026-10-15 — Terminal cbssh opt-in, trilead estable conservado
+**Summary**: En contrib/cbssh-sftp se añadió CbsshTerminalTransport con PTY xterm-256color, shell, resize, script, keepalive, compresión y AuthHandler/SshSigning. Por corrección explícita del usuario NO sustituye todavía al estable: SSH.kt/trilead se restauró idéntico a HEAD y es el default. TerminalTransportFactory elige el backend antes de conectar, sin fallback automático entre clientes ante errores. USE_CBSSH_TERMINAL=false en builds normales y release; sólo debug permite opt-in con `./gradlew -PuseCbsshTerminal=true assembleDebug`. OsDetector conserva la ruta trilead y añade la ruta cbssh.
+**Compatibility**: Se detectó que la estrategia cbssh selecciona sólo KBI si el servidor anuncia KBI+password; SSH conserva un fallback explícito a authenticatePassword para evitar repetir KBI hasta MaxAuthTries. En tests Robolectric, ConscryptMode.OFF evita mezclar la detección ChaCha20ParameterSpec de SunJCE con cifrado Conscrypt; no se cambian cifrados en producción.
+**Verified**: ./init.sh (146 tests, 0 fallos), ./gradlew integrationTest (18 tests, 0 fallos: 11 de terminal cbssh real OpenSSH y 7 SFTP), selector y assembleDebug con opt-in y default; BuildConfig generado true/false confirmado. APK final generado con default trilead; git diff --check limpio. Docker verifica shell, resize con stty, RSA/SHA2, clave asignada, TOFU y clave cambiada sin pedir contraseña, script, SO, EOF conservando salida, close durante read y durante conexión sin banner.
+**Pending**: NO cambiar el default ni retirar trilead hasta paridad y aceptación. La revisión detectó gaps cbssh0.5.1 en MFA publickey+password/KBI (pierde métodos tras partial success) y DSA (SshSigning no lo soporta aunque la app lo permita). Sin dispositivo adb: validar Ed25519/Conscrypt, KBI/OTP, Stay Connected, reconnect, Ctrl+dígitos y transferencias >1 GiB. El timeout interno de KEX cbssh sigue aplicando aunque el watchdog local excluya diálogos. No se revalidó release (R8 EdDSA previo). Cambios sin commit; versiones y progreso previos conservados.
+---
+## 2026-10-11 05:54 — ClientSSH
+**Summary**: Paso 1 migración: commit 6241bb33 de cambios pendientes; Kotlin 2.4.20/KSP 2.3.12/Hilt 2.60.1; cbssh 0.5.1-SNAPSHOT upstream (sshlib+protocol) publicado a mavenLocal y usado por DarkSSH.
+**Verified**: compileDebugKotlin OK, ./init.sh BUILD SUCCESSFUL, assembleDebug OK; verificado que upstream contiene d23e6e6 (gate KEX). Sin prueba en dispositivo.
+**Completed**: none
+---
 ## 2026-09-26 00:31 — ClientSSH
 **Summary**: Seguridad: (1) HostKeyPolicy compartido: rechazo de claves no fijadas incluso de otro algoritmo (cierra downgrade MITM que recibía la contraseña guardada), preferencia de algoritmos conocidos en trilead (setServerHostKeyAlgorithms) y cbssh (hostKeyAlgorithms), mensaje claro de clave cambiada, botón 'Forget host key' con confirmación en Edit Host. (2) Backups: allowBackup=false y data_extraction_rules excluyendo DB/prefs/files en cloud y device-transfer.
 **Verified**: HostKeyPolicyTest 3/3; DarkSshHostKeyVerifierTest 5/5 (incluye caso downgrade RSA); ./init.sh BUILD SUCCESSFUL; assembleDebug OK; git diff --check limpio. Pendiente smoke test en dispositivo; build release sigue rota por EdDSA (preexistente).
@@ -144,22 +160,4 @@
 ## 2026-08-30 15:53 — ClientSSH
 **Summary**: Investigado el reporte de uploads que "cierran el canal": el error 'Failed to write 68 bytes' es del transporte TCP (socket cerrado por red inestable), no del canal SFTP. Bug real arreglado en SftpClient2.uploadFile (quality-012): ante IoError de conexión seguía con exists() + fallback SCP sobre el socket muerto (re-subiendo 712MB) y nunca llamaba markDead, dejando la UI sin saber que debía reconectar. Ahora corta rápido con markDead + mensaje claro. Rama de trabajo confirmada: contrib/cbssh-sftp. Commit a153553c.
 **Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; pendiente log del usuario del momento exacto del fallo
-**Completed**: none
----
----
-## 2026-08-19 — ClientSSH
-**Summary**: quality-012 — investigado el reporte "el SFTP cierra el canal en uploads, varias veces". El error 'Failed to write 68 bytes' viene de KtorTcpTransport.write(): el socket TCP se cierra a mitad del upload (red inestable), no es un cierre de canal SFTP. Bug real encontrado en SftpClient2.uploadFile: ante cualquier fallo (incluido IoError de conexión) llamaba exists() y caía al fallback SCP, que intenta abrir sesión sobre el socket muerto y re-subiría el archivo completo (712MB); además ese path devuelve el SftpResult crudo del engine (sin pasar por mapResult), así que markDead() nunca se llamaba y la UI no sabía que debía reconectar. Fix: cortar rápido ante IoError (markDead + log claro + Result.failure), dejando exists()+SCP solo para errores de servidor/protocolo con la conexión viva. Rama de trabajo confirmada: contrib/cbssh-sftp (PR #273 ya abierto en connectbot/cbssh).
-**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL
-**Completed**: quality-012
----
----
-## 2026-08-19 04:19 — ClientSSH
-**Summary**: PR #273 abierto a connectbot/cbssh con los 3 commits de cbssh (copy-data extension, ventana SFTP 64KB→16MB, keepAliveIntervalMs config) tras confirmación del usuario de testing en dispositivo real. Calidad verificada: 1215 tests 0 fallos, spotless/metalava/kover OK, rebase limpio. CI de upstream en action_required (espera aprobación del maintainer para PRs externos). URL: https://github.com/connectbot/cbssh/pull/273
-**Verified**: PR abierto y visible; gh pr view confirma OPEN con 3 commits; gh run list muestra CI/Dependency Submission/CodeQL en action_required
-**Completed**: none
----
----
-## 2026-08-19 04:15 — ClientSSH
-**Summary**: PR copy-data verificado con calidad completa: ./gradlew build en cbssh-fork pasa 1215 tests (0 fallos) + spotless + metalava + kover. Fixes aplicados: spotless espaciado en SshClient.kt, api.txt con keepAliveIntervalMs regenerado, openSftp no rompe el test de upstream (ventana movida a default de openSessionChannel), .memory-project removido del PR, rebase autosquash limpio. Branch feat/copy-data-extension (3 commits) force-pusheado a JDis03/cbssh. Pendiente: testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227).
-**Verified**: ./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotless, metalava, kover OK); branch pusheado
 **Completed**: none

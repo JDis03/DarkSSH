@@ -29,6 +29,8 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
+        // Keep the proven terminal until the opt-in cbssh migration is validated on devices.
+        buildConfigField("boolean", "USE_CBSSH_TERMINAL", "false")
     }
 
     buildTypes {
@@ -43,6 +45,11 @@ android {
         debug {
             isMinifyEnabled = false
             applicationIdSuffix = ".debug"
+            buildConfigField(
+                "boolean",
+                "USE_CBSSH_TERMINAL",
+                providers.gradleProperty("useCbsshTerminal").map { it.toBooleanStrict() }.getOrElse(false).toString(),
+            )
         }
     }
 

@@ -279,6 +279,14 @@
       "evidence": "TransferEngine.kt created and INTEGRATED into SftpClient2. Features: (1) Adaptive pipeline depth 2-32 based on measured RTT, (2) Retry with exponential backoff for IoErrors (max 3, 1s→2s→4s), (3) Timeouts per operation (60s read/write, 30s stat/open), (4) Resumable transfers via resumeFrom parameter, (5) Flow-based progress with backpressure, (6) TransferResult sealed class (Success/Failed/Cancelled). SftpClient2 now has useTransferEngine flag (default=true) to switch between TransferEngine and CbsshTransfer. Added downloadCompat/uploadCompat methods for SftpResult compatibility."
     },
     {
+      "id": "cbssh-terminal",
+      "name": "Terminal cbssh experimental junto a trilead estable",
+      "description": "Migración gradual de shell PTY, autenticación, I/O, resize, keepalive y SO: mantener trilead por defecto mientras cbssh se valida mediante opt-in debug, sin fallback automático entre clientes.",
+      "dependencies": ["cbssh-002"],
+      "status": "in-progress",
+      "evidence": "2026-10-15: por corrección explícita del usuario se conserva SSH.kt/trilead idéntico a HEAD y por defecto. CbsshTerminalTransport implementa el cliente nuevo; TerminalTransportFactory selecciona una sola ruta antes de conectar, sin fallback entre backends. USE_CBSSH_TERMINAL=false por defecto y en release; debug opt-in con -PuseCbsshTerminal=true. SFTP no cambia. OsDetector soporta ambas conexiones. Verificado: ./init.sh 146 tests, integrationTest 18/18 (11 cbssh terminal OpenSSH + 7 SFTP), test del selector y assembleDebug tanto opt-in como estable; flag generado confirmado true/false, APK final estable. Pendiente antes de cambiar el default: pruebas Android (Ed25519/Conscrypt, KBI/OTP, reconnect, Ctrl), resolver MFA clave+segundo factor y compatibilidad DSA. No retirar trilead mientras se migra y prueba."
+    },
+    {
       "id": "cbssh-002",
       "name": "sshj Removed — cbssh Is the Only SFTP Backend (migrate-sftp-to-cbssh Phases 5-7 complete)",
       "description": "Closed the remaining gaps for SFTP auth parity (host-key verification, key-based auth), fixed real-device performance/UX bugs found via dogfooding (Ed25519 detection on Android/Conscrypt, misleading copy-paste progress UI, upload having zero pipelining, an adaptive-pipeline self-congestion bug), then removed sshj and its feature flag entirely once real-device testing confirmed parity + meaningfully better throughput.",

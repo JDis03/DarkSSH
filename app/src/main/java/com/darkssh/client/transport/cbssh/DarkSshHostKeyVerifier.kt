@@ -2,14 +2,12 @@
  * DarkSSH SFTP Client - Host Key Verification (cbssh)
  * Copyright 2026 DarkSSH
  *
- * cbssh HostKeyVerifier backed by KnownHostRepository — the SFTP equivalent
- * of SSH.kt's inner HostKeyVerifier class (used by the terminal). Same TOFU
- * semantics, same KnownHostRepository schema, same fingerprint format:
+ * cbssh HostKeyVerifier backed by KnownHostRepository, shared by terminal and
+ * SFTP. Same TOFU semantics, same repository schema, same fingerprint format:
  * unknown key -> ask onUnknownKey and persist on accept; known mismatch ->
  * reject without asking.
  *
- * Unlike SSH.kt's verifier, this one needs no runBlocking bridge — cbssh's
- * HostKeyVerifier.verify() is already a suspend function.
+ * No runBlocking bridge is needed: HostKeyVerifier.verify() is suspend.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,13 +29,12 @@ import org.connectbot.sshlib.HostKeyVerifier
 import org.connectbot.sshlib.PublicKey
 
 /**
- * Verifies an SFTP server's host key against [KnownHostRepository], the same
- * per-host trust store the terminal (`SSH.kt`) uses.
+ * Verifies a server's host key against the shared per-host trust store.
  *
  * @param host The host being connected to (identifies the trust store row).
  * @param knownHostRepository Persistent per-host known-hosts store.
  * @param onUnknownKey Called with (algorithm, formatted fingerprints) when no
- *   stored key exists yet for this host+algorithm. Must return `true` to
+ *   stored key exists yet for this host (regardless of algorithm). Must return `true` to
  *   trust (and persist) the key, `false` to reject the connection.
  */
 class DarkSshHostKeyVerifier(

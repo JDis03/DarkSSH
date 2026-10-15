@@ -461,3 +461,21 @@
 **Summary**: Validación final del plan de throughput con log real: 28-32 MB/s (DL y UL) vs 3.4 original — el engine optimizado entrega ~30MB/s estables cuando la red lo permite. El límite anterior era el WiFi 2.4GHz del router (5GHz muerto: RT-AX54, diagnosticado por SSH: driver carga pero no transmite, descartados smart-connect/SSID oculto/canal fijo/reboot — probable hardware/firmware). Bug nuevo registrado: cancelar descarga mata la conexión SFTP ('Failed to write 68 bytes'). Commits 0fd03477.
 **Verified**: Log real dispositivo: 3 corridas (28.0/29.9/31.7 MB/s); diagnóstico router por SSH completo; tests verdes previos
 **Completed**: none
+---
+---
+## 2026-08-19 04:15 — ClientSSH
+**Summary**: PR copy-data verificado con calidad completa: ./gradlew build en cbssh-fork pasa 1215 tests (0 fallos) + spotless + metalava + kover. Fixes aplicados: spotless espaciado en SshClient.kt, api.txt con keepAliveIntervalMs regenerado, openSftp no rompe el test de upstream (ventana movida a default de openSessionChannel), .memory-project removido del PR, rebase autosquash limpio. Branch feat/copy-data-extension (3 commits) force-pusheado a JDis03/cbssh. Pendiente: testing en dispositivo real (TODO 204) antes de abrir el PR (TODO 227).
+**Verified**: ./gradlew build en cbssh-fork: BUILD SUCCESSFUL (1215 tests, 0 fallos; spotless, metalava, kover OK); branch pusheado
+**Completed**: none
+---
+---
+## 2026-08-19 — ClientSSH
+**Summary**: quality-012 — investigado el reporte "el SFTP cierra el canal en uploads, varias veces". El error 'Failed to write 68 bytes' viene de KtorTcpTransport.write(): el socket TCP se cierra a mitad del upload (red inestable), no es un cierre de canal SFTP. Bug real encontrado en SftpClient2.uploadFile: ante cualquier fallo (incluido IoError de conexión) llamaba exists() y caía al fallback SCP, que intenta abrir sesión sobre el socket muerto y re-subiría el archivo completo (712MB); además ese path devuelve el SftpResult crudo del engine (sin pasar por mapResult), así que markDead() nunca se llamaba y la UI no sabía que debía reconectar. Fix: cortar rápido ante IoError (markDead + log claro + Result.failure), dejando exists()+SCP solo para errores de servidor/protocolo con la conexión viva. Rama de trabajo confirmada: contrib/cbssh-sftp (PR #273 ya abierto en connectbot/cbssh).
+**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL
+**Completed**: quality-012
+---
+---
+## 2026-08-19 04:19 — ClientSSH
+**Summary**: PR #273 abierto a connectbot/cbssh con los 3 commits de cbssh (copy-data extension, ventana SFTP 64KB→16MB, keepAliveIntervalMs config) tras confirmación del usuario de testing en dispositivo real. Calidad verificada: 1215 tests 0 fallos, spotless/metalava/kover OK, rebase limpio. CI de upstream en action_required (espera aprobación del maintainer para PRs externos). URL: https://github.com/connectbot/cbssh/pull/273
+**Verified**: PR abierto y visible; gh pr view confirma OPEN con 3 commits; gh run list muestra CI/Dependency Submission/CodeQL en action_required
+**Completed**: none
