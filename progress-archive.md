@@ -479,3 +479,8 @@
 **Summary**: PR #273 abierto a connectbot/cbssh con los 3 commits de cbssh (copy-data extension, ventana SFTP 64KB→16MB, keepAliveIntervalMs config) tras confirmación del usuario de testing en dispositivo real. Calidad verificada: 1215 tests 0 fallos, spotless/metalava/kover OK, rebase limpio. CI de upstream en action_required (espera aprobación del maintainer para PRs externos). URL: https://github.com/connectbot/cbssh/pull/273
 **Verified**: PR abierto y visible; gh pr view confirma OPEN con 3 commits; gh run list muestra CI/Dependency Submission/CodeQL en action_required
 **Completed**: none
+---
+## 2026-08-31 01:55 — ClientSSH
+**Summary**: Analizado el log del corte de upload al 72%: cae EXACTO en 1 GiB, que es el rekeyBytesLimit default de cbssh que DarkSSH nunca sobreescribe — el usuario tenía razón en que es código, no red. Hipótesis del rekey rompiendo el pipeline NO confirmada: mi repro pipelineado (depth 32, rekeyBytesLimit 256KB) contra OpenSSH real PASA en loopback; quedó aislado en la rama investigate/rekey-pipelining para no contaminar el PR #273. Descubierto que el test de rekey upstream es secuencial, o sea el path pipelineado no tenía cobertura. Arreglado el bloqueante del diagnóstico (quality-013): uploadFile descartaba el motivo del fallo, por eso el log solo decía "falling back to SCP"; ahora describeSftpFailure() loguea ServerError/ProtocolError/IoError. Commit 5df14621.
+**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; repro del fork verificado en test-results XML (3.199s, 0 failures)
+**Completed**: none

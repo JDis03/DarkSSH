@@ -1,3 +1,8 @@
+## 2026-10-28 20:09 — ClientSSH
+**Summary**: Resuelto fallo preexistente de R8 en assembleRelease (bug-021). Se agregaron reglas -dontwarn para net.i2p.crypto.eddsa.** y org.bouncycastle.** referenciadas opcionalmente por Apache SSHD en proguard-rules.pro.
+**Verified**: ./gradlew assembleRelease BUILD SUCCESSFUL (produce app-release-unsigned.apk de 24MB), ./init.sh BUILD SUCCESSFUL (148 tests).
+**Completed**: none
+---
 ## 2026-10-28 — Corrección build Release R8 (bug-021)
 **Summary**: Resuelto el fallo preexistente de R8 en la build release (`minifyReleaseWithR8`). Se agregaron reglas `-dontwarn` en `app/proguard-rules.pro` para `net.i2p.crypto.eddsa.**`, `org.bouncycastle.crypto.prng.**` y `org.bouncycastle.pqc.crypto.ntruprime.**`, que corresponden a dependencias criptográficas opcionales de Apache Mina SSHD no requeridas en Android.
 **Verified**: `./gradlew assembleRelease` pasa en 45s produciendo `app-release-unsigned.apk` de 24MB con minificación y stripping de logs R8; `./init.sh` BUILD SUCCESSFUL con 148 tests unitarios.
@@ -155,8 +160,3 @@
 **Summary**: Llegó el log del dispositivo ya con quality-013: "IoError IOException: Write failed at offset 1072168960 after retries". Ese offset es el chunk 8180 de 8192 (chunks de 128KB), o sea a 12 chunks / 1,5 MiB EXACTOS de 1 GiB con 24 en vuelo → el corte cae en el borde del rekey de cbssh; la ubicación queda confirmada, el mecanismo todavía no. Dato nuevo del log: kex=mlkem768x25519-sha256 [post-quantum] — el rekey es ML-KEM768, con mensajes de KEX bastante más grandes que un DH clásico, variable que mi repro de loopback NO replicaba. Punto ciego que quedaba: ese mensaje lo fabrica el propio TransferEngine (línea 907) y retryWriteChunk devolvía Boolean, tirando a la basura el SftpResult y las excepciones de cbssh. Arreglado en quality-014: retryWriteChunk ahora devuelve String? con la última causa y el IOException final la incluye ("— última causa: ..."), preservando la semántica de totalRetries.
 **Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; verificado que los 3 call sites de retryWriteChunk quedaron migrados
 **Completed**: quality-014 (investigate-001 sigue in-progress)
----
-## 2026-08-31 01:55 — ClientSSH
-**Summary**: Analizado el log del corte de upload al 72%: cae EXACTO en 1 GiB, que es el rekeyBytesLimit default de cbssh que DarkSSH nunca sobreescribe — el usuario tenía razón en que es código, no red. Hipótesis del rekey rompiendo el pipeline NO confirmada: mi repro pipelineado (depth 32, rekeyBytesLimit 256KB) contra OpenSSH real PASA en loopback; quedó aislado en la rama investigate/rekey-pipelining para no contaminar el PR #273. Descubierto que el test de rekey upstream es secuencial, o sea el path pipelineado no tenía cobertura. Arreglado el bloqueante del diagnóstico (quality-013): uploadFile descartaba el motivo del fallo, por eso el log solo decía "falling back to SCP"; ahora describeSftpFailure() loguea ServerError/ProtocolError/IoError. Commit 5df14621.
-**Verified**: compileDebugKotlin + testDebugUnitTest + ./init.sh BUILD SUCCESSFUL; repro del fork verificado en test-results XML (3.199s, 0 failures)
-**Completed**: none
