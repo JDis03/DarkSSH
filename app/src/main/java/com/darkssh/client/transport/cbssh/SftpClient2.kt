@@ -152,7 +152,7 @@ class SftpClient2(
     private fun buildHostKeyVerifier(): HostKeyVerifier {
         val repo = knownHostRepository
         return if (repo != null) {
-            DarkSshHostKeyVerifier(host, repo) { algo, fingerprints ->
+            DarkSshHostKeyVerifier(host, repo, tag = "SftpHostKey") { algo, fingerprints ->
                 onUnknownHostKey?.invoke(algo, fingerprints) ?: false
             }
         } else {

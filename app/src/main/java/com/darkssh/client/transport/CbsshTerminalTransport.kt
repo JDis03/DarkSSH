@@ -71,7 +71,7 @@ class CbsshTerminalTransport(
                 val hostname = TextSanitizer.sanitizeStrict(host.hostname)
                 val port = host.port.takeIf { it > 0 } ?: 22
                 val prompting = MutableStateFlow(false)
-                val verifier = DarkSshHostKeyVerifier(host, knownHostRepository) { _, fingerprints ->
+                val verifier = DarkSshHostKeyVerifier(host, knownHostRepository, tag = "TerminalHostKey") { _, fingerprints ->
                     prompting.value = true
                     try {
                         bridge.promptForHostKeyVerification(hostname, port, fingerprints)

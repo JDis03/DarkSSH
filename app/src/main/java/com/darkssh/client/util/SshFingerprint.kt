@@ -42,7 +42,7 @@ object SshFingerprint {
                 MessageDigest
                     .getInstance("SHA-256")
                     .digest(key),
-                Base64.NO_WRAP or Base64.NO_PADDING or Base64.URL_SAFE,
+                Base64.NO_WRAP or Base64.NO_PADDING,
             )
         return "$algo\nSHA256:$sha256\nMD5:$md5"
     }

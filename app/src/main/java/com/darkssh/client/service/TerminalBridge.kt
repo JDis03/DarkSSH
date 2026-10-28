@@ -299,11 +299,11 @@ class TerminalBridge(
         message: String? = null,
         reason: DisconnectReason = DisconnectReason.UNKNOWN,
     ) {
-        // Guard: don't fire if close() was already called (e.g., user closed the
-        // tab while connecting, which causes Relay / SSH.connect() to throw and
-        // try to dispatchDisconnect a second time from the IO thread).
-        if (_isClosed) {
-            Timber.d("dispatchDisconnect() ignored – bridge already closed (${host.nickname})")
+        // Guard: don't fire if close() was already called or already disconnected
+        // (e.g., user closed the tab while connecting, or connect() threw after
+        // already dispatching a disconnect).
+        if (_isClosed || _isDisconnected.value) {
+            Timber.d("dispatchDisconnect() ignored – bridge already closed or disconnected (${host.nickname})")
             return
         }
         _disconnectMessage.value = message
@@ -531,7 +531,7 @@ class TerminalBridge(
         // Update PTY dimensions when terminal size changes (e.g., font zoom)
         // NOTE: Don't call setDimensions() here - it would cause infinite loop
         // The emulator already resized, just notify SSH transport
-        Timber.d("Terminal size changed: ${columns}x$rows (${cellWidthPixels}x${cellHeightPixels}px)")
+        Timber.d("Terminal size changed for [${host.nickname}|${tabId ?: "no-tab"}]: ${columns}x$rows (${cellWidthPixels}x${cellHeightPixels}px)")
         this.columns = columns
         this.rows = rows
         // Only send to SSH transport, don't update emulator (already done)

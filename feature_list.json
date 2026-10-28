@@ -567,6 +567,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "KeyHandler produce ESC[48;5u hasta ESC[57;5u para Ctrl+0 a Ctrl+9, incluyendo keypad; TerminalView las escribe antes del fallback ASCII, sin duplicar eventos. Ctrl con Shift/Alt y teclas no numéricas conservan la compatibilidad heredada. KeyHandlerControlDigitTest cubre los 10 dígitos de fila, keypad 0/5/9 y casos no aplicables. Verificado: test específico y ./init.sh BUILD SUCCESSFUL. Pendiente smoke test en dispositivo con la TUI remota que consume CSI-u."
+    },
+    {
+      "id": "bug-020",
+      "name": "Bugs UX y logs en dispositivo: port field reset, fingerprint OpenSSH, tags de log y doble disconnect",
+      "description": "Corregir 4 issues observados en pruebas con dispositivo real: (1) campo Port en Add Host reseteaba a 22 al borrar todo; (2) fingerprint Base64.URL_SAFE no coincidía con OpenSSH (+ /); (3) tag de log SftpHostKey usado para terminal; (4) doble dispatchDisconnect en fallos de conexión; (5) falta de tabId en log de cambio de tamaño.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "(1) HostEditorScreen.kt: portText almacenado como String con rememberSaveable(hostId); validación de 1..65535 sólo dígitos, permite borrar completamente sin reset prematuro a 22 ni cursor al inicio. (2) SshFingerprint.kt: reemplazado Base64.URL_SAFE por Base64.NO_WRAP or Base64.NO_PADDING para coincidir byte por byte con el formato estándar OpenSSH (ssh-keygen -lf). Nuevo test unitario SshFingerprintTest verifica algoritmo, 43 chars sin padding y preservación de '+' y '/'. (3) DarkSshHostKeyVerifier.kt: parámetro tag configurable (default 'HostKey', CbsshTerminalTransport pasa 'TerminalHostKey', SftpClient2 pasa 'SftpHostKey'). (4) TerminalBridge.kt: dispatchDisconnect protegido con if (_isClosed || _isDisconnected.value) evitando emisión duplicada a onBridgeDisconnected y logs repetidos. Nuevo test unitario TerminalBridgeDisconnectTest verifica idempotencia. (5) TerminalBridge.kt: onTerminalSizeChanged incluye [nickname|tabId]. Verificado: testDebugUnitTest (148 tests), assembleDebug y ./init.sh BUILD SUCCESSFUL."
     }
   ]
 }

@@ -102,11 +102,14 @@ fun HostEditorScreen(
     var nickname by rememberSaveable(hostId) { mutableStateOf("") }
     var hostname by rememberSaveable(hostId) { mutableStateOf("") }
     var username by rememberSaveable(hostId) { mutableStateOf("") }
-    var port by rememberSaveable(hostId) { mutableIntStateOf(22) }
+    var portText by rememberSaveable(hostId) { mutableStateOf("22") }
     var compression by rememberSaveable(hostId) { mutableStateOf(false) }
     var stayConnected by rememberSaveable(hostId) { mutableStateOf(false) }
     var selectedPubkeyId by rememberSaveable(hostId) { mutableLongStateOf(-1L) }
     var showPubkeyDropdown by rememberSaveable(hostId) { mutableStateOf(false) }
+
+    val parsedPort = portText.toIntOrNull()
+    val isPortValid = parsedPort != null && parsedPort in 1..65535
 
     // Load host data when available
     LaunchedEffect(host) {
@@ -114,7 +117,7 @@ fun HostEditorScreen(
             nickname = h.nickname
             hostname = h.hostname
             username = h.username
-            port = h.port
+            portText = h.port.toString()
             compression = h.compression
             stayConnected = h.stayConnected
             selectedPubkeyId = h.pubkeyId ?: -1L
@@ -139,14 +142,14 @@ fun HostEditorScreen(
                                 nickname = nickname,
                                 hostname = hostname,
                                 username = username,
-                                port = port,
+                                port = parsedPort ?: 22,
                                 compression = compression,
                                 stayConnected = stayConnected,
                                 pubkeyId = if (selectedPubkeyId == -1L) null else selectedPubkeyId,
                             )
                             onSave()
                         },
-                        enabled = nickname.isNotBlank() && hostname.isNotBlank() && username.isNotBlank(),
+                        enabled = nickname.isNotBlank() && hostname.isNotBlank() && username.isNotBlank() && (portText.isBlank() || isPortValid),
                     ) {
                         Icon(Icons.Default.Save, contentDescription = "Save")
                     }
@@ -193,12 +196,20 @@ fun HostEditorScreen(
             )
 
             OutlinedTextField(
-                value = port.toString(),
-                onValueChange = { port = it.toIntOrNull() ?: 22 },
+                value = portText,
+                onValueChange = { input ->
+                    if (input.all { it.isDigit() } && input.length <= 5) {
+                        portText = input
+                    }
+                },
                 label = { Text("Port") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
+                isError = portText.isNotBlank() && !isPortValid,
+                supportingText = if (portText.isNotBlank() && !isPortValid) {
+                    { Text("Port must be between 1 and 65535") }
+                } else null,
             )
 
             Row(

@@ -40,12 +40,9 @@ import org.connectbot.sshlib.PublicKey
 class DarkSshHostKeyVerifier(
     private val host: Host,
     private val knownHostRepository: KnownHostRepository,
+    private val tag: String = "HostKey",
     private val onUnknownKey: suspend (algorithm: String, fingerprints: String) -> Boolean,
 ) : HostKeyVerifier {
-    companion object {
-        private const val TAG = "SftpHostKey"
-    }
-
     /** True when a pinned host presented a key matching none of its stored keys. */
     @Volatile
     var hostKeyChanged: Boolean = false
@@ -54,7 +51,7 @@ class DarkSshHostKeyVerifier(
     override suspend fun verify(key: PublicKey): Boolean {
         val keyData = Base64.encodeToString(key.encoded, Base64.NO_WRAP)
         DebugLogger.i(
-            TAG,
+            tag,
             "🔑 verify() called for ${host.hostname}:${host.port} (hostId=${host.id}) algo=${key.type}",
         )
         // Every pinned key for the host, regardless of algorithm (see HostKeyPolicy):
@@ -64,7 +61,7 @@ class DarkSshHostKeyVerifier(
         hostKeyChanged = decision == HostKeyPolicy.Decision.CHANGED
 
         if (decision == HostKeyPolicy.Decision.UNKNOWN_HOST) {
-            DebugLogger.i(TAG, "❓ No known host key stored for hostId=${host.id} algo=${key.type} — prompting user")
+            DebugLogger.i(tag, "❓ No known host key stored for hostId=${host.id} algo=${key.type} — prompting user")
             val fingerprints = SshFingerprint.build(key.type, key.encoded)
             val accepted = onUnknownKey(key.type, fingerprints)
             if (accepted) {
@@ -77,19 +74,19 @@ class DarkSshHostKeyVerifier(
                         hostKey = keyData,
                     ),
                 )
-                DebugLogger.i(TAG, "✅ Host key ACCEPTED by user and saved for hostId=${host.id}")
+                DebugLogger.i(tag, "✅ Host key ACCEPTED by user and saved for hostId=${host.id}")
             } else {
-                DebugLogger.w(TAG, "🚫 Host key REJECTED by user for hostId=${host.id} — connection will fail")
+                DebugLogger.w(tag, "🚫 Host key REJECTED by user for hostId=${host.id} — connection will fail")
             }
             return accepted
         }
 
         val matches = decision == HostKeyPolicy.Decision.TRUSTED
         if (matches) {
-            DebugLogger.i(TAG, "✅ Presented key matches a known host key for hostId=${host.id} — trusted silently")
+            DebugLogger.i(tag, "✅ Presented key matches a known host key for hostId=${host.id} — trusted silently")
         } else {
             DebugLogger.w(
-                TAG,
+                tag,
                 "🚨 Presented key does NOT match ${existing.size} known host key(s) for hostId=${host.id} " +
                     "— REJECTING without prompting (possible MITM or server key rotation)",
             )
