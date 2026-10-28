@@ -4,9 +4,12 @@
 -dontwarn com.android.org.conscrypt.SSLParametersImpl
 -dontwarn org.apache.harmony.xnet.provider.jsse.SSLParametersImpl
 
-# Apache SSHD (used by sshj)
+# Apache SSHD (used by sshj / Mina SSHD optional providers)
 -dontwarn javax.management.MBeanException
 -dontwarn javax.management.ReflectionException
+-dontwarn net.i2p.crypto.eddsa.**
+-dontwarn org.bouncycastle.crypto.prng.**
+-dontwarn org.bouncycastle.pqc.crypto.ntruprime.**
 
 # EdDSA (net.i2p.crypto.eddsa - used for ED25519 keys)
 -dontwarn sun.security.x509.X509Key

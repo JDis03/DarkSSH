@@ -575,6 +575,14 @@
       "dependencies": [],
       "status": "done",
       "evidence": "(1) HostEditorScreen.kt: portText almacenado como String con rememberSaveable(hostId); validación de 1..65535 sólo dígitos, permite borrar completamente sin reset prematuro a 22 ni cursor al inicio. (2) SshFingerprint.kt: reemplazado Base64.URL_SAFE por Base64.NO_WRAP or Base64.NO_PADDING para coincidir byte por byte con el formato estándar OpenSSH (ssh-keygen -lf). Nuevo test unitario SshFingerprintTest verifica algoritmo, 43 chars sin padding y preservación de '+' y '/'. (3) DarkSshHostKeyVerifier.kt: parámetro tag configurable (default 'HostKey', CbsshTerminalTransport pasa 'TerminalHostKey', SftpClient2 pasa 'SftpHostKey'). (4) TerminalBridge.kt: dispatchDisconnect protegido con if (_isClosed || _isDisconnected.value) evitando emisión duplicada a onBridgeDisconnected y logs repetidos. Nuevo test unitario TerminalBridgeDisconnectTest verifica idempotencia. (5) TerminalBridge.kt: onTerminalSizeChanged incluye [nickname|tabId]. Verificado: testDebugUnitTest (148 tests), assembleDebug y ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "bug-021",
+      "name": "Build release rota: minifyReleaseWithR8 falla por clases opcionales de Apache SSHD",
+      "description": "minifyReleaseWithR8 fallaba por clases faltantes net.i2p.crypto.eddsa y org.bouncycastle referenciadas opcionalmente por Apache SSHD. Añadir reglas -dontwarn correspondientes en proguard-rules.pro para que assembleRelease compile con éxito.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Añadidas reglas -dontwarn net.i2p.crypto.eddsa.**, -dontwarn org.bouncycastle.crypto.prng.** y -dontwarn org.bouncycastle.pqc.crypto.ntruprime.** en app/proguard-rules.pro. Verificado: ./gradlew assembleRelease BUILD SUCCESSFUL en 45s (produce app-release-unsigned.apk de 24MB), ./init.sh BUILD SUCCESSFUL."
     }
   ]
 }
