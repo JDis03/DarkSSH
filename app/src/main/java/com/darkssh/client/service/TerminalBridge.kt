@@ -3,6 +3,7 @@ package com.darkssh.client.service
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.graphics.Typeface
+import android.net.Network
 import androidx.compose.ui.graphics.Color
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.model.OsType
@@ -19,9 +20,11 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -140,6 +143,24 @@ class TerminalBridge(
     private val _disconnectMessage = MutableStateFlow<String?>(null)
     val disconnectMessage: StateFlow<String?> = _disconnectMessage
 
+    data class NetworkState(
+        val ipAddresses: Set<String>,
+        val networkId: String,
+    )
+
+    private var lastKnownNetworkState: NetworkState? = null
+
+    @Volatile
+    private var inGracePeriod = false
+
+    private var networkGracePeriodJob: Job? = null
+
+    private val _inGracePeriodFlow = MutableStateFlow(false)
+    val inGracePeriodFlow: StateFlow<Boolean> = _inGracePeriodFlow
+
+    private val _networkStatusMessage = MutableStateFlow<String?>(null)
+    val networkStatusMessage: StateFlow<String?> = _networkStatusMessage
+
     private var relay: Relay? = null
     private var pendingPrompt: CompletableDeferred<PromptResponse>? = null
 
@@ -206,6 +227,8 @@ class TerminalBridge(
     fun onConnected() {
         android.util.Log.d("TerminalBridge", "🟢 onConnected() called, transport=${transport?.javaClass?.simpleName}")
         _isConnected.value = true
+        _isDisconnected.value = false
+        captureNetworkState(terminalService.connectivityMonitor.getCurrentNetworkInfo())
         try {
             val t = transport
             if (t != null) {
@@ -295,10 +318,90 @@ class TerminalBridge(
         }
     }
 
+    fun captureNetworkState(networkInfo: ConnectivityMonitor.NetworkInfo?) {
+        if (networkInfo != null) {
+            lastKnownNetworkState = NetworkState(
+                ipAddresses = networkInfo.ipAddresses,
+                networkId = networkInfo.networkId,
+            )
+            Timber.d("TerminalBridge: Captured network state for ${host.nickname}: netId=${networkInfo.networkId}, IPs=${networkInfo.ipAddresses}")
+        }
+    }
+
+    fun onNetworkLost(network: Network, lostIpAddresses: Set<String>) {
+        if (_isClosed || _isDisconnected.value) return
+        val state = lastKnownNetworkState ?: return
+
+        val isAffected = if (state.ipAddresses.isNotEmpty() && lostIpAddresses.isNotEmpty()) {
+            state.ipAddresses.intersect(lostIpAddresses).isNotEmpty()
+        } else {
+            state.networkId == network.toString()
+        }
+
+        if (!isAffected) {
+            Timber.d("TerminalBridge: Network $network lost but bridge for ${host.nickname} not affected")
+            return
+        }
+
+        networkGracePeriodJob?.cancel()
+        inGracePeriod = true
+        _inGracePeriodFlow.value = true
+        _networkStatusMessage.value = "Network connection interrupted. Reconnecting..."
+        Timber.w("TerminalBridge: Bridge for ${host.nickname} entered network grace period (30s)")
+
+        networkGracePeriodJob = bridgeScope.launch {
+            delay(30_000L) // 30 seconds grace period
+            inGracePeriod = false
+            _inGracePeriodFlow.value = false
+            lastKnownNetworkState = null
+            Timber.e("TerminalBridge: Network grace period expired for ${host.nickname}")
+            dispatchDisconnect("Network lost (grace period expired)", DisconnectReason.NETWORK_LOST)
+        }
+    }
+
+    fun onNetworkRestored(newNetworkInfo: ConnectivityMonitor.NetworkInfo) {
+        if (!inGracePeriod) return
+        networkGracePeriodJob?.cancel()
+        inGracePeriod = false
+        _inGracePeriodFlow.value = false
+
+        val oldState = lastKnownNetworkState
+        if (oldState == null) {
+            lastKnownNetworkState = NetworkState(
+                ipAddresses = newNetworkInfo.ipAddresses,
+                networkId = newNetworkInfo.networkId,
+            )
+            _networkStatusMessage.value = null
+            return
+        }
+
+        val ipMatches = oldState.ipAddresses.intersect(newNetworkInfo.ipAddresses).isNotEmpty()
+        if (ipMatches) {
+            Timber.i("TerminalBridge: Network restored with same IP for ${host.nickname} - resuming connection")
+            _networkStatusMessage.value = null
+            lastKnownNetworkState = NetworkState(
+                ipAddresses = newNetworkInfo.ipAddresses,
+                networkId = newNetworkInfo.networkId,
+            )
+        } else {
+            Timber.w("TerminalBridge: Network restored but IP changed for ${host.nickname} (${oldState.ipAddresses} -> ${newNetworkInfo.ipAddresses}) - disconnecting")
+            lastKnownNetworkState = null
+            _networkStatusMessage.value = null
+            dispatchDisconnect("Network changed (IP changed)", DisconnectReason.NETWORK_LOST)
+        }
+    }
+
     fun dispatchDisconnect(
         message: String? = null,
         reason: DisconnectReason = DisconnectReason.UNKNOWN,
     ) {
+        // Cancel grace period job
+        networkGracePeriodJob?.cancel()
+        networkGracePeriodJob = null
+        inGracePeriod = false
+        _inGracePeriodFlow.value = false
+        lastKnownNetworkState = null
+
         // Guard: don't fire if close() was already called or already disconnected
         // (e.g., user closed the tab while connecting, or connect() threw after
         // already dispatching a disconnect).
@@ -332,6 +435,13 @@ class TerminalBridge(
         }
         _isClosed = true
         _disconnectReason.value = reason
+
+        // Cancel network grace period
+        networkGracePeriodJob?.cancel()
+        networkGracePeriodJob = null
+        inGracePeriod = false
+        _inGracePeriodFlow.value = false
+        lastKnownNetworkState = null
 
         // Cancel all coroutines first
         bridgeScope.cancel()

@@ -583,6 +583,16 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Añadidas reglas -dontwarn net.i2p.crypto.eddsa.**, -dontwarn org.bouncycastle.crypto.prng.** y -dontwarn org.bouncycastle.pqc.crypto.ntruprime.** en app/proguard-rules.pro. Verificado: ./gradlew assembleRelease BUILD SUCCESSFUL en 45s (produce app-release-unsigned.apk de 24MB), ./init.sh BUILD SUCCESSFUL."
+    },
+    {
+      "id": "feat-022",
+      "name": "Detección de pérdida de red y resiliencia de conexión (ConnectivityMonitor + cbssh disconnectedFlow)",
+      "description": "Monitoreo reactivo de red en TerminalService vía ConnectivityManager.NetworkCallback. Manejo de desconexión en TerminalBridge con Grace Period tolerante a roaming, recolección activa de client.disconnectedFlow en CbsshTerminalTransport y proactividad ante fallos de keepalive en SSH.kt.",
+      "dependencies": [
+        "cbssh-terminal"
+      ],
+      "status": "done",
+      "evidence": "ConnectivityMonitor implementado con ConnectivityManager.NetworkCallback y registro en TerminalService. TerminalBridge captura networkState al conectar, entra en grace period de 30s al perder conectividad con mensaje informativo ('Network connection interrupted. Reconnecting...'), reanuda de forma transparente si la red vuelve con la misma IP, o despacha dispatchDisconnect(NETWORK_LOST) si la IP cambia o expira el timer. CbsshTerminalTransport recolecta activamente client.disconnectedFlow informando desconexiones del motor cbssh de inmediato. SSH.kt (trilead) cuenta fallos consecutivos de keepalive (2 fallos = 60s) antes de despachar IO_ERROR. 10 nuevos unit tests pasan (TerminalBridgeNetworkTest, ConnectivityMonitorTest). 158 tests unitarios pasan en ./init.sh, compileDebug y assembleRelease pasan limpios."
     }
   ]
 }

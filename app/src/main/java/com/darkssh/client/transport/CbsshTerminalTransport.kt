@@ -3,6 +3,7 @@ package com.darkssh.client.transport
 import android.util.Base64
 import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.repository.KnownHostRepository
+import com.darkssh.client.service.DisconnectReason
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.transport.cbssh.DarkSshHostKeyVerifier
@@ -111,6 +112,21 @@ class CbsshTerminalTransport(
                     is ConnectResult.AlgorithmMismatch -> throw IOException("Algorithm mismatch: ${result.message}")
                     is ConnectResult.ProtocolError -> throw IOException("Protocol error: ${result.message}", result.cause)
                 }
+
+                // Monitor cbssh disconnectedFlow for unexpected connection drop
+                scope.launch {
+                    client.disconnectedFlow.collect { cause ->
+                        synchronized(lifecycleLock) {
+                            connected = false
+                        }
+                        if (!bridge.isClosed && !bridge.isDisconnected.value) {
+                            Timber.w("CbsshTerminalTransport: client disconnectedFlow emitted: ${cause?.message}")
+                            val reason = if (cause != null) DisconnectReason.IO_ERROR else DisconnectReason.REMOTE_EOF
+                            bridge.dispatchDisconnect(cause?.message ?: "Session disconnected", reason)
+                        }
+                    }
+                }
+
                 authenticate(client)
                 withTimeout(SESSION_TIMEOUT_MS) {
                     val shell = client.openSession() ?: throw IOException("Could not open SSH session")

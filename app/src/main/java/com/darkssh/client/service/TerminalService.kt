@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.ClipboardManager
 import android.content.Intent
+import android.net.Network
 import android.os.Binder
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -37,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 @AndroidEntryPoint
-class TerminalService : Service() {
+class TerminalService : Service(), ConnectivityMonitor.Listener {
     companion object {
         const val CHANNEL_ID = "darkssh_connections"
         const val CHANNEL_NAME = "SSH Connections"
@@ -95,6 +96,10 @@ class TerminalService : Service() {
 
     @Inject lateinit var clipboardManager: ClipboardManager
 
+    val connectivityMonitor: ConnectivityMonitor by lazy {
+        ConnectivityMonitor(this, this)
+    }
+
     private val binder = TerminalBinder()
 
     inner class TerminalBinder : Binder() {
@@ -104,6 +109,7 @@ class TerminalService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        connectivityMonitor.init()
         Timber.d("TerminalService created")
     }
 
@@ -156,7 +162,24 @@ class TerminalService : Service() {
         // Cancel service scope
         serviceJob.cancel()
 
+        // Cleanup connectivity monitor
+        connectivityMonitor.cleanup()
+
         Timber.d("TerminalService destroyed")
+    }
+
+    override fun onConnectivityLost(network: Network, lostIpAddresses: Set<String>) {
+        Timber.d("TerminalService: Network lost ($network) with ${lostIpAddresses.size} IPs - notifying bridges")
+        _bridges.value.forEach { bridge ->
+            bridge.onNetworkLost(network, lostIpAddresses)
+        }
+    }
+
+    override fun onConnectivityRestored(networkInfo: ConnectivityMonitor.NetworkInfo) {
+        Timber.d("TerminalService: Network restored ($networkInfo) - notifying bridges")
+        _bridges.value.forEach { bridge ->
+            bridge.onNetworkRestored(networkInfo)
+        }
     }
 
     suspend fun openConnection(

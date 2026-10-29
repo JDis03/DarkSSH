@@ -5,6 +5,7 @@ import com.darkssh.client.data.entity.Host
 import com.darkssh.client.data.entity.KnownHost
 import com.darkssh.client.data.repository.KnownHostRepository
 import com.darkssh.client.service.CredentialStore
+import com.darkssh.client.service.DisconnectReason
 import com.darkssh.client.service.TerminalBridge
 import com.darkssh.client.service.TerminalService
 import com.darkssh.client.util.PubkeyUtils
@@ -88,15 +89,25 @@ class SSH(
     private fun startKeepAlive() {
         keepAliveRunning = true
         Thread {
+            var consecutiveFailures = 0
             while (keepAliveRunning && connected) {
                 try {
                     Thread.sleep(30000)
                     connection?.sendIgnorePacket()
+                    consecutiveFailures = 0
                     Timber.d("$TAG: Keepalive sent")
                 } catch (e: InterruptedException) {
                     break
                 } catch (e: Exception) {
-                    Timber.d(e, "$TAG: Keepalive failed")
+                    consecutiveFailures++
+                    Timber.w(e, "$TAG: Keepalive failed (attempt $consecutiveFailures)")
+                    if (consecutiveFailures >= 2) {
+                        Timber.e("$TAG: Keepalive failed $consecutiveFailures times, disconnecting bridge")
+                        keepAliveRunning = false
+                        connected = false
+                        bridge.dispatchDisconnect("Connection timed out (keepalive failed)", DisconnectReason.IO_ERROR)
+                        break
+                    }
                 }
             }
         }.apply {
