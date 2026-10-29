@@ -1326,29 +1326,81 @@ class SftpViewModel
 
         fun deleteEntry(entry: SftpEntry) {
             viewModelScope.launch(Dispatchers.IO) {
-                val client = sftpClient
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                }
+                DebugLogger.i("SftpViewModel", "deleteEntry: ${entry.path} (isDir=${entry.isDirectory})")
+                val client = sftpClient ?: run {
+                    withContext(Dispatchers.Main) {
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
+                    }
+                    return@launch
+                }
                 val result =
                     if (entry.isDirectory) {
-                        // SFTP rmdir only works on empty dirs. Use rm -rf via SSH for folders.
-                        val sshResult = client?.deleteDirectoryViaSsh(entry.path)
-                        if (sshResult != null) {
-                            sshResult
-                        } else {
-                            // Fallback to SFTP rmdir (may fail if not empty)
-                            client?.rmdir(entry.path) ?: Result.failure(Exception("SFTP not connected"))
-                        }
+                        client.deleteDirectoryViaSsh(entry.path)
                     } else {
-                        client?.rm(entry.path) ?: Result.failure(Exception("SFTP not connected"))
+                        client.rm(entry.path)
                     }
-                if (result.isSuccess) {
-                    withContext(Dispatchers.Main) {
-                        _uiState.value = _uiState.value.copy(message = "Deleted: ${entry.name}")
+                withContext(Dispatchers.Main) {
+                    if (result.isSuccess) {
+                        DebugLogger.i("SftpViewModel", "✅ Deleted: ${entry.name}")
+                        _uiState.value = _uiState.value.copy(message = "Deleted: ${entry.name}", isLoading = false)
                         listDirectory(_uiState.value.currentPath)
+                    } else {
+                        val errMsg = result.exceptionOrNull()?.message ?: "Failed to delete ${entry.name}"
+                        DebugLogger.e("SftpViewModel", "❌ Delete failed for ${entry.name}: $errMsg")
+                        _uiState.value = _uiState.value.copy(error = errMsg, isLoading = false)
                     }
-                } else {
+                }
+            }
+        }
+
+        fun deleteSelected() {
+            val selectedPaths = _uiState.value.selectedEntries.toList()
+            if (selectedPaths.isEmpty()) return
+            val allEntries = _uiState.value.allEntries
+            val entriesToDelete = allEntries.filter { it.path in selectedPaths }
+            if (entriesToDelete.isEmpty()) return
+
+            viewModelScope.launch(Dispatchers.IO) {
+                withContext(Dispatchers.Main) {
+                    _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+                }
+                DebugLogger.i("SftpViewModel", "deleteSelected: ${entriesToDelete.size} entries")
+                val client = sftpClient ?: run {
                     withContext(Dispatchers.Main) {
-                        _uiState.value = _uiState.value.copy(error = result.exceptionOrNull()?.message)
+                        _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
                     }
+                    return@launch
+                }
+
+                var successCount = 0
+                var firstError: String? = null
+
+                for (entry in entriesToDelete) {
+                    val result = if (entry.isDirectory) {
+                        client.deleteDirectoryViaSsh(entry.path)
+                    } else {
+                        client.rm(entry.path)
+                    }
+                    if (result.isSuccess) {
+                        successCount++
+                    } else if (firstError == null) {
+                        firstError = result.exceptionOrNull()?.message
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    val message = if (successCount > 0) "Deleted $successCount item(s)" else null
+                    val error = if (firstError != null) "Failed to delete: $firstError" else null
+                    _uiState.value = _uiState.value.copy(
+                        message = message,
+                        error = error,
+                        isLoading = false,
+                        selectedEntries = emptySet(),
+                    )
+                    listDirectory(_uiState.value.currentPath)
                 }
             }
         }

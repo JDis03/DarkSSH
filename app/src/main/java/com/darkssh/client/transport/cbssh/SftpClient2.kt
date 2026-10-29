@@ -1229,8 +1229,9 @@ class SftpClient2(
         path: String,
         semaphore: Semaphore,
     ): Result<Unit> {
+        val cleanPath = path.trimEnd('/')
         val entries =
-            when (val r = client.listdir(path)) {
+            when (val r = client.listdir(cleanPath)) {
                 is SftpResult.Success -> r.value
                 else -> return mapResult(r)
             }
@@ -1241,11 +1242,14 @@ class SftpClient2(
                 entries
                     .map { entry ->
                         async {
-                            semaphore.withPermit {
-                                val childPath = "${path.trimEnd('/')}/${entry.filename}"
-                                if (isDirectoryFromPermissions(entry.attrs.permissions)) {
-                                    deleteDirectoryRecursive(client, childPath, semaphore)
-                                } else {
+                            val childPath = "$cleanPath/${entry.filename}"
+                            val isDir = isDirectoryFromPermissions(entry.attrs.permissions) || entry.longname.startsWith("d")
+                            if (isDir) {
+                                // Do NOT hold semaphore permit across recursive walk to prevent deadlock
+                                deleteDirectoryRecursive(client, childPath, semaphore)
+                            } else {
+                                // Bounded concurrency for leaf file removal
+                                semaphore.withPermit {
                                     mapResult(client.remove(childPath))
                                 }
                             }
@@ -1255,7 +1259,7 @@ class SftpClient2(
 
         results.firstOrNull { it.isFailure }?.let { return it }
 
-        return mapResult(client.rmdir(path))
+        return semaphore.withPermit { mapResult(client.rmdir(cleanPath)) }
     }
 }
 

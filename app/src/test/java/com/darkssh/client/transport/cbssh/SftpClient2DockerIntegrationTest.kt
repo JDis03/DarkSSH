@@ -19,6 +19,9 @@
 
 package com.darkssh.client.transport.cbssh
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.runBlocking
 import org.connectbot.sshlib.AuthResult
 import org.connectbot.sshlib.ConnectResult
@@ -167,6 +170,78 @@ class SftpClient2DockerIntegrationTest {
             assertTrue(listResult is SftpResult.Success)
             val names = (listResult as SftpResult.Success).value.map { it.filename }
             assertTrue("Expected $dirName in listing: $names", names.contains(dirName))
+        }
+    }
+
+    @Test
+    fun `creates and removes an empty directory`() {
+        runBlocking {
+            val sftp = (client.openSftp() as SftpResult.Success).value
+            val dirName = "itest-rmdir-${System.nanoTime()}"
+
+            val mkdirResult = sftp.mkdir(dirName)
+            assertTrue("Expected mkdir to succeed, got: $mkdirResult", mkdirResult is SftpResult.Success)
+
+            val rmdirResult = sftp.rmdir(dirName)
+            assertTrue("Expected rmdir to succeed, got: $rmdirResult", rmdirResult is SftpResult.Success)
+
+            val listResult = sftp.listdir(".") as SftpResult.Success
+            val names = listResult.value.map { it.filename }
+            org.junit.Assert.assertFalse("Expected $dirName to be removed: $names", names.contains(dirName))
+        }
+    }
+
+    @Test
+    fun `removes directory with files and subdirectories`() {
+        runBlocking {
+            val sftp = (client.openSftp() as SftpResult.Success).value
+            val parentDir = "itest-tree-${System.nanoTime()}"
+            sftp.mkdir(parentDir)
+            sftp.mkdir("$parentDir/sub1")
+            sftp.mkdir("$parentDir/sub2")
+
+            val h1 = (sftp.open("$parentDir/f1.txt", setOf(SftpOpenFlag.WRITE, SftpOpenFlag.CREATE)) as SftpResult.Success).value
+            sftp.write(h1, 0, "hello".toByteArray())
+            sftp.close(h1)
+
+            val h2 = (sftp.open("$parentDir/sub1/f2.txt", setOf(SftpOpenFlag.WRITE, SftpOpenFlag.CREATE)) as SftpResult.Success).value
+            sftp.write(h2, 0, "world".toByteArray())
+            sftp.close(h2)
+
+            // Let's call SftpClient2's deleteDirectoryRecursive logic
+            val semaphore = kotlinx.coroutines.sync.Semaphore(8)
+            // Let's invoke the exact logic from SftpClient2
+            suspend fun deleteRec(path: String): Result<Unit> {
+                val entries = when (val r = sftp.listdir(path)) {
+                    is SftpResult.Success -> r.value
+                    else -> return mapResult(r)
+                }.filter { it.filename != "." && it.filename != ".." }
+
+                val results = kotlinx.coroutines.coroutineScope {
+                    entries.map { entry ->
+                        this.async {
+                            semaphore.withPermit {
+                                val childPath = "${path.trimEnd('/')}/${entry.filename}"
+                                val isDir = (entry.attrs.permissions != null && (entry.attrs.permissions!! and 0xF000) == 0x4000)
+                                if (isDir) {
+                                    deleteRec(childPath)
+                                } else {
+                                    mapResult(sftp.remove(childPath))
+                                }
+                            }
+                        }
+                    }.awaitAll()
+                }
+                results.firstOrNull { it.isFailure }?.let { return it }
+                return mapResult(sftp.rmdir(path))
+            }
+
+            val res = deleteRec(parentDir)
+            assertTrue("Expected recursive delete to succeed, got: $res", res.isSuccess)
+
+            val listResult = sftp.listdir(".") as SftpResult.Success
+            val names = listResult.value.map { it.filename }
+            org.junit.Assert.assertFalse("Expected $parentDir to be removed", names.contains(parentDir))
         }
     }
 

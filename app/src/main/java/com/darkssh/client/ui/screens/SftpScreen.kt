@@ -138,6 +138,7 @@ fun SftpScreen(
 
     var showMkdirDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf<SftpEntry?>(null) }
+    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf<SftpEntry?>(null) }
     var showMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -308,6 +309,31 @@ fun SftpScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteDialog = null }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+
+    if (showDeleteSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedDialog = false },
+            title = { Text("Delete selected items?") },
+            text = {
+                Text("Delete ${uiState.selectedEntries.size} selected item(s)?")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteSelected()
+                        showDeleteSelectedDialog = false
+                    },
+                ) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSelectedDialog = false }) {
                     Text("Cancel")
                 }
             },
@@ -486,8 +512,11 @@ fun SftpScreen(
                             )
                             if (uiState.selectedEntries.isNotEmpty()) {
                                 DropdownMenuItem(
-                                    text = { Text("Delete selected") },
-                                    onClick = { showMenu = false },
+                                    text = { Text("Delete selected (${uiState.selectedEntries.size})") },
+                                    onClick = {
+                                        showMenu = false
+                                        showDeleteSelectedDialog = true
+                                    },
                                     leadingIcon = {
                                         Icon(Icons.Default.Delete, contentDescription = null)
                                     },

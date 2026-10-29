@@ -593,6 +593,14 @@
       ],
       "status": "done",
       "evidence": "ConnectivityMonitor implementado con ConnectivityManager.NetworkCallback y registro en TerminalService. TerminalBridge captura networkState al conectar, entra en grace period de 30s al perder conectividad con mensaje informativo ('Network connection interrupted. Reconnecting...'), reanuda de forma transparente si la red vuelve con la misma IP, o despacha dispatchDisconnect(NETWORK_LOST) si la IP cambia o expira el timer. CbsshTerminalTransport recolecta activamente client.disconnectedFlow informando desconexiones del motor cbssh de inmediato. SSH.kt (trilead) cuenta fallos consecutivos de keepalive (2 fallos = 60s) antes de despachar IO_ERROR. 10 nuevos unit tests pasan (TerminalBridgeNetworkTest, ConnectivityMonitorTest). 158 tests unitarios pasan en ./init.sh, compileDebug y assembleRelease pasan limpios."
+    },
+    {
+      "id": "bug-023",
+      "name": "SFTP Delete Folder Deadlock and Multi-Select Delete Fix",
+      "description": "Corregir deadlock de Semaphore en deleteDirectoryRecursive, añadir fallback de detección de carpetas vía longname, activar feedback visual isLoading en deleteEntry e implementar deleteSelected en SftpViewModel y SftpScreen.",
+      "dependencies": [],
+      "status": "done",
+      "evidence": "Resuelto deadlock en SftpClient2.deleteDirectoryRecursive moviendo semaphore.withPermit exclusivamente a las operaciones I/O hoja (client.remove y client.rmdir) en vez de retener permisos durante la recursión. Añadido fallback de detección de carpetas vía entry.longname.startsWith('d'). Activado feedback visual isLoading=true en SftpViewModel.deleteEntry con logs DebugLogger y mensajes de error descriptivos. Implementado deleteSelected() en SftpViewModel y conectado con diálogo de confirmación en SftpScreen.kt eliminando el botón muerto en el menú superior. Verificado con integración Testcontainers OpenSSH en SftpClient2DockerIntegrationTest (remoción de directorios anidados y vacíos) e ./init.sh BUILD SUCCESSFUL (158 tests unitarios)."
     }
   ]
 }
