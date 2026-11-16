@@ -2,7 +2,10 @@ package com.darkssh.client.service
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkAddress
+import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
@@ -11,12 +14,14 @@ import org.junit.runner.RunWith
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mock
 import org.mockito.Mockito.mock
+import org.mockito.Mockito.never
 import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.`when`
 import org.mockito.MockitoAnnotations
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.InetAddress
 import java.util.concurrent.ConcurrentHashMap
 
 @RunWith(RobolectricTestRunner::class)
@@ -108,5 +113,86 @@ class ConnectivityMonitorTest {
         callback.onLost(network)
 
         assertNull(connectivityMonitor.getCurrentNetworkInfo())
+    }
+
+    private fun anyNetworkInfo(): ConnectivityMonitor.NetworkInfo {
+        any<ConnectivityMonitor.NetworkInfo>()
+        return ConnectivityMonitor.NetworkInfo(false, emptySet(), "", -1)
+    }
+
+    @Test
+    fun `onAvailable without IPs does not notify restored until LinkProperties arrive with IPs`() {
+        val network = mock(Network::class.java)
+        val caps = mock(NetworkCapabilities::class.java)
+        `when`(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)).thenReturn(true)
+        `when`(caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).thenReturn(true)
+
+        val emptyProps = mock(LinkProperties::class.java)
+        `when`(emptyProps.linkAddresses).thenReturn(emptyList())
+
+        `when`(connectivityManager.getNetworkCapabilities(network)).thenReturn(caps)
+        `when`(connectivityManager.getLinkProperties(network)).thenReturn(emptyProps)
+
+        val callbackField = connectivityMonitor.javaClass.getDeclaredField("defaultNetworkCallback")
+        callbackField.isAccessible = true
+        val defaultCallback = callbackField.get(connectivityMonitor) as ConnectivityManager.NetworkCallback
+
+        // First onAvailable arrives before DHCP assigns IP -> must NOT call onConnectivityRestored
+        defaultCallback.onAvailable(network)
+        verify(listener, never()).onConnectivityRestored(anyNetworkInfo())
+
+        // Then onLinkPropertiesChanged arrives with real IP -> MUST call onConnectivityRestored
+        val linkAddr = mock(LinkAddress::class.java)
+        `when`(linkAddr.address).thenReturn(InetAddress.getByName("192.168.1.50"))
+        val realProps = mock(LinkProperties::class.java)
+        `when`(realProps.linkAddresses).thenReturn(listOf(linkAddr))
+
+        val netCallbackField = connectivityMonitor.javaClass.getDeclaredField("networkCallback")
+        netCallbackField.isAccessible = true
+        val netCallback = netCallbackField.get(connectivityMonitor) as ConnectivityManager.NetworkCallback
+
+        netCallback.onLinkPropertiesChanged(network, realProps)
+        verify(listener, times(1)).onConnectivityRestored(
+            ConnectivityMonitor.NetworkInfo(
+                isConnected = true,
+                ipAddresses = setOf("192.168.1.50"),
+                networkId = network.toString(),
+                networkType = NetworkCapabilities.TRANSPORT_WIFI,
+            ),
+        )
+    }
+
+    @Test
+    fun `defaultNetwork switching directly to new network notifies onConnectivityRestored`() {
+        val net1 = mock(Network::class.java)
+        val net2 = mock(Network::class.java)
+
+        val caps = mock(NetworkCapabilities::class.java)
+        `when`(caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)).thenReturn(true)
+        `when`(caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)).thenReturn(true)
+
+        val addr1 = mock(LinkAddress::class.java)
+        `when`(addr1.address).thenReturn(InetAddress.getByName("192.168.1.50"))
+        val props1 = mock(LinkProperties::class.java)
+        `when`(props1.linkAddresses).thenReturn(listOf(addr1))
+
+        val addr2 = mock(LinkAddress::class.java)
+        `when`(addr2.address).thenReturn(InetAddress.getByName("10.0.0.2"))
+        val props2 = mock(LinkProperties::class.java)
+        `when`(props2.linkAddresses).thenReturn(listOf(addr2))
+
+        `when`(connectivityManager.getNetworkCapabilities(net1)).thenReturn(caps)
+        `when`(connectivityManager.getNetworkCapabilities(net2)).thenReturn(caps)
+        `when`(connectivityManager.getLinkProperties(net1)).thenReturn(props1)
+        `when`(connectivityManager.getLinkProperties(net2)).thenReturn(props2)
+
+        val callbackField = connectivityMonitor.javaClass.getDeclaredField("defaultNetworkCallback")
+        callbackField.isAccessible = true
+        val defaultCallback = callbackField.get(connectivityMonitor) as ConnectivityManager.NetworkCallback
+
+        defaultCallback.onAvailable(net1)
+        defaultCallback.onAvailable(net2)
+
+        verify(listener, times(2)).onConnectivityRestored(anyNetworkInfo())
     }
 }

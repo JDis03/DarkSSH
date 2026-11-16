@@ -343,6 +343,24 @@ class TerminalBridge(
             return
         }
 
+        // Handle race where onAvailable(newNet) arrived before onLost(oldNet) with the same IP
+        val activeInfo = runCatching { terminalService.connectivityMonitor.getCurrentNetworkInfo() }.getOrNull()
+        if (activeInfo != null &&
+            activeInfo.isConnected &&
+            activeInfo.networkId != state.networkId &&
+            state.ipAddresses.isNotEmpty() &&
+            state.ipAddresses.intersect(activeInfo.ipAddresses).isNotEmpty()
+        ) {
+            Timber.i(
+                "TerminalBridge: Network $network lost but active network ${activeInfo.networkId} shares IP for ${host.nickname} — continuing seamlessly",
+            )
+            lastKnownNetworkState = NetworkState(
+                ipAddresses = activeInfo.ipAddresses,
+                networkId = activeInfo.networkId,
+            )
+            return
+        }
+
         networkGracePeriodJob?.cancel()
         inGracePeriod = true
         _inGracePeriodFlow.value = true
@@ -353,6 +371,7 @@ class TerminalBridge(
             delay(30_000L) // 30 seconds grace period
             inGracePeriod = false
             _inGracePeriodFlow.value = false
+            _networkStatusMessage.value = null
             lastKnownNetworkState = null
             Timber.e("TerminalBridge: Network grace period expired for ${host.nickname}")
             dispatchDisconnect("Network lost (grace period expired)", DisconnectReason.NETWORK_LOST)
@@ -361,12 +380,17 @@ class TerminalBridge(
 
     fun onNetworkRestored(newNetworkInfo: ConnectivityMonitor.NetworkInfo) {
         if (!inGracePeriod) return
+        if (newNetworkInfo.ipAddresses.isEmpty()) {
+            Timber.d("TerminalBridge: Network restored for ${host.nickname} without IPs yet — waiting for link properties")
+            return
+        }
+
         networkGracePeriodJob?.cancel()
         inGracePeriod = false
         _inGracePeriodFlow.value = false
 
         val oldState = lastKnownNetworkState
-        if (oldState == null) {
+        if (oldState == null || oldState.ipAddresses.isEmpty()) {
             lastKnownNetworkState = NetworkState(
                 ipAddresses = newNetworkInfo.ipAddresses,
                 networkId = newNetworkInfo.networkId,
@@ -395,12 +419,21 @@ class TerminalBridge(
         message: String? = null,
         reason: DisconnectReason = DisconnectReason.UNKNOWN,
     ) {
+        val wasInGracePeriod = inGracePeriod
         // Cancel grace period job
         networkGracePeriodJob?.cancel()
         networkGracePeriodJob = null
         inGracePeriod = false
         _inGracePeriodFlow.value = false
+        _networkStatusMessage.value = null
         lastKnownNetworkState = null
+
+        val effectiveReason =
+            if (wasInGracePeriod && reason == DisconnectReason.UNKNOWN) {
+                DisconnectReason.NETWORK_LOST
+            } else {
+                reason
+            }
 
         // Guard: don't fire if close() was already called or already disconnected
         // (e.g., user closed the tab while connecting, or connect() threw after
@@ -410,7 +443,7 @@ class TerminalBridge(
             return
         }
         _disconnectMessage.value = message
-        _disconnectReason.value = reason
+        _disconnectReason.value = effectiveReason
         _isConnected.value = false
         _isDisconnected.value = true
 
@@ -421,8 +454,8 @@ class TerminalBridge(
         // Cancel pending prompts
         cancelPendingPrompt()
 
-        Timber.w("Disconnected from ${host.nickname}: $message (reason: $reason)")
-        terminalService.onBridgeDisconnected(this, reason)
+        Timber.w("Disconnected from ${host.nickname}: $message (reason: $effectiveReason)")
+        terminalService.onBridgeDisconnected(this, effectiveReason)
     }
 
     fun close(reason: DisconnectReason = DisconnectReason.USER_REQUESTED) {
@@ -441,6 +474,7 @@ class TerminalBridge(
         networkGracePeriodJob = null
         inGracePeriod = false
         _inGracePeriodFlow.value = false
+        _networkStatusMessage.value = null
         lastKnownNetworkState = null
 
         // Cancel all coroutines first

@@ -41,6 +41,9 @@ class ConnectivityMonitor(
     @Volatile
     private var defaultNetwork: Network? = null
 
+    @Volatile
+    private var lastNotifiedNetworkId: String? = null
+
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             Timber.i("ConnectivityMonitor: Network available: $network")
@@ -50,12 +53,12 @@ class ConnectivityMonitor(
         override fun onLost(network: Network) {
             Timber.i("ConnectivityMonitor: Network lost: $network")
             val lostInfo = allNetworks.remove(network)
-            listener.onConnectivityLost(network, lostInfo?.ipAddresses ?: emptySet())
-
             if (defaultNetwork == network) {
                 defaultNetwork = null
                 currentNetworkInfo = null
+                lastNotifiedNetworkId = null
             }
+            listener.onConnectivityLost(network, lostInfo?.ipAddresses ?: emptySet())
         }
 
         override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) {
@@ -81,12 +84,14 @@ class ConnectivityMonitor(
             if (defaultNetwork == network) {
                 defaultNetwork = null
                 currentNetworkInfo = null
+                lastNotifiedNetworkId = null
             }
         }
     }
 
     fun init() {
         try {
+            defaultNetwork = connectivityManager.activeNetwork
             val request = NetworkRequest.Builder()
                 .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 .build()
@@ -100,7 +105,7 @@ class ConnectivityMonitor(
             for (network in connectivityManager.allNetworks) {
                 updateNetworkInfo(network)
             }
-            Timber.i("ConnectivityMonitor initialized")
+            Timber.i("ConnectivityMonitor initialized (activeNetwork=$defaultNetwork)")
         } catch (e: Exception) {
             Timber.e(e, "ConnectivityMonitor: Failed to register network callbacks")
         }
@@ -142,11 +147,16 @@ class ConnectivityMonitor(
         allNetworks[network] = newNetworkInfo
 
         if (network == defaultNetwork || defaultNetwork == null) {
-            val wasConnected = currentNetworkInfo?.isConnected == true
+            val prevInfo = currentNetworkInfo
+            val wasConnectedWithIp = prevInfo?.isConnected == true && prevInfo.ipAddresses.isNotEmpty()
             currentNetworkInfo = newNetworkInfo
 
-            if (!wasConnected && newNetworkInfo.isConnected) {
-                listener.onConnectivityRestored(newNetworkInfo)
+            if (newNetworkInfo.isConnected && newNetworkInfo.ipAddresses.isNotEmpty()) {
+                val networkChanged = lastNotifiedNetworkId != null && lastNotifiedNetworkId != networkId
+                if (!wasConnectedWithIp || networkChanged) {
+                    lastNotifiedNetworkId = networkId
+                    listener.onConnectivityRestored(newNetworkInfo)
+                }
             }
         }
     }

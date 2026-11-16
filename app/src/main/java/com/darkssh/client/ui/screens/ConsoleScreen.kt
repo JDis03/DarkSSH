@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -89,6 +91,8 @@ fun ConsoleScreen(
     val currentPrompt by bridge?.promptRequest?.collectAsState()
         ?: remember { mutableStateOf(null) }
     val fontSize by bridge?.fontSize?.collectAsState() ?: remember { mutableStateOf(14f) }
+    val networkStatusMessage by bridge?.networkStatusMessage?.collectAsState()
+        ?: remember { mutableStateOf(null) }
 
     var showMenu by remember { mutableStateOf(false) }
     var promptInput by remember { mutableStateOf("") }
@@ -129,7 +133,7 @@ fun ConsoleScreen(
         }
     }
 
-    DisposableEffect(hostId, tabId) {
+    DisposableEffect(hostId, tabId, terminalService) {
         viewModel.setTerminalService(terminalService)
         viewModel.connect(hostId, tabId)
         onDispose {
@@ -274,6 +278,32 @@ fun ConsoleScreen(
                 )
             } else {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            }
+
+            networkStatusMessage?.let { statusMsg ->
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.92f),
+                    tonalElevation = 4.dp,
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Text(
+                            text = statusMsg,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    }
+                }
             }
 
             if (!imeVisible) {

@@ -90,7 +90,7 @@ class CbsshTerminalTransport(
                     this.port = port
                     hostKeyVerifier = verifier
                     enableCompression = this@CbsshTerminalTransport.host.compression
-                    keepAliveIntervalMs = 30_000L
+                    keepAliveIntervalMs = 20_000L
                     // A short-lived OS detection channel must not retire the transport.
                     autoDisconnectOnLastChannelClose = false
                     hostKeyAlgorithms = HostKeyPolicy.preferredAlgorithms(
@@ -120,9 +120,21 @@ class CbsshTerminalTransport(
                             connected = false
                         }
                         if (!bridge.isClosed && !bridge.isDisconnected.value) {
-                            Timber.w("CbsshTerminalTransport: client disconnectedFlow emitted: ${cause?.message}")
-                            val reason = if (cause != null) DisconnectReason.IO_ERROR else DisconnectReason.REMOTE_EOF
-                            bridge.dispatchDisconnect(cause?.message ?: "Session disconnected", reason)
+                            val inGrace = bridge.inGracePeriodFlow.value
+                            Timber.w("CbsshTerminalTransport: client disconnectedFlow emitted (inGrace=$inGrace): ${cause?.message}")
+                            val reason =
+                                when {
+                                    inGrace -> DisconnectReason.NETWORK_LOST
+                                    cause != null -> DisconnectReason.IO_ERROR
+                                    else -> DisconnectReason.REMOTE_EOF
+                                }
+                            val msg =
+                                if (inGrace) {
+                                    "Network connection lost"
+                                } else {
+                                    cause?.message ?: "Session disconnected"
+                                }
+                            bridge.dispatchDisconnect(msg, reason)
                         }
                     }
                 }

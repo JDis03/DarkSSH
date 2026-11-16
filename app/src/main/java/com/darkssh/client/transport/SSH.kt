@@ -92,16 +92,20 @@ class SSH(
             var consecutiveFailures = 0
             while (keepAliveRunning && connected) {
                 try {
-                    Thread.sleep(30000)
+                    Thread.sleep(20000)
                     connection?.sendIgnorePacket()
                     consecutiveFailures = 0
                     Timber.d("$TAG: Keepalive sent")
                 } catch (e: InterruptedException) {
                     break
                 } catch (e: Exception) {
+                    if (bridge.inGracePeriodFlow.value) {
+                        Timber.d("$TAG: Keepalive skipped/failed during network grace period")
+                        continue
+                    }
                     consecutiveFailures++
                     Timber.w(e, "$TAG: Keepalive failed (attempt $consecutiveFailures)")
-                    if (consecutiveFailures >= 2) {
+                    if (consecutiveFailures >= 3) {
                         Timber.e("$TAG: Keepalive failed $consecutiveFailures times, disconnecting bridge")
                         keepAliveRunning = false
                         connected = false

@@ -6,10 +6,14 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Network
+import android.net.wifi.WifiManager
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.darkssh.client.R
 import com.darkssh.client.data.entity.Host
@@ -100,6 +104,71 @@ class TerminalService : Service(), ConnectivityMonitor.Listener {
         ConnectivityMonitor(this, this)
     }
 
+    private val lockSync = Any()
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
+
+    private fun acquireConnectionLocks() {
+        synchronized(lockSync) {
+            try {
+                if (wakeLock == null) {
+                    val pm = getSystemService(Context.POWER_SERVICE) as? PowerManager
+                    wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DarkSSH:TerminalWakeLock")?.apply {
+                        setReferenceCounted(false)
+                    }
+                }
+                if (wakeLock?.isHeld == false) {
+                    wakeLock?.acquire()
+                    Timber.d("TerminalService: Acquired PARTIAL_WAKE_LOCK")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "TerminalService: Failed to acquire WakeLock")
+            }
+
+            try {
+                if (wifiLock == null) {
+                    val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+                    @Suppress("DEPRECATION")
+                    val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                    } else {
+                        WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                    }
+                    wifiLock = wm?.createWifiLock(mode, "DarkSSH:TerminalWifiLock")?.apply {
+                        setReferenceCounted(false)
+                    }
+                }
+                if (wifiLock?.isHeld == false) {
+                    wifiLock?.acquire()
+                    Timber.d("TerminalService: Acquired WifiLock")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "TerminalService: Failed to acquire WifiLock")
+            }
+        }
+    }
+
+    private fun releaseConnectionLocks() {
+        synchronized(lockSync) {
+            try {
+                if (wakeLock?.isHeld == true) {
+                    wakeLock?.release()
+                    Timber.d("TerminalService: Released PARTIAL_WAKE_LOCK")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "TerminalService: Failed to release WakeLock")
+            }
+            try {
+                if (wifiLock?.isHeld == true) {
+                    wifiLock?.release()
+                    Timber.d("TerminalService: Released WifiLock")
+                }
+            } catch (e: Exception) {
+                Timber.w(e, "TerminalService: Failed to release WifiLock")
+            }
+        }
+    }
+
     private val binder = TerminalBinder()
 
     inner class TerminalBinder : Binder() {
@@ -165,6 +234,9 @@ class TerminalService : Service(), ConnectivityMonitor.Listener {
         // Cleanup connectivity monitor
         connectivityMonitor.cleanup()
 
+        // Ensure locks are released
+        releaseConnectionLocks()
+
         Timber.d("TerminalService destroyed")
     }
 
@@ -206,6 +278,7 @@ class TerminalService : Service(), ConnectivityMonitor.Listener {
 
         val notification = createConnectionNotification(host)
         startForeground(NOTIFICATION_ID, notification)
+        acquireConnectionLocks()
 
         Timber.d("TerminalService: Starting connection for bridge with tabId=${bridge.tabId}")
         bridge.startConnection()
@@ -242,6 +315,7 @@ class TerminalService : Service(), ConnectivityMonitor.Listener {
             }
 
             if (currentBridges.isEmpty()) {
+                releaseConnectionLocks()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             } else {

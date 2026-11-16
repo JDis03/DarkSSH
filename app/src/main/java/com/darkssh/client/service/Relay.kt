@@ -28,10 +28,15 @@ class Relay(
                     val bytesRead = transport.read(buffer, 0, buffer.size)
 
                     if (bytesRead == -1) {
-                        // EOF: remote side closed the connection normally
+                        // EOF: remote side closed the connection or interface was torn down
                         if (!bridge.isClosed) {
-                            android.util.Log.d("Relay", "🏁 EOF – remote closed connection")
-                            bridge.dispatchDisconnect("Connection closed by remote")
+                            val inGrace = bridge.inGracePeriodFlow.value
+                            Timber.w("Relay: EOF (inGracePeriod=$inGrace)")
+                            if (inGrace) {
+                                bridge.dispatchDisconnect("Network connection lost", DisconnectReason.NETWORK_LOST)
+                            } else {
+                                bridge.dispatchDisconnect("Connection closed by remote", DisconnectReason.REMOTE_EOF)
+                            }
                         }
                         break
                     }
@@ -46,8 +51,13 @@ class Relay(
                 // IOException from closed transport: only dispatch if bridge is
                 // still alive (not already being closed by the user).
                 if (!bridge.isClosed) {
-                    android.util.Log.e("Relay", "💥 Relay error: ${e.message}", e)
-                    bridge.dispatchDisconnect(e.message ?: "Connection lost")
+                    val inGrace = bridge.inGracePeriodFlow.value
+                    Timber.e(e, "Relay error (inGracePeriod=$inGrace): ${e.message}")
+                    if (inGrace) {
+                        bridge.dispatchDisconnect(e.message ?: "Network connection lost", DisconnectReason.NETWORK_LOST)
+                    } else {
+                        bridge.dispatchDisconnect(e.message ?: "Connection lost", DisconnectReason.IO_ERROR)
+                    }
                 } else {
                     android.util.Log.d("Relay", "Relay IO error ignored (bridge already closed): ${e.message}")
                 }

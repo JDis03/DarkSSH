@@ -601,6 +601,16 @@
       "dependencies": [],
       "status": "done",
       "evidence": "Resuelto deadlock en SftpClient2.deleteDirectoryRecursive moviendo semaphore.withPermit exclusivamente a las operaciones I/O hoja (client.remove y client.rmdir) en vez de retener permisos durante la recursión. Añadido fallback de detección de carpetas vía entry.longname.startsWith('d'). Activado feedback visual isLoading=true en SftpViewModel.deleteEntry con logs DebugLogger y mensajes de error descriptivos. Implementado deleteSelected() en SftpViewModel y conectado con diálogo de confirmación en SftpScreen.kt eliminando el botón muerto en el menú superior. Verificado con integración Testcontainers OpenSSH en SftpClient2DockerIntegrationTest (remoción de directorios anidados y vacíos) e ./init.sh BUILD SUCCESSFUL (158 tests unitarios)."
+    },
+    {
+      "id": "bug-024",
+      "name": "Fix Sudden Disconnections: WakeLock/WifiLock, ConnectivityMonitor Races, Grace Period UI, and SFTP Reconnect",
+      "description": "Corregir desconexiones repentinas confirmadas en logs reales: añadir PARTIAL_WAKE_LOCK y WifiLock en TerminalService durante sesiones activas; corregir race conditions y IPs vacías en ConnectivityMonitor y TerminalBridge; reportar DisconnectReason preciso en Relay/keepalive; mostrar networkStatusMessage en ConsoleScreen; y llamar tryReconnectIfNeeded() en operaciones SFTP.",
+      "dependencies": [
+        "feat-022"
+      ],
+      "status": "done",
+      "evidence": "TerminalService adquiere PARTIAL_WAKE_LOCK y WifiLock mientras hay bridges activos y los libera cuando quedan 0 o en onDestroy(). ConnectivityMonitor inicializa defaultNetwork con activeNetwork, espera IPs reales antes de disparar onConnectivityRestored y notifica cambios de red por defecto. TerminalBridge protege onNetworkRestored contra emptySet(), resuelve race onAvailable->onLost con misma IP y mapea UNKNOWN a NETWORK_LOST durante grace period. Relay reporta REMOTE_EOF/IO_ERROR/NETWORK_LOST; SSH keepalive baja a 20s tolerando 3 fallos e ignorando errores durante grace period; CbsshTerminalTransport usa keepAliveIntervalMs=20s y reporta NETWORK_LOST en grace period. ConsoleScreen muestra banner de networkStatusMessage y observa terminalService en DisposableEffect. SftpViewModel invoca tryReconnectIfNeeded() antes de mkdir/delete/rename. Verificado: ./init.sh BUILD SUCCESSFUL (163 unit tests pasando, 5 nuevos en ConnectivityMonitorTest y TerminalBridgeNetworkTest), assembleDebug (-PuseCbsshTerminal=true) instalado en Xiaomi 25069PTEBG vía adb install -r, y assembleRelease con R8 BUILD SUCCESSFUL."
     }
   ]
 }

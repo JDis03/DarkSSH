@@ -1314,12 +1314,15 @@ class SftpViewModel
         fun createDirectory(name: String) {
             val basePath = _uiState.value.currentPath.trimEnd('/')
             val path = "$basePath/$name"
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
+                tryReconnectIfNeeded()
                 val result = sftpClient?.mkdir(path)
-                if (result?.isSuccess == true) {
-                    listDirectory(_uiState.value.currentPath)
-                } else {
-                    _uiState.value = _uiState.value.copy(error = result?.exceptionOrNull()?.message)
+                withContext(Dispatchers.Main) {
+                    if (result?.isSuccess == true) {
+                        listDirectory(_uiState.value.currentPath)
+                    } else {
+                        _uiState.value = _uiState.value.copy(error = result?.exceptionOrNull()?.message ?: "Failed to create directory")
+                    }
                 }
             }
         }
@@ -1330,6 +1333,7 @@ class SftpViewModel
                     _uiState.value = _uiState.value.copy(isLoading = true, error = null)
                 }
                 DebugLogger.i("SftpViewModel", "deleteEntry: ${entry.path} (isDir=${entry.isDirectory})")
+                tryReconnectIfNeeded()
                 val client = sftpClient ?: run {
                     withContext(Dispatchers.Main) {
                         _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
@@ -1368,6 +1372,7 @@ class SftpViewModel
                     _uiState.value = _uiState.value.copy(isLoading = true, error = null)
                 }
                 DebugLogger.i("SftpViewModel", "deleteSelected: ${entriesToDelete.size} entries")
+                tryReconnectIfNeeded()
                 val client = sftpClient ?: run {
                     withContext(Dispatchers.Main) {
                         _uiState.value = _uiState.value.copy(isLoading = false, error = "SFTP not connected")
@@ -1426,6 +1431,7 @@ class SftpViewModel
             val newPath = "$basePath/$newName"
 
             viewModelScope.launch(Dispatchers.IO) {
+                tryReconnectIfNeeded()
                 val targetExists = sftpClient?.exists(newPath) ?: false
 
                 if (targetExists) {
